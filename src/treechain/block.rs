@@ -8,15 +8,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PQPEntry {
     pub queue_index: u32,
-    pub block_hash: String,
-    pub parent_hash: String,
     pub miner_address: String,
     pub signature: String,
+    pub prev_pqp_commitment: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Block {
     pub hash: String,
+    pub pqp_commitment: String,
     pub level: u32,
     pub position: String,
     pub version: u32,
@@ -28,7 +28,6 @@ pub struct Block {
     pub align: u8,
 
     pub pqp_entry: PQPEntry,
-    pub pqp_commitment: String,
 
     pub nTx: u32,
     pub tx: Vec<String>,
@@ -37,6 +36,7 @@ pub struct Block {
 impl Block {
     pub fn new(
         hash: String,
+        pqp_commitment: String,
         level: u32,
         position: String,
         version: u32,
@@ -47,12 +47,12 @@ impl Block {
         nonce: u32,
         align: u8,
         pqp_entry: PQPEntry,
-        pqp_commitment: String,
         nTx: u32,
         tx: Vec<String>,
     ) -> Self {
         Self {
             hash,
+            pqp_commitment,
             level,
             position,
             version,
@@ -63,7 +63,6 @@ impl Block {
             nonce,
             align,
             pqp_entry,
-            pqp_commitment,
             nTx,
             tx,
         }
@@ -71,9 +70,10 @@ impl Block {
 
     pub fn genesis() -> Block {
         Block::new(
-            "c0e423b2e59bd86bb3404075436032eab0df865eb1ed6c168ab97336e2f0d4a5".to_string(),
+            "022c8507555c43ce9f4829631618e4beb13e94ae8254bc8ba6bb9feb938128f5".to_string(),
+            "c72b1565891e4143ff7ff2f6572f4f268d54ded2738ae1d2e5a3dc079565f8a4".to_string(),
             0,
-            "a".to_string(),
+            "0".to_string(),
             1,
             "00".repeat(32),
             "00".repeat(32),
@@ -83,18 +83,17 @@ impl Block {
             0,
             PQPEntry {
                 queue_index: 0,
-                block_hash: "00".repeat(32),
-                parent_hash: "00".repeat(32),
                 miner_address: "GENISIS_LEADER_HEX".to_string(),
                 signature: "".repeat(64),
+                prev_pqp_commitment: "00".repeat(32),
             },
-            "00".repeat(32),
             0,
             vec![],
         )
     }
 
-    pub fn block_hash(block: &mut Block) {
+    pub fn calculate_hash_and_pqp_commitment(block: &mut Block) {
+        // --- Step 1: Calculate Block Hash ---
         let mut hasher = Sha256::new();
         hasher.update(block.level.to_le_bytes());
         hasher.update(block.position.as_bytes());
@@ -107,17 +106,25 @@ impl Block {
         hasher.update(&[block.align]);
 
         hasher.update(block.pqp_entry.queue_index.to_le_bytes());
-        hasher.update(hex::decode(&block.pqp_entry.block_hash).unwrap_or_default());
-        hasher.update(hex::decode(&block.pqp_entry.parent_hash).unwrap_or_default());
         hasher.update(block.pqp_entry.miner_address.as_bytes());
         hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
-        hasher.update(hex::decode(&block.pqp_commitment).unwrap_or_default());
+        hasher.update(hex::decode(&block.pqp_entry.prev_pqp_commitment).unwrap_or_default());
         hasher.update(block.nTx.to_le_bytes());
         for tx in &block.tx {
             hasher.update(tx.as_bytes());
         }
 
         block.hash = hex::encode(hasher.finalize());
+        // --- Step 2: Calculate PQP Commitment ---
+        let mut pqp_hasher = Sha256::new();
+        pqp_hasher.update(block.pqp_entry.queue_index.to_le_bytes());
+        pqp_hasher.update(hex::decode(&block.hash).unwrap_or_default());
+        pqp_hasher.update(hex::decode(&block.parent_hash).unwrap_or_default());
+        pqp_hasher.update(block.pqp_entry.miner_address.as_bytes());
+        pqp_hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
+        pqp_hasher.update(hex::decode(&block.pqp_entry.prev_pqp_commitment).unwrap_or_default());
+
+        block.pqp_commitment = hex::encode(pqp_hasher.finalize());
     }
 
     //next  mine_block_example( parentblock , align ,bits , pqp_entry , tx ) , merkle_root(tx) , calculate_target(bits),
@@ -131,6 +138,7 @@ impl Block {
         let markle_root = Block::merkle_root(tx.clone());
         let mut new_block = Block::new(
             "".to_string(),
+            "00".repeat(32),
             parent_block.level + 1,
             format!("{}.{}", parent_block.position, align),
             1,
@@ -144,7 +152,6 @@ impl Block {
             0,
             align,
             pqp_entry,
-            "00".repeat(32),
             tx.len() as u32,
             tx,
         );
@@ -155,7 +162,7 @@ impl Block {
         loop {
             new_block.nonce = nonce;
             let mut candidate = new_block.clone();
-            Block::block_hash(&mut candidate);
+            Block::calculate_hash_and_pqp_commitment(&mut candidate);
 
             if let Ok(bytes) = hex::decode(&candidate.hash) {
                 let mut val = BigUint::from_bytes_le(&bytes);
@@ -173,7 +180,7 @@ impl Block {
 
     pub fn merkle_root(tx: Vec<String>) -> String {
         if tx.is_empty() {
-            return "00".repeat(64);
+            return "0".repeat(64);
         }
         let mut hashes = tx;
         while hashes.len() > 1 {
