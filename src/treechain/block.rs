@@ -1,3 +1,4 @@
+use crate::treechain::treechain::{PQP, ParentQueueEntry};
 use core::hash;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
@@ -9,8 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct PQPEntry {
     pub queue_index: u32,
     pub miner_address: String,
-    pub signature: String,
     pub prev_pqp_commitment: String,
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -70,8 +71,8 @@ impl Block {
 
     pub fn genesis() -> Block {
         Block::new(
-            "022c8507555c43ce9f4829631618e4beb13e94ae8254bc8ba6bb9feb938128f5".to_string(),
-            "c72b1565891e4143ff7ff2f6572f4f268d54ded2738ae1d2e5a3dc079565f8a4".to_string(),
+            "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b".to_string(),
+            "c5a3eaba46eaad14671403501bdc7721c93c6d7b452deb0f6a9381395d893233".to_string(),
             0,
             "0".to_string(),
             1,
@@ -84,8 +85,8 @@ impl Block {
             PQPEntry {
                 queue_index: 0,
                 miner_address: "GENISIS_LEADER_HEX".to_string(),
-                signature: "".repeat(64),
                 prev_pqp_commitment: "00".repeat(32),
+                signature: "".repeat(64),
             },
             0,
             vec![],
@@ -107,8 +108,8 @@ impl Block {
 
         hasher.update(block.pqp_entry.queue_index.to_le_bytes());
         hasher.update(block.pqp_entry.miner_address.as_bytes());
-        hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
         hasher.update(hex::decode(&block.pqp_entry.prev_pqp_commitment).unwrap_or_default());
+        hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
         hasher.update(block.nTx.to_le_bytes());
         for tx in &block.tx {
             hasher.update(tx.as_bytes());
@@ -121,8 +122,8 @@ impl Block {
         pqp_hasher.update(hex::decode(&block.hash).unwrap_or_default());
         pqp_hasher.update(hex::decode(&block.parent_hash).unwrap_or_default());
         pqp_hasher.update(block.pqp_entry.miner_address.as_bytes());
-        pqp_hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
         pqp_hasher.update(hex::decode(&block.pqp_entry.prev_pqp_commitment).unwrap_or_default());
+        pqp_hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
 
         block.pqp_commitment = hex::encode(pqp_hasher.finalize());
     }

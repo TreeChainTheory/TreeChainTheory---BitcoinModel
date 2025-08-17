@@ -40,8 +40,8 @@ fn test_mining_block() {
     let pqp = PQPEntry {
         queue_index: 1,
         miner_address: "Miner1".to_string(),
-        signature: "11".repeat(32),
         prev_pqp_commitment: parent.pqp_commitment.clone(),
+        signature: "11".repeat(32),
     };
 
     let txs = vec!["txn_assbabc".repeat(8)];
@@ -58,8 +58,8 @@ fn test_calculate_hash_and_pqp_commitment() {
     let pqp_entry = PQPEntry {
         queue_index: 42,
         miner_address: "MinerX".to_string(),
-        signature: "22".repeat(32),
         prev_pqp_commitment: parent.pqp_commitment.clone(),
+        signature: "22".repeat(32),
     };
 
     let mut block = Block::new(
