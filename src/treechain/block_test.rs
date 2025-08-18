@@ -36,32 +36,32 @@ fn test_target_calculation() {
     assert!(t > BigUint::from(0u32));
 }
 
-#[test]
-fn test_mining_block_example() {
-    let mut pqp = PQP::new();
-    let mut treechain = TreeChain::new();
-    let parent = Block::genesis();
-    let pqp_entry = PQPEntry {
-        queue_index: 0,
-        miner_address: "Miner1".to_string(),
-        prev_pqp_commitment: parent.pqp_commitment.clone(),
-        signature: "11".repeat(32),
-    };
+// #[test]
+// fn test_mining_block_example() {
+//     let mut pqp = PQP::new();
+//     let mut treechain = TreeChain::new();
+//     let parent = Block::genesis();
+//     let pqp_entry = PQPEntry {
+//         queue_index: 0,
+//         miner_address: "Miner1".to_string(),
+//         prev_pqp_commitment: parent.pqp_commitment.clone(),
+//         signature: "11".repeat(32),
+//     };
 
-    let txs = vec!["txn_assbabc".repeat(8)];
-    let mined = Block::mine_block_example(
-        &mut pqp,
-        &mut treechain,
-        0,
-        "207fffff".to_string(),
-        pqp_entry,
-        txs,
-    );
-    assert_eq!(mined.level, parent.level + 1);
-    assert_eq!(mined.parent_hash, parent.hash);
-    assert!(!mined.hash.is_empty());
-    assert!(!mined.pqp_commitment.is_empty());
-}
+//     let txs = vec!["txn_assbabc".repeat(8)];
+//     let mined = Block::mine_block_example(
+//         &mut pqp,
+//         &mut treechain,
+//         0,
+//         "207fffff".to_string(),
+//         pqp_entry,
+//         txs,
+//     );
+//     assert_eq!(mined.level, parent.level + 1);
+//     assert_eq!(mined.parent_hash, parent.hash);
+//     assert!(!mined.hash.is_empty());
+//     assert!(!mined.pqp_commitment.is_empty());
+// }
 
 #[test]
 fn test_calculate_hash_and_pqp_commitment() {

@@ -302,3 +302,62 @@ fn test_out_of_order_child_rejected_and_next_parent_behavior() {
             .any(|e| e.block_hash == child_for_next_parent.block_hash)
     );
 }
+
+#[test]
+fn test_mine_block_demo() {
+    // Setup: create new treechain and pqp
+    let mut treechain = TreeChain::new();
+    let mut pqp = PQP::new();
+
+    // Prepare parameters
+    let align = 1;
+    let txs = vec!["deadbeef".repeat(8)];
+    let miner_address = "MinerXYZ".to_string();
+    let signature = "abc123sig".repeat(8);
+
+    // Call mine_block_demo
+    let mined_block = treechain.mine_block_demo(
+        &mut pqp,
+        align,
+        txs.clone(),
+        miner_address.clone(),
+        signature.clone(),
+    );
+
+    // Ensure output is present
+    assert!(mined_block.is_some());
+    let mined_block = mined_block.unwrap();
+
+    // The block should be in the chain
+    let block_in_chain = treechain.get_block(&mined_block.hash);
+    assert!(block_in_chain.is_some());
+
+    // The block's miner address and signature should match what was provided
+    assert_eq!(mined_block.pqp_entry.miner_address, miner_address);
+    assert_eq!(mined_block.pqp_entry.signature, signature);
+
+    // The block should be at the right level and have correct parent hash
+    let parent = Block::genesis();
+    assert_eq!(mined_block.level, parent.level + 1);
+    assert_eq!(mined_block.parent_hash, parent.hash);
+
+    // Check that the PQP was updated: new PQP entry present in pool, and parent block potentially removed
+    let contains_mined_pqp = pqp.pool.iter().any(|e| e.block_hash == mined_block.hash);
+    assert!(
+        contains_mined_pqp,
+        "PQP should contain new entry corresponding to mined block"
+    );
+
+    // The PQP commitments chain must be valid (prev_pqp_commitment matches previous entry's pqp_commitment for new block)
+    if let Some(prev_entry) = pqp
+        .pool
+        .iter()
+        .rev()
+        .find(|e| e.block_hash == mined_block.parent_hash)
+    {
+        assert_eq!(
+            mined_block.pqp_entry.prev_pqp_commitment,
+            prev_entry.pqp_commitment
+        );
+    }
+}

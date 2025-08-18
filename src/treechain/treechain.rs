@@ -1,7 +1,11 @@
-use crate::config::CHILDREN;
-use crate::treechain::block::Block;
+use std::fmt::format;
+
+use crate::config::{BITS, CHILDREN};
+use crate::treechain::block::{Block, PQPEntry};
 use indexmap::IndexMap;
+use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 /// Represents an entry in the global PQP (Pending Queue of Parents)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParentQueueEntry {
@@ -206,5 +210,78 @@ impl TreeChain {
             }
         }
         result
+    }
+
+    pub fn mine_block_demo(
+        &mut self,
+        pqp: &mut PQP,
+        align: u8,
+        tx: Vec<String>,
+        miner_address: String,
+        signature: String,
+    ) -> Option<Block> {
+        let latest_pqp = pqp.latest()?;
+        let queue_index = latest_pqp.queue_index + align as u32;
+        let pqp_entry = PQPEntry {
+            queue_index,
+            miner_address: miner_address.clone(),
+            prev_pqp_commitment: latest_pqp.pqp_commitment.clone(),
+            signature: signature.clone(),
+        };
+
+        let current_parent = pqp.current_parent()?;
+        let parent_block_hash = &current_parent.block_hash.clone();
+        let parent_block = self.get_block(parent_block_hash)?;
+
+        let merkle_root = Block::merkle_root(tx.clone());
+
+        let target = Block::calculate_target(BITS.to_string()).expect("Invalid bits");
+
+        let mut new_block = Block::new(
+            "".to_string(),
+            "".to_string(),
+            parent_block.level + 1,
+            format!("{}.{}", parent_block.position, align),
+            1,
+            parent_block_hash.clone(),
+            merkle_root,
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as u128,
+            BITS.to_string(),
+            0,
+            align,
+            pqp_entry,
+            tx.len() as u32,
+            tx.clone(),
+        );
+        let mut nonce = 0;
+
+        loop {
+            new_block.nonce = nonce;
+            let mut candidate = new_block.clone();
+            Block::calculate_hash_and_pqp_commitment(&mut candidate);
+            if let Ok(bytes) = hex::decode(&candidate.hash) {
+                let val = BigUint::from_bytes_le(&bytes);
+                if val < target {
+                    let new_pqp_entry = ParentQueueEntry::new(
+                        candidate.pqp_entry.queue_index,
+                        candidate.hash.clone(),
+                        candidate.parent_hash.clone(),
+                        candidate.pqp_entry.prev_pqp_commitment.clone(),
+                        candidate.pqp_commitment.clone(),
+                    );
+                    pqp.add_entry(new_pqp_entry);
+                    self.add_block(candidate.clone());
+                    return Some(candidate);
+                }
+            }
+
+            nonce = nonce.wrapping_add(1);
+            if nonce == u32::MAX {
+                return None;
+            }
+        }
     }
 }
