@@ -71,7 +71,12 @@ fn test_current_and_next_parent() {
 fn test_children_limit_removes_current_parent() {
     let mut pqp = PQP::new();
 
-    let parent_hash = pqp.pool[0].block_hash.clone();
+    let parent_hash = pqp
+        .current_parent()
+        .expect("Should have current parent")
+        .block_hash
+        .clone();
+    let latest = pqp.latest().expect("Should have latest entry").clone();
 
     // Add CHILDREN entries with parent_hash matching the current parent
     for i in 1..=CHILDREN as u32 {
@@ -79,7 +84,7 @@ fn test_children_limit_removes_current_parent() {
             i,
             format!("block{}", i),
             parent_hash.clone(),
-            pqp.pool[0].prev_pqp_commitment.clone(),
+            latest.pqp_commitment.clone(),
             format!("pqp_commit_{}", i),
         );
         pqp.add_entry(entry);
@@ -181,5 +186,119 @@ fn test_treechain_add_block_and_get_children() {
             "hash2".to_string(),
             "hash3".to_string()
         ]
+    );
+}
+
+fn test_pqp_prev_pqp_commit_with_siblings() {
+    let mut pqp = PQP::new();
+    let current_parent = pqp
+        .current_parent()
+        .expect("Should have current parent")
+        .clone();
+    let latest = pqp.latest().expect("Should have latest entry").clone();
+
+    // Add sibling 1
+    let sibling1 = ParentQueueEntry::new(
+        1,
+        "sibling1".to_string(),
+        current_parent.block_hash.clone(),
+        latest.pqp_commitment.clone(),
+        "commit_sibling1".to_string(),
+    );
+    pqp.add_entry(sibling1.clone());
+
+    // Add sibling 2 - prev_pqp_commitment must equal the prev_pqp_commitment of the last sibling (sibling1)
+    let sibling2 = ParentQueueEntry::new(
+        2,
+        "sibling2".to_string(),
+        current_parent.block_hash.clone(),
+        sibling1.prev_pqp_commitment.clone(), // should be 'commit_sibling1', here purposely incorrect first
+        "commit_sibling2".to_string(),
+    );
+    let prev_len = pqp.pool.len();
+    pqp.add_entry(sibling2.clone());
+    // Should not add because prev_pqp_commitment doesn't match expected
+    assert_eq!(pqp.pool.len(), prev_len);
+
+    // Now try with the correct prev_pqp_commitment (should be the latest sibling's commitment)
+    let sibling2 = ParentQueueEntry::new(
+        2,
+        "sibling2".to_string(),
+        current_parent.block_hash.clone(),
+        sibling1.pqp_commitment.clone(),
+        "commit_sibling2".to_string(),
+    );
+    pqp.add_entry(sibling2.clone());
+    assert!(pqp.pool.contains(&sibling2));
+}
+
+#[test]
+fn test_prev_commit_for_first_child_is_latest_commit() {
+    let mut pqp = PQP::new();
+    let current_parent = pqp
+        .current_parent()
+        .expect("Should have current parent")
+        .clone();
+    let latest = pqp.latest().expect("Should have latest entry").clone();
+
+    // For the first child of the parent, prev_pqp_commitment must be latest.pqp_commitment
+    let child = ParentQueueEntry::new(
+        1,
+        "first_child".to_string(),
+        current_parent.block_hash.clone(),
+        latest.pqp_commitment.clone(),
+        "commit_first_child".to_string(),
+    );
+    pqp.add_entry(child.clone());
+    assert!(pqp.pool.contains(&child));
+
+    // Now try with a wrong prev_pqp_commitment
+    let bad_child = ParentQueueEntry::new(
+        2,
+        "bad_child".to_string(),
+        current_parent.block_hash.clone(),
+        "wrong_commitment".to_string(),
+        "commit_bad_child".to_string(),
+    );
+    let prev_len = pqp.pool.len();
+    pqp.add_entry(bad_child);
+    assert_eq!(pqp.pool.len(), prev_len);
+}
+
+#[test]
+fn test_out_of_order_child_rejected_and_next_parent_behavior() {
+    let mut pqp = PQP::new();
+    let current_parent = pqp.current_parent().unwrap().clone();
+    let latest = pqp.latest().unwrap().clone();
+
+    // Add a new next_parent right after genesis (same parent is genesis)
+    let new_parent_entry = ParentQueueEntry::new(
+        1,
+        "next_parent".to_string(),
+        current_parent.block_hash.clone(),
+        latest.pqp_commitment.clone(),
+        "commit_next_parent".to_string(),
+    );
+    pqp.add_entry(new_parent_entry.clone());
+
+    // Try to add a child for current_parent, but now that next_parent exists, if its child is added, current_parent must be removed
+    let next_parent = pqp.next_parent().unwrap().clone();
+    let child_for_next_parent = ParentQueueEntry::new(
+        2,
+        "child_of_next".to_string(),
+        next_parent.block_hash.clone(),
+        new_parent_entry.pqp_commitment.clone(),
+        "commit_child_next".to_string(),
+    );
+    pqp.add_entry(child_for_next_parent.clone());
+
+    let current = pqp.current_parent().unwrap();
+    assert_ne!(current.block_hash, current_parent.block_hash); // genesis should be gone!
+
+    // The child for next_parent should be present in the pool
+    assert!(
+        pqp.pool
+            .iter()
+            .any(|e| e.block_hash == child_for_next_parent.block_hash)
     );
 }

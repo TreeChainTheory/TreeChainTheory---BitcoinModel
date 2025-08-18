@@ -57,17 +57,46 @@ impl PQP {
         print!("\n current_parent: {:?}", current_parent);
         let next_parent = self.next_parent().cloned();
         print!("\n next_parent: {:?}", next_parent);
+        let latest = self.latest().cloned();
 
         if let Some(current) = current_parent {
             if entry.parent_hash == current.block_hash {
+                let latest_sibling = self
+                    .pool
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .find(|e| e.parent_hash == current.block_hash);
+
+                let expected_prev_commit = if let Some(sibling) = latest_sibling {
+                    // If siblings exist → use last sibling's prev_pqp_commitment
+                    sibling.prev_pqp_commitment.clone()
+                } else {
+                    // If no siblings → use latest entry's pqp_commitment
+                    let Some(latest) = latest else {
+                        panic!("Latest entry should exist");
+                    };
+                    latest.pqp_commitment.clone()
+                };
+
+                if entry.prev_pqp_commitment != expected_prev_commit {
+                    // Invalid commit → reject early
+                    return;
+                }
                 let children_count_current = self
                     .pool
                     .iter()
+                    .rev()
+                    .take(10)
                     .filter(|e| e.parent_hash == current.block_hash)
                     .count();
 
                 let next_parent_has_children = if let Some(next) = next_parent {
-                    self.pool.iter().any(|e| e.parent_hash == next.block_hash)
+                    self.pool
+                        .iter()
+                        .rev()
+                        .take(10)
+                        .any(|e| e.parent_hash == next.block_hash)
                 } else {
                     false
                 };
@@ -78,6 +107,8 @@ impl PQP {
                     let updated_children_count = self
                         .pool
                         .iter()
+                        .rev()
+                        .take(10)
                         .filter(|e| e.parent_hash == current.block_hash)
                         .count();
 
@@ -89,6 +120,14 @@ impl PQP {
                 }
             } else if let Some(next) = next_parent {
                 if entry.parent_hash == next.block_hash {
+                    let Some(latest) = latest else {
+                        panic!("Latest entry should exist");
+                    };
+                    let expected_prev_commit = latest.pqp_commitment.clone();
+
+                    if entry.prev_pqp_commitment != expected_prev_commit {
+                        return; // invalid → reject
+                    }
                     self.pool.push(entry);
                     self.pool.retain(|e| e.block_hash != current.block_hash);
                 }
