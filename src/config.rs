@@ -1,1 +1,1 @@
-pub const children: u8 = 2;
+pub const CHILDREN: u8 = 2;

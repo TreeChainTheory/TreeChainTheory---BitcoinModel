@@ -1,4 +1,6 @@
+use crate::treechain;
 use crate::treechain::block::{Block, PQPEntry};
+use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
 use num_bigint::BigUint;
 
 #[test]
@@ -35,17 +37,26 @@ fn test_target_calculation() {
 }
 
 #[test]
-fn test_mining_block() {
+fn test_mining_block_example() {
+    let mut pqp = PQP::new();
+    let mut treechain = TreeChain::new();
     let parent = Block::genesis();
-    let pqp = PQPEntry {
-        queue_index: 1,
+    let pqp_entry = PQPEntry {
+        queue_index: 0,
         miner_address: "Miner1".to_string(),
         prev_pqp_commitment: parent.pqp_commitment.clone(),
         signature: "11".repeat(32),
     };
 
     let txs = vec!["txn_assbabc".repeat(8)];
-    let mined = Block::mine_block_example(&parent, 0, "207fffff".to_string(), pqp, txs);
+    let mined = Block::mine_block_example(
+        &mut pqp,
+        &mut treechain,
+        0,
+        "207fffff".to_string(),
+        pqp_entry,
+        txs,
+    );
     assert_eq!(mined.level, parent.level + 1);
     assert_eq!(mined.parent_hash, parent.hash);
     assert!(!mined.hash.is_empty());

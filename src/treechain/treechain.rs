@@ -1,8 +1,7 @@
+use crate::config::CHILDREN;
 use crate::treechain::block::Block;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
 /// Represents an entry in the global PQP (Pending Queue of Parents)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParentQueueEntry {
@@ -35,16 +34,68 @@ impl PQP {
         }
     }
 
-    pub fn add_entry(&mut self, entry: ParentQueueEntry) {
-        self.pool.push(entry);
-    }
-
     pub fn latest(&self) -> Option<&ParentQueueEntry> {
         self.pool.last()
     }
 
-    pub fn next_parent(&self) -> Option<&ParentQueueEntry> {
+    pub fn current_parent(&self) -> Option<&ParentQueueEntry> {
         self.pool.iter().take(10).min_by_key(|e| e.queue_index)
+    }
+
+    pub fn next_parent(&self) -> Option<&ParentQueueEntry> {
+        let mut candidates: Vec<&ParentQueueEntry> = self.pool.iter().take(10).collect();
+        candidates.sort_by_key(|e| e.queue_index);
+        if candidates.len() >= 2 {
+            Some(candidates[1])
+        } else {
+            None
+        }
+    }
+
+    pub fn add_entry(&mut self, entry: ParentQueueEntry) {
+        let current_parent = self.current_parent().cloned();
+        print!("\n current_parent: {:?}", current_parent);
+        let next_parent = self.next_parent().cloned();
+        print!("\n next_parent: {:?}", next_parent);
+
+        if let Some(current) = current_parent {
+            if entry.parent_hash == current.block_hash {
+                let children_count_current = self
+                    .pool
+                    .iter()
+                    .filter(|e| e.parent_hash == current.block_hash)
+                    .count();
+
+                let next_parent_has_children = if let Some(next) = next_parent {
+                    self.pool.iter().any(|e| e.parent_hash == next.block_hash)
+                } else {
+                    false
+                };
+
+                if !next_parent_has_children && children_count_current < CHILDREN as usize {
+                    self.pool.push(entry);
+
+                    let updated_children_count = self
+                        .pool
+                        .iter()
+                        .filter(|e| e.parent_hash == current.block_hash)
+                        .count();
+
+                    if updated_children_count >= CHILDREN as usize {
+                        self.pool.retain(|e| e.block_hash != current.block_hash);
+                    }
+                } else {
+                    self.pool.retain(|e| e.block_hash != current.block_hash);
+                }
+            } else if let Some(next) = next_parent {
+                if entry.parent_hash == next.block_hash {
+                    self.pool.push(entry);
+                    self.pool.retain(|e| e.block_hash != current.block_hash);
+                }
+            }
+        } else {
+            self.pool.push(entry);
+        }
     }
 }
 

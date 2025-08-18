@@ -1,4 +1,4 @@
-use crate::treechain::treechain::{PQP, ParentQueueEntry};
+use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
 use core::hash;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
@@ -130,12 +130,19 @@ impl Block {
 
     //next  mine_block_example( parentblock , align ,bits , pqp_entry , tx ) , merkle_root(tx) , calculate_target(bits),
     pub fn mine_block_example(
-        parent_block: &Block,
+        pqp: &mut PQP,
+        treechain: &mut TreeChain,
         align: u8,
         bits: String,
         pqp_entry: PQPEntry,
         tx: Vec<String>,
     ) -> Block {
+        let parent_pqp_entry = pqp.current_parent().expect("No parent PQP entry found");
+
+        let parent_block = treechain
+            .get_block(&parent_pqp_entry.block_hash)
+            .expect("Parent block not found");
+
         let markle_root = Block::merkle_root(tx.clone());
         let mut new_block = Block::new(
             "".to_string(),
@@ -168,6 +175,15 @@ impl Block {
             if let Ok(bytes) = hex::decode(&candidate.hash) {
                 let mut val = BigUint::from_bytes_le(&bytes);
                 if val < target {
+                    let new_pqp_entry = ParentQueueEntry::new(
+                        candidate.pqp_entry.queue_index,
+                        candidate.hash.clone(),
+                        candidate.parent_hash.clone(),
+                        candidate.pqp_entry.prev_pqp_commitment.clone(),
+                        candidate.pqp_commitment.clone(),
+                    );
+                    pqp.add_entry(new_pqp_entry);
+                    treechain.add_block(candidate.clone());
                     return candidate;
                 }
             }
