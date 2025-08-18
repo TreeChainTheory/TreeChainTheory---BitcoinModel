@@ -1,10 +1,10 @@
-use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
-use core::hash;
+// use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
+// use core::hash;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
+// use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PQPEntry {
@@ -129,71 +129,6 @@ impl Block {
     }
 
     //next  mine_block_example( parentblock , align ,bits , pqp_entry , tx ) , merkle_root(tx) , calculate_target(bits),
-    pub fn mine_block_example(
-        pqp: &mut PQP,
-        treechain: &mut TreeChain,
-        align: u8,
-        bits: String,
-        pqp_entry: PQPEntry,
-        tx: Vec<String>,
-    ) -> Block {
-        let parent_pqp_entry = pqp.current_parent().expect("No parent PQP entry found");
-
-        let parent_block = treechain
-            .get_block(&parent_pqp_entry.block_hash)
-            .expect("Parent block not found");
-
-        let markle_root = Block::merkle_root(tx.clone());
-        let mut new_block = Block::new(
-            "".to_string(),
-            "00".repeat(32),
-            parent_block.level + 1,
-            format!("{}.{}", parent_block.position, align),
-            1,
-            parent_block.hash.clone(),
-            markle_root,
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as u128,
-            bits.clone(),
-            0,
-            align,
-            pqp_entry,
-            tx.len() as u32,
-            tx,
-        );
-
-        let target = Block::calculate_target(bits).expect("Invalid bits");
-
-        let mut nonce = 0;
-        loop {
-            new_block.nonce = nonce;
-            let mut candidate = new_block.clone();
-            Block::calculate_hash_and_pqp_commitment(&mut candidate);
-
-            if let Ok(bytes) = hex::decode(&candidate.hash) {
-                let mut val = BigUint::from_bytes_le(&bytes);
-                if val < target {
-                    let new_pqp_entry = ParentQueueEntry::new(
-                        candidate.pqp_entry.queue_index,
-                        candidate.hash.clone(),
-                        candidate.parent_hash.clone(),
-                        candidate.pqp_entry.prev_pqp_commitment.clone(),
-                        candidate.pqp_commitment.clone(),
-                    );
-                    pqp.add_entry(new_pqp_entry);
-                    treechain.add_block(candidate.clone());
-                    return candidate;
-                }
-            }
-
-            nonce = nonce.wrapping_add(1);
-            if nonce == u32::MAX {
-                panic!("Nonce overflow, unable to find a valid block hash");
-            }
-        }
-    }
 
     pub fn merkle_root(tx: Vec<String>) -> String {
         if tx.is_empty() {

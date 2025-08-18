@@ -360,4 +360,50 @@ impl TreeChain {
             }
         }
     }
+
+    pub fn is_valid_tree(&self, pqp: &PQP) -> bool {
+        for entry in &pqp.pool {
+            let mut current_hash = entry.block_hash.clone();
+
+            loop {
+                let block_opt = self.get_block(&current_hash);
+                let block = match block_opt {
+                    Some(b) => b.clone(),
+                    None => {
+                        println!("❌ Block not found for hash: {}", current_hash);
+                        return false;
+                    }
+                };
+
+                let mut candidate = block.clone();
+                Block::calculate_hash_and_pqp_commitment(&mut candidate);
+
+                if candidate.hash != block.hash {
+                    println!(
+                        "❌ Hash mismatch for block {} \nExpected: {} \nFound:    {}",
+                        current_hash, block.hash, candidate.hash
+                    );
+                    return false;
+                }
+
+                if candidate.pqp_commitment != block.pqp_commitment {
+                    println!(
+                        "❌ PQP commitment mismatch for block {} \nExpected: {} \nFound:    {}",
+                        current_hash, block.pqp_commitment, candidate.pqp_commitment
+                    );
+                    return false;
+                }
+
+                let genesis = Block::genesis();
+                if block.hash == genesis.hash {
+                    break;
+                }
+
+                // Move one step up
+                current_hash = block.parent_hash.clone();
+            }
+        }
+        println!("✅ Tree and PQP validated successfully");
+        true
+    }
 }
