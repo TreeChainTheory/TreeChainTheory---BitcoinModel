@@ -406,7 +406,19 @@ fn test_mine_blocks_with_multiple_aligns() {
         let blocks_at_level = treechain.blocks_at_level(level);
         println!("Level {}: count {}", level, blocks_at_level.len());
         for hash in blocks_at_level {
-            println!("  {}", hash);
+            println!(
+                "  {}  {}  {}",
+                hash,
+                treechain
+                    .get_block(&hash)
+                    .unwrap()
+                    .pqp_entry
+                    .queue_index
+                    .clone(),
+                treechain.get_block(&hash).unwrap().align
+            );
         }
     }
+
+    println!("pqp: {:?}", pqp.pool);
 }

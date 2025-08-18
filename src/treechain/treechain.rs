@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::config::{BITS, CHILDREN};
 use crate::treechain::block::{Block, PQPEntry};
 use indexmap::IndexMap;
@@ -39,6 +37,11 @@ impl PQP {
     }
 
     pub fn latest(&self) -> Option<&ParentQueueEntry> {
+        // self.pool
+        //     .iter()
+        //     .rev()
+        //     .take(CHILDREN as usize)
+        //     .max_by_key(|e| e.queue_index)
         self.pool.last()
     }
 
@@ -227,12 +230,12 @@ impl TreeChain {
     pub fn mine_block_demo(
         &mut self,
         pqp: &mut PQP,
-        align: u8,
+        mut align: u8,
         tx: Vec<String>,
         miner_address: String,
         signature: String,
     ) -> Option<Block> {
-        if align > CHILDREN {
+        if align == 0 || align > CHILDREN {
             return None; // Invalid alignment
         }
         let current_parent = pqp
@@ -240,12 +243,56 @@ impl TreeChain {
             .expect("No current parent PQP entry found");
         let latest_pqp = pqp.latest()?;
 
+        let sibling_aligns: Vec<u8> = pqp
+            .pool
+            .iter()
+            .rev()
+            .take(CHILDREN as usize)
+            .filter(|e| e.parent_hash == current_parent.block_hash)
+            .filter_map(|e| self.get_block(&e.block_hash))
+            .map(|block| block.align)
+            .collect();
+        if sibling_aligns.contains(&align) {
+            let mut chosen_align = None;
+            for candidate in 1..CHILDREN + 1 {
+                if !sibling_aligns.contains(&candidate) {
+                    chosen_align = Some(candidate);
+                    break;
+                }
+            }
+
+            if let Some(new_align) = chosen_align {
+                align = new_align;
+            } else {
+                // No available align; cannot mine new sibling block
+                return None;
+            }
+        }
         let prev_pqp = if latest_pqp.parent_hash == current_parent.block_hash {
             latest_pqp.prev_pqp_commitment.clone()
         } else {
             latest_pqp.pqp_commitment.clone()
         };
-        let queue_index = latest_pqp.queue_index + align as u32;
+
+        let max_queue_index = pqp.latest()?.queue_index;
+
+        let base_index = if latest_pqp.parent_hash == current_parent.block_hash {
+            pqp.pool
+                .iter()
+                .rev()
+                .find(|entry| entry.pqp_commitment == latest_pqp.prev_pqp_commitment)
+                .map(|entry| entry.queue_index)
+                .unwrap_or(max_queue_index)
+        } else {
+            max_queue_index
+        };
+
+        println!(
+            "\n base_index: {},max_queue_index: {}, align: {}, latest_pqp.queue_index: {}",
+            base_index, max_queue_index, align, latest_pqp.queue_index
+        );
+        let queue_index = base_index + align as u32;
+        // let queue_index = latest_pqp.queue_index + align as u32;
         let pqp_entry = PQPEntry {
             queue_index,
             miner_address: miner_address.clone(),
