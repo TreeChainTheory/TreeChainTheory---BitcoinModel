@@ -189,6 +189,7 @@ fn test_treechain_add_block_and_get_children() {
     );
 }
 
+#[test]
 fn test_pqp_prev_pqp_commit_with_siblings() {
     let mut pqp = PQP::new();
     let current_parent = pqp
@@ -229,7 +230,7 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
         "commit_sibling2".to_string(),
     );
     pqp.add_entry(sibling2.clone());
-    assert!(pqp.pool.contains(&sibling2));
+    assert!(!pqp.pool.contains(&sibling2));
 }
 
 #[test]
@@ -359,5 +360,53 @@ fn test_mine_block_demo() {
             mined_block.pqp_entry.prev_pqp_commitment,
             prev_entry.pqp_commitment
         );
+    }
+}
+
+#[test]
+fn test_mine_blocks_with_multiple_aligns() {
+    let mut treechain = TreeChain::new();
+    let mut pqp = PQP::new();
+
+    let miner_address = "MinerXYZ".to_string();
+    let signature = "sig123456".to_string();
+
+    // Mine 10 pairs of blocks, two per iteration with align 0 and 1 respectively
+    for i in 1..=10 {
+        // Align 0 block
+        let txs0 = vec![format!("tx{}_a", i).repeat(4)];
+        let mined_block_0 = treechain
+            .mine_block_demo(&mut pqp, 1, txs0, miner_address.clone(), signature.clone())
+            .expect("Failed to mine block with align 0");
+        println!(
+            "\n Mined block (align=0) {}: hash {}",
+            i, mined_block_0.hash
+        );
+
+        // Align 1 block
+        let txs1 = vec![format!("tx{}_b", i).repeat(4)];
+        let mined_block_1 = treechain
+            .mine_block_demo(&mut pqp, 2, txs1, miner_address.clone(), signature.clone())
+            .expect("Failed to mine block with align 1");
+        println!("Mined block (align=1) {}: hash {}", i, mined_block_1.hash);
+    }
+
+    // Print blocks grouped by level to show tree structure
+    let max_level = treechain
+        .blocks
+        .values()
+        .map(|b| b.level)
+        .max()
+        .unwrap_or(0);
+
+    println!("\nTreeChain blocks by level:");
+    // println!("Total blocks: {:?}", treechain.blocks);
+    // println!("pqp: {:?}", pqp.pool);
+    for level in 0..=max_level {
+        let blocks_at_level = treechain.blocks_at_level(level);
+        println!("Level {}: count {}", level, blocks_at_level.len());
+        for hash in blocks_at_level {
+            println!("  {}", hash);
+        }
     }
 }

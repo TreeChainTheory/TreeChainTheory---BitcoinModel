@@ -59,6 +59,7 @@ impl PQP {
     pub fn add_entry(&mut self, entry: ParentQueueEntry) {
         let current_parent = self.current_parent().cloned();
         print!("\n current_parent: {:?}", current_parent);
+        // print!("\n pqp_pool: {:?}", self.pool);
         let next_parent = self.next_parent().cloned();
         print!("\n next_parent: {:?}", next_parent);
         let latest = self.latest().cloned();
@@ -71,8 +72,16 @@ impl PQP {
                     .rev()
                     .take(10)
                     .find(|e| e.parent_hash == current.block_hash);
-
+                // println!(
+                //     "\n latest_sibling: {:?}, \n latest: {:?}",
+                //     latest_sibling.cloned(),
+                //     latest.clone()
+                // );
                 let expected_prev_commit = if let Some(sibling) = latest_sibling {
+                    println!(
+                        "\n latest_sibling.prev_pqp: {:?},",
+                        sibling.clone().prev_pqp_commitment
+                    );
                     // If siblings exist → use last sibling's prev_pqp_commitment
                     sibling.prev_pqp_commitment.clone()
                 } else {
@@ -80,11 +89,16 @@ impl PQP {
                     let Some(latest) = latest else {
                         panic!("Latest entry should exist");
                     };
+                    println!("\n latest.pqp_commitment: {:?}", latest.pqp_commitment);
                     latest.pqp_commitment.clone()
                 };
 
                 if entry.prev_pqp_commitment != expected_prev_commit {
                     // Invalid commit → reject early
+                    println!(
+                        "\n entry:{:?} expected: {:?} ",
+                        entry.prev_pqp_commitment, expected_prev_commit
+                    );
                     return;
                 }
                 let children_count_current = self
@@ -205,8 +219,6 @@ impl TreeChain {
         for block in self.blocks.values() {
             if block.level == level {
                 result.push(&block.hash);
-            } else {
-                break;
             }
         }
         result
@@ -220,16 +232,27 @@ impl TreeChain {
         miner_address: String,
         signature: String,
     ) -> Option<Block> {
+        if align > CHILDREN {
+            return None; // Invalid alignment
+        }
+        let current_parent = pqp
+            .current_parent()
+            .expect("No current parent PQP entry found");
         let latest_pqp = pqp.latest()?;
+
+        let prev_pqp = if latest_pqp.parent_hash == current_parent.block_hash {
+            latest_pqp.prev_pqp_commitment.clone()
+        } else {
+            latest_pqp.pqp_commitment.clone()
+        };
         let queue_index = latest_pqp.queue_index + align as u32;
         let pqp_entry = PQPEntry {
             queue_index,
             miner_address: miner_address.clone(),
-            prev_pqp_commitment: latest_pqp.pqp_commitment.clone(),
+            prev_pqp_commitment: prev_pqp,
             signature: signature.clone(),
         };
 
-        let current_parent = pqp.current_parent()?;
         let parent_block_hash = &current_parent.block_hash.clone();
         let parent_block = self.get_block(parent_block_hash)?;
 
@@ -272,8 +295,14 @@ impl TreeChain {
                         candidate.pqp_entry.prev_pqp_commitment.clone(),
                         candidate.pqp_commitment.clone(),
                     );
-                    pqp.add_entry(new_pqp_entry);
-                    self.add_block(candidate.clone());
+                    pqp.add_entry(new_pqp_entry.clone());
+                    let latest_pqp = pqp.latest().expect("No latest PQP entry found").clone();
+
+                    if latest_pqp == new_pqp_entry {
+                        println!("\nNew PQP entry added: {:?}", new_pqp_entry);
+                        self.add_block(candidate.clone());
+                    }
+
                     return Some(candidate);
                 }
             }
