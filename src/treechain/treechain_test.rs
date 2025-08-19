@@ -16,15 +16,21 @@ fn test_pqp_initialization() {
 }
 
 #[test]
+#[test]
 fn test_add_entry_normal_behavior() {
     let mut pqp = PQP::new();
-    let current_parent = pqp.current_parent().expect("Should have current parent");
-    let latest = pqp.latest().expect("Should have latest entry");
+    let current_parent = pqp
+        .current_parent()
+        .expect("Should have current parent")
+        .clone();
+    let latest = pqp.latest().expect("Should have latest entry").clone();
     let new_entry = ParentQueueEntry::new(
         1,
         "block1".to_string(),
         current_parent.block_hash.clone(),
+        "Miner1".to_string(),
         latest.pqp_commitment.clone(),
+        "sig1".to_string(),
         "pqp_commitment".to_string(),
     );
 
@@ -34,6 +40,7 @@ fn test_add_entry_normal_behavior() {
     assert!(pqp.pool.contains(&new_entry));
 }
 
+#[test]
 #[test]
 fn test_current_and_next_parent() {
     let mut pqp = PQP::new();
@@ -50,7 +57,9 @@ fn test_current_and_next_parent() {
             i,
             format!("block{}", i),
             current_parent.block_hash.clone(),
+            format!("Miner{}", i),
             latest.pqp_commitment.clone(),
+            format!("sig{}", i),
             format!("pqp_commit_{}", i),
         );
         pqp.add_entry(entry.clone());
@@ -95,7 +104,9 @@ fn test_children_limit_removes_current_parent() {
             i,
             format!("block{}", i),
             parent_hash.clone(),
+            format!("Miner{}", i),
             latest.pqp_commitment.clone(),
+            format!("sig{}", i),
             format!("pqp_commit_{}", i),
         );
         pqp.add_entry(entry);
@@ -118,14 +129,16 @@ fn test_next_parent_children_removal_of_current_parent() {
         .current_parent()
         .expect("Should have current parent")
         .clone();
-    let latest = pqp.latest().expect("Should have latest entry");
+    let latest = pqp.latest().expect("Should have latest entry").clone();
 
     // Add a next parent with queue_index larger than genesis and its child entries
     let next_parent = ParentQueueEntry::new(
         1,
         "next_parent_block".to_string(),
         current_parent.block_hash.clone(),
+        "MinerX".to_string(),
         latest.pqp_commitment.clone(),
+        "sigX".to_string(),
         "pqp_commit_next_parent".to_string(),
     );
     pqp.add_entry(next_parent.clone());
@@ -135,12 +148,13 @@ fn test_next_parent_children_removal_of_current_parent() {
         2,
         "child_of_next_parent".to_string(),
         next_parent.block_hash.clone(),
+        "MinerY".to_string(),
         next_parent.pqp_commitment.clone(),
+        "sigY".to_string(),
         "pqp_commit_child_next_parent".to_string(),
     );
 
     pqp.add_entry(next_parent_child);
-    print!("\n pqp pool: {:?}", pqp.pool);
     // The current parent (genesis) should have been removed as next parent has children
     let current = pqp.current_parent();
     assert!(current.is_some());
@@ -210,7 +224,6 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
     let latest = pqp.latest().expect("Should have latest entry").clone();
 
     let mut prev_commitment = latest.pqp_commitment.clone();
-    let mut last_sibling = None;
 
     // Add up to CHILDREN siblings
     for i in 1..=(CHILDREN as u32) {
@@ -218,7 +231,9 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
             i,
             format!("sibling{}", i),
             current_parent.block_hash.clone(),
+            format!("MinerSibling{}", i),
             prev_commitment.clone(),
+            format!("sigSibling{}", i),
             format!("commit_sibling{}", i),
         );
         let prev_pool_len = pqp.pool.len();
@@ -234,7 +249,9 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
                 i,
                 format!("bad_sibling{}", i),
                 current_parent.block_hash.clone(),
+                format!("MinerBad{}", i),
                 "incorrect_commitment".to_string(),
+                format!("sigBad{}", i),
                 format!("bad_commit_sibling{}", i),
             );
             let prev_pool_len = pqp.pool.len();
@@ -247,7 +264,6 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
         }
 
         prev_commitment = sibling.pqp_commitment.clone();
-        last_sibling = Some(sibling);
     }
 
     // After all siblings are added, ensure that all their prev_pqp_commitment values are chained correctly
@@ -262,7 +278,7 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
     for win in siblings.windows(2) {
         let prev = &win[0];
         let next = &win[1];
-        assert_eq!(next.prev_pqp_commitment, prev.pqp_commitment);
+        assert_eq!(next.prev_pqp_commitment.clone(), prev.pqp_commitment);
     }
 }
 
@@ -280,7 +296,9 @@ fn test_prev_commit_for_first_child_is_latest_commit() {
         1,
         "first_child".to_string(),
         current_parent.block_hash.clone(),
+        "MinerFirst".to_string(),
         latest.pqp_commitment.clone(),
+        "sigFirst".to_string(),
         "commit_first_child".to_string(),
     );
     pqp.add_entry(child.clone());
@@ -291,14 +309,15 @@ fn test_prev_commit_for_first_child_is_latest_commit() {
         2,
         "bad_child".to_string(),
         current_parent.block_hash.clone(),
+        "MinerBad".to_string(),
         "wrong_commitment".to_string(),
+        "sigBad".to_string(),
         "commit_bad_child".to_string(),
     );
     let prev_len = pqp.pool.len();
     pqp.add_entry(bad_child);
     assert_eq!(pqp.pool.len(), prev_len);
 }
-
 #[test]
 fn test_out_of_order_child_rejected_and_next_parent_behavior() {
     let mut pqp = PQP::new();
@@ -310,7 +329,9 @@ fn test_out_of_order_child_rejected_and_next_parent_behavior() {
         1,
         "next_parent".to_string(),
         current_parent.block_hash.clone(),
+        "MinerNext".to_string(),
         latest.pqp_commitment.clone(),
+        "sigNext".to_string(),
         "commit_next_parent".to_string(),
     );
     pqp.add_entry(new_parent_entry.clone());
@@ -321,7 +342,9 @@ fn test_out_of_order_child_rejected_and_next_parent_behavior() {
         2,
         "child_of_next".to_string(),
         next_parent.block_hash.clone(),
+        "MinerChild".to_string(),
         new_parent_entry.pqp_commitment.clone(),
+        "sigChild".to_string(),
         "commit_child_next".to_string(),
     );
     pqp.add_entry(child_for_next_parent.clone());

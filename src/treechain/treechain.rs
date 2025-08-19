@@ -10,7 +10,9 @@ pub struct ParentQueueEntry {
     pub queue_index: u32,
     pub block_hash: String,
     pub parent_hash: String,
+    pub miner_address: String,
     pub prev_pqp_commitment: String,
+    pub signature: String,
     pub pqp_commitment: String,
 }
 
@@ -27,7 +29,9 @@ impl PQP {
             queue_index: 0,
             block_hash: genesis.hash.clone(),
             parent_hash: genesis.parent_hash.clone(),
+            miner_address: genesis.pqp_entry.miner_address,
             prev_pqp_commitment: genesis.pqp_entry.prev_pqp_commitment.clone(),
+            signature: genesis.pqp_entry.signature.clone(),
             pqp_commitment: genesis.pqp_commitment.clone(),
         };
 
@@ -164,14 +168,18 @@ impl ParentQueueEntry {
         queue_index: u32,
         block_hash: String,
         parent_hash: String,
+        miner_address: String,
         prev_pqp_commitment: String,
+        signature: String,
         pqp_commitment: String,
     ) -> Self {
         Self {
             queue_index,
             block_hash,
             parent_hash,
+            miner_address,
             prev_pqp_commitment,
+            signature,
             pqp_commitment,
         }
     }
@@ -339,7 +347,9 @@ impl TreeChain {
                         candidate.pqp_entry.queue_index,
                         candidate.hash.clone(),
                         candidate.parent_hash.clone(),
+                        candidate.pqp_entry.miner_address.clone(),
                         candidate.pqp_entry.prev_pqp_commitment.clone(),
+                        candidate.pqp_entry.signature.clone(),
                         candidate.pqp_commitment.clone(),
                     );
                     pqp.add_entry(new_pqp_entry.clone());
