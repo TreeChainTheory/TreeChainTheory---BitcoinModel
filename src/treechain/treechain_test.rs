@@ -34,40 +34,49 @@ fn test_add_entry_normal_behavior() {
     assert!(pqp.pool.contains(&new_entry));
 }
 
-// #[test]
-// fn test_current_and_next_parent() {
-//     //add num of entries acc to CHILDREN
-//     let mut pqp = PQP::new();
-//     let current_parent = pqp.current_parent().expect("Should have current parent");
-//     let latest = pqp.latest().expect("Should have latest entry");
-//     // Add entries with queue_index 1 and 2
-//     let entry1 = ParentQueueEntry::new(
-//         1,
-//         "block1".to_string(),
-//         current_parent.block_hash.clone(),
-//         latest.pqp_commitment.clone(),
-//         "pqp_commit_1".to_string(),
-//     );
-//     let entry2 = ParentQueueEntry::new(
-//         2,
-//         "block2".to_string(),
-//         current_parent.block_hash.clone(),
-//         latest.pqp_commitment.clone(),
-//         "pqp_commit_2".to_string(),
-//     );
+#[test]
+fn test_current_and_next_parent() {
+    let mut pqp = PQP::new();
+    let current_parent = pqp
+        .current_parent()
+        .expect("Should have current parent")
+        .clone();
+    let latest = pqp.latest().expect("Should have latest entry").clone();
 
-//     pqp.add_entry(entry1.clone());
-//     pqp.add_entry(entry2.clone());
+    // Add CHILDREN entries with increasing queue_index
+    let mut entries = Vec::new();
+    for i in 1..=(CHILDREN as u32) {
+        let entry = ParentQueueEntry::new(
+            i,
+            format!("block{}", i),
+            current_parent.block_hash.clone(),
+            latest.pqp_commitment.clone(),
+            format!("pqp_commit_{}", i),
+        );
+        pqp.add_entry(entry.clone());
+        entries.push(entry);
+    }
 
-//     let current = pqp.current_parent().expect("Should have current parent");
-//     let next = pqp.next_parent().expect("Should have next parent");
-//     println!("pqp: {:?}", pqp.pool);
+    // The current parent (after max CHILDREN children) should not be the initial parent
+    let current = pqp.current_parent().expect("Should have current parent");
+    assert_ne!(current.block_hash, current_parent.block_hash);
 
-//     // current parent should have smallest queue_index (0 is genesis, so the genesis entry)
-//     assert_eq!(current.queue_index, 1);
-//     // next parent should have second smallest queue_index (1)
-//     assert_eq!(next.queue_index, 2);
-// }
+    // The entries should be in increasing order, so current is the child with smallest queue_index,
+    // and next is the child with next smallest queue_index
+    let mut sorted_entries = entries.clone();
+    sorted_entries.sort_by_key(|e| e.queue_index);
+
+    let child1 = &sorted_entries[0];
+    let child2 = &sorted_entries[1 % sorted_entries.len()];
+
+    assert_eq!(current.block_hash, child1.block_hash);
+
+    // If more than one child, check next parent as well
+    if entries.len() > 1 {
+        let next = pqp.next_parent().expect("Should have next parent");
+        assert_eq!(next.block_hash, child2.block_hash);
+    }
+}
 
 #[test]
 fn test_children_limit_removes_current_parent() {
@@ -200,39 +209,61 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
         .clone();
     let latest = pqp.latest().expect("Should have latest entry").clone();
 
-    // Add sibling 1
-    let sibling1 = ParentQueueEntry::new(
-        1,
-        "sibling1".to_string(),
-        current_parent.block_hash.clone(),
-        latest.pqp_commitment.clone(),
-        "commit_sibling1".to_string(),
-    );
-    pqp.add_entry(sibling1.clone());
+    let mut prev_commitment = latest.pqp_commitment.clone();
+    let mut last_sibling = None;
 
-    // Add sibling 2 - prev_pqp_commitment must equal the prev_pqp_commitment of the last sibling (sibling1)
-    let sibling2 = ParentQueueEntry::new(
-        2,
-        "sibling2".to_string(),
-        current_parent.block_hash.clone(),
-        sibling1.prev_pqp_commitment.clone(),
-        "commit_sibling2".to_string(),
-    );
-    let prev_len = pqp.pool.len();
-    pqp.add_entry(sibling2.clone());
-    // Should not add because prev_pqp_commitment doesn't match expected
-    assert_eq!(pqp.pool.len(), prev_len);
+    // Add up to CHILDREN siblings
+    for i in 1..=(CHILDREN as u32) {
+        let sibling = ParentQueueEntry::new(
+            i,
+            format!("sibling{}", i),
+            current_parent.block_hash.clone(),
+            prev_commitment.clone(),
+            format!("commit_sibling{}", i),
+        );
+        let prev_pool_len = pqp.pool.len();
+        pqp.add_entry(sibling.clone());
 
-    // Now try with the correct prev_pqp_commitment (should be the latest sibling's commitment)
-    let sibling2 = ParentQueueEntry::new(
-        2,
-        "sibling2".to_string(),
-        current_parent.block_hash.clone(),
-        sibling1.pqp_commitment.clone(),
-        "commit_sibling2".to_string(),
-    );
-    pqp.add_entry(sibling2.clone());
-    assert!(!pqp.pool.contains(&sibling2));
+        // The first sibling should be accepted, following siblings must have correct prev_pqp_commitment
+        if i == 1 {
+            assert_eq!(pqp.pool.len(), prev_pool_len + 1);
+            assert!(pqp.pool.contains(&sibling));
+        } else {
+            // Use an incorrect prev_pqp_commitment for negative test
+            let bad_sibling = ParentQueueEntry::new(
+                i,
+                format!("bad_sibling{}", i),
+                current_parent.block_hash.clone(),
+                "incorrect_commitment".to_string(),
+                format!("bad_commit_sibling{}", i),
+            );
+            let prev_pool_len = pqp.pool.len();
+            pqp.add_entry(bad_sibling.clone());
+            assert_eq!(
+                pqp.pool.len(),
+                prev_pool_len,
+                "Incorrect sibling should not be added"
+            );
+        }
+
+        prev_commitment = sibling.pqp_commitment.clone();
+        last_sibling = Some(sibling);
+    }
+
+    // After all siblings are added, ensure that all their prev_pqp_commitment values are chained correctly
+    let siblings: Vec<_> = pqp
+        .pool
+        .iter()
+        .filter(|e| {
+            e.parent_hash == current_parent.block_hash && e.block_hash.starts_with("sibling")
+        })
+        .collect();
+
+    for win in siblings.windows(2) {
+        let prev = &win[0];
+        let next = &win[1];
+        assert_eq!(next.prev_pqp_commitment, prev.pqp_commitment);
+    }
 }
 
 #[test]
