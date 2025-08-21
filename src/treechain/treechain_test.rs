@@ -644,3 +644,120 @@ fn test_is_valid_pqp_comprehensive() {
     let empty_pqp = PQP { pool: vec![] };
     assert!(!treechain.is_valid_pqp(&empty_pqp));
 }
+
+#[test]
+fn test_verify_and_add_block_success() {
+    let mut treechain = TreeChain::new();
+    let genesis = Block::genesis();
+    // Clone genesis and slightly modify hash so it passes verification failure
+    let mut block = genesis.clone();
+    block.nonce = 1;
+    Block::calculate_hash_and_pqp_commitment(&mut block);
+
+    let added = treechain.verify_and_add_block(&block);
+    assert!(added);
+    assert!(treechain.blocks.contains_key(&block.hash));
+}
+
+#[test]
+fn test_verify_and_add_block_fail_on_bad_hash() {
+    let mut treechain = TreeChain::new();
+    let mut block = Block::genesis();
+    block.hash = "bad_hash_1234567890".to_string(); // corrupt hash
+
+    let added = treechain.verify_and_add_block(&block);
+    assert!(!added);
+}
+
+#[test]
+fn test_add_received_blocks_all_valid() {
+    let mut treechain = TreeChain::new();
+
+    let mut blocks = Vec::new();
+    let mut parent = Block::genesis();
+
+    for i in 1..=3 {
+        let mut b = Block::empty_placeholder(i);
+        b.parent_hash = parent.hash.clone();
+        b.level = parent.level + 1;
+        b.pqp_entry.queue_index = i;
+        b.pqp_entry.prev_pqp_commitment = parent.pqp_commitment.clone();
+        Block::calculate_hash_and_pqp_commitment(&mut b);
+        blocks.push(b.clone());
+        parent = b;
+    }
+
+    let added = treechain.add_received_blocks(blocks);
+    assert!(added);
+
+    // Check blocks added in treechain
+    for i in 1..=3 {
+        let key_exists = treechain
+            .blocks
+            .values()
+            .any(|b| b.pqp_entry.queue_index == i);
+        assert!(key_exists);
+    }
+}
+
+#[test]
+fn test_add_received_blocks_partial_failure() {
+    let mut treechain = TreeChain::new();
+
+    let mut blocks = Vec::new();
+    let mut parent = Block::genesis();
+
+    // Add one valid block
+    let mut b1 = Block::empty_placeholder(1);
+    b1.parent_hash = parent.hash.clone();
+    b1.level = parent.level + 1;
+    b1.pqp_entry.queue_index = 1;
+    b1.pqp_entry.prev_pqp_commitment = parent.pqp_commitment.clone();
+    Block::calculate_hash_and_pqp_commitment(&mut b1);
+    blocks.push(b1.clone());
+
+    // Add invalid block (bad hash)
+    let mut b2 = Block::empty_placeholder(2);
+    b2.parent_hash = b1.hash.clone();
+    b2.level = b1.level + 1;
+    b2.pqp_entry.queue_index = 2;
+    b2.pqp_entry.prev_pqp_commitment = b1.pqp_commitment.clone();
+    b2.hash = "bad_hash_invalid".to_string(); // corrupt hash
+    blocks.push(b2.clone());
+
+    let added = treechain.add_received_blocks(blocks);
+    assert!(!added);
+    // Only first block added
+    assert!(treechain.blocks.contains_key(&b1.hash));
+    assert!(!treechain.blocks.contains_key(&b2.hash));
+}
+
+#[test]
+fn test_get_missing_blocks_from() {
+    let mut treechain = TreeChain::new();
+    let genesis = Block::genesis();
+
+    // Add a few blocks
+    let mut parent = genesis.clone();
+
+    for i in 1..=5 {
+        let mut b = Block::empty_placeholder(i);
+        b.parent_hash = parent.hash.clone();
+        b.level = parent.level + 1;
+        b.pqp_entry.queue_index = i;
+        b.pqp_entry.prev_pqp_commitment = parent.pqp_commitment.clone();
+        Block::calculate_hash_and_pqp_commitment(&mut b);
+        treechain.add_block(b.clone());
+        parent = b;
+    }
+
+    // Get missing blocks starting from queue_index 2 block
+    let start_block = treechain.blocks.get_index(2).unwrap().1.clone();
+    let missing_blocks = treechain.get_missing_blocks_from(&start_block);
+
+    // They should be ordered from that block (index 2) onwards
+    assert!(!missing_blocks.is_empty());
+    assert_eq!(missing_blocks[0].hash, start_block.hash);
+    // Total missing blocks count should be blocks.len - start_index
+    assert_eq!(missing_blocks.len(), treechain.blocks.len() - 2);
+}

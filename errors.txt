@@ -1,26 +1,17 @@
-TreeChain blocks by level:
-Level 0: count 1
-  d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b  0  0
-Level 1: count 3
-  aacc718d72f385cb8acbdd57443341217634412c959f32ff5e69879f3d0d4a2e  1  1
-  a24ecb5bca545d928e74c95385591e3f1e307487c241f8fd1dd62b1279196439  3  2
-  270aa994b3f59e6c939b0ada2d7b5693ee8ced44a11d1a0d2d473be028dacd2d  6  3
-Level 2: count 9
-  bb87da3737b18be5a7207e469cc68ad9e39bd8a317a26a59b9a22136f467b03e  8  2
-  dfe875215c26f9b03162c2e2c7fc8551259abdd59bf2e7bf77a88f2b393cfa4c  9  1
-  ba662de23ceb6a21197847ccb611dca956a284e2f769caf00f01b070d7bd9073  12  3
-  30e17eb8c3cd7fd4138352471d0af3d5f6d062147b775afc62a2ab088f9cb037  13  1
-  31c56fd23579ac664ce5503dcecbd43c52b999b04feea90c5cb3a49cfb79ce2e  15  2
-  86935e3e77e1978b5c497236f4d3db5238bf1931b79950def06fb2c741a3035e  18  3
-  7f72ef1bffe9494bafda6e130e22079c7e11dfaaf5ad655850f8bffed2868730  20  2
-  df9adf4b8c60a21342f287e77a75da0a3b695bd9c27fbb32d0d24b194ee56170  21  1
-  6955f96ff83852ac3fa65bbb1c229856af93ef01d360b313da67c21c32937272  24  3
-Level 3: count 8
-  cb93c32a6b511c879e73dbcf71106bd7e965ab82b4a8ecdb0ed89e5faf9fa72e  25  1
-  af0674cdae5e1276cbeb6ef9d28b053738120f075f24a4a8629245200cfbe17e  27  2
-  52db3b10419046ac82755bb72f30eb73edbe782dd9da5611421bc951afff7a4b  30  3
-  f8320c913ca91b1945525b9876825738fa5f60401c92616f54c9af29e56b7f54  32  2
-  0ed09ba750c2d8ed7a99480f154a1da7a4878a24cfe33dd7356939a14bd8da34  33  1
-  03b2761add02a770c340c6f1cc3e77db00f45ea5dc7838d9356116c5a2bed711  36  3
-  3e46035466774f309f3ce08dd5149be5f68bd1bf92a045c70b1e9a282a070762  37  1
-  a905f944e2118b766b4fb932c388666eef2a46040da85a58dab21d25b1884002  39  2
+
+hey now lets write a function called
+ add_received_blocks(array of blocks )
+which should do verify_and_add_block():bool for each block , if false is returned then stop at that point , 
+also give verify_and_add_block(&Block) function , which verifies the hash and pqp of the block 
+and then call the add_block function 
+then the function
+get_missing_blocks_from(&Block)
+here this function is being implemented for the case , when 1 miner goes offline and comes online ,and asks for blocks from his last block
+here in the parameter pass the last non empty block of his indexmap 
+if genesis is passed then pass the blocks from the first 
+here simply send the index map pairs from the block , 
+return the array of blocks , 
+also give me another function called add_received_blocks(array of blocks )
+which should do verify_and_add_block():bool for each block , if false is returned then stop at that point , 
+
+and overall give me test functons as well 

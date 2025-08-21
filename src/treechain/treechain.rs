@@ -602,4 +602,58 @@ impl TreeChain {
             pqp_commitment: block.pqp_commitment.clone(),
         }
     }
+
+    pub fn verify_and_add_block(&mut self, block: &Block) -> bool {
+        // Verify the block hash and PQP commitment
+        if !block.verify_hash_pqp_commitment() {
+            println!("❌ Block verification failed for hash: {}", block.hash);
+            return false;
+        }
+        // Optionally: verify that parent block exists
+        if block.level != 0 && !self.blocks.contains_key(&block.parent_hash) {
+            println!("❌ Parent block missing for block: {}", block.hash);
+            return false;
+        }
+        // Add the block
+        self.add_block(block.clone());
+        true
+    }
+
+    /// Add multiple blocks verifying each with `verify_and_add_block`.
+    /// Stops immediately on failure, returning false.
+    pub fn add_received_blocks(&mut self, blocks: Vec<Block>) -> bool {
+        for block in blocks.iter() {
+            if !self.verify_and_add_block(block) {
+                println!("❌ Failed to add block in sequence: {}", block.hash);
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Get all blocks from (and including) the given starting block to the end, in queue_index order.
+    /// If genesis block is passed, return all blocks from genesis onwards.
+    pub fn get_missing_blocks_from(&self, start_block: &Block) -> Vec<Block> {
+        let mut blocks_vec = Vec::new();
+
+        // Find the queue_index of the start block
+        let start_index = match self.blocks.get_index_of(&start_block.hash) {
+            Some(idx) => idx,
+            None => {
+                println!("❌ Start block not found in tree: {}", start_block.hash);
+                return blocks_vec;
+            }
+        };
+
+        for i in start_index..self.blocks.len() {
+            if let Some((_, block)) = self.blocks.get_index(i) {
+                if block.hash.is_empty() {
+                    // Skip placeholders
+                    continue;
+                }
+                blocks_vec.push(block.clone());
+            }
+        }
+        blocks_vec
+    }
 }

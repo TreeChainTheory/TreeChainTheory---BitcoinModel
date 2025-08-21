@@ -164,6 +164,47 @@ impl Block {
         block.pqp_commitment = hex::encode(pqp_hasher.finalize());
     }
 
+    pub fn verify_hash_pqp_commitment(&self) -> bool {
+        // Recalculate hash and PQP commitment locally
+        let mut hasher = Sha256::new();
+        hasher.update(self.level.to_le_bytes());
+        hasher.update(self.position.as_bytes());
+        hasher.update(self.version.to_le_bytes());
+        hasher.update(hex::decode(&self.parent_hash).unwrap_or_default());
+        hasher.update(hex::decode(&self.merkle_root).unwrap_or_default());
+        hasher.update(self.timestamp.to_le_bytes());
+        hasher.update(hex::decode(&self.bits).unwrap_or_default());
+        hasher.update(self.nonce.to_le_bytes());
+        hasher.update(&[self.align]);
+
+        hasher.update(self.pqp_entry.queue_index.to_le_bytes());
+        hasher.update(self.pqp_entry.miner_address.as_bytes());
+        hasher.update(hex::decode(&self.pqp_entry.prev_pqp_commitment).unwrap_or_default());
+        hasher.update(hex::decode(&self.pqp_entry.signature).unwrap_or_default());
+        hasher.update(self.nTx.to_le_bytes());
+        for tx in &self.tx {
+            hasher.update(tx.as_bytes());
+        }
+        let recalculated_hash = hex::encode(hasher.finalize());
+
+        if recalculated_hash != self.hash {
+            return false;
+        }
+
+        // Recalculate the PQP commitment
+        let mut pqp_hasher = Sha256::new();
+        pqp_hasher.update(self.pqp_entry.queue_index.to_le_bytes());
+        pqp_hasher.update(hex::decode(&self.hash).unwrap_or_default());
+        pqp_hasher.update(hex::decode(&self.parent_hash).unwrap_or_default());
+        pqp_hasher.update(self.pqp_entry.miner_address.as_bytes());
+        pqp_hasher.update(hex::decode(&self.pqp_entry.prev_pqp_commitment).unwrap_or_default());
+        pqp_hasher.update(hex::decode(&self.pqp_entry.signature).unwrap_or_default());
+
+        let recalculated_pqp_commitment = hex::encode(pqp_hasher.finalize());
+
+        recalculated_pqp_commitment == self.pqp_commitment
+    }
+
     //next  mine_block_example( parentblock , align ,bits , pqp_entry , tx ) , merkle_root(tx) , calculate_target(bits),
 
     pub fn merkle_root(tx: Vec<String>) -> String {
