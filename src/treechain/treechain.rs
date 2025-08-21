@@ -5,7 +5,7 @@ use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 /// Represents an entry in the global PQP (Pending Queue of Parents)
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParentQueueEntry {
     pub queue_index: u32,
@@ -634,6 +634,27 @@ impl TreeChain {
     /// Get all blocks from (and including) the given starting block to the end, in queue_index order.
     /// If genesis block is passed, return all blocks from genesis onwards.
     pub fn get_missing_blocks_from(&self, start_block: &Block) -> Vec<Block> {
+        let eighteen_hours = 18 * 3600;
+        let now_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0))
+            .as_secs(); // current UNIX timestamp in seconds
+        println!("timestamp: {}", start_block.timestamp);
+        let block_time = start_block.timestamp as u64;
+        println!(
+            "now_unix: {}, block_time: {}, block_age_secs: {}",
+            now_unix,
+            block_time,
+            now_unix.saturating_sub(block_time)
+        );
+
+        // If block timestamp is older than 18 hours, start from genesis
+        if now_unix > block_time + eighteen_hours && start_block.hash != Block::genesis().hash {
+            if let Some((_, genesis_block)) = self.blocks.get_index(0) {
+                return self.get_missing_blocks_from(genesis_block);
+            }
+        }
+
         let mut blocks_vec = Vec::new();
 
         // Find the queue_index of the start block

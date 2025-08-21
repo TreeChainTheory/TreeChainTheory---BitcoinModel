@@ -1,6 +1,7 @@
 use crate::config::CHILDREN;
 use crate::treechain::block::{Block, PQPEntry};
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[test]
 fn test_pqp_initialization() {
@@ -397,7 +398,10 @@ fn test_mine_block_demo() {
     let parent = Block::genesis();
     assert_eq!(mined_block.level, parent.level + 1);
     assert_eq!(mined_block.parent_hash, parent.hash);
-
+    println!(
+        "Mined timestamp: {}\nHash: {}\nPQP Commitment: {}",
+        mined_block.timestamp, mined_block.hash, mined_block.pqp_commitment
+    );
     // Check that the PQP was updated: new PQP entry present in pool, and parent block potentially removed
     let contains_mined_pqp = pqp.pool.iter().any(|e| e.block_hash == mined_block.hash);
     assert!(
@@ -736,11 +740,71 @@ fn test_add_received_blocks_partial_failure() {
 fn test_get_missing_blocks_from() {
     let mut treechain = TreeChain::new();
     let genesis = Block::genesis();
+    let mut pqp = PQP::new();
 
-    // Add a few blocks
+    // Start with genesis block as parent
     let mut parent = genesis.clone();
 
+    // Mine 5 sequential blocks, each child of the previous
     for i in 1..=5 {
+        // For demo mining, align can be set to 1 (or vary as you like)
+        let align = 1;
+        let txs = vec![format!("tx{}_data", i)];
+
+        let miner_address = format!("Miner{}", i);
+        let signature = format!("Signature{}", i);
+
+        if let Some(mined_block) = treechain.mine_block_demo(
+            &mut pqp,
+            align,
+            txs.clone(),
+            miner_address.clone(),
+            signature.clone(),
+        ) {
+            // Move to next parent
+            parent = mined_block;
+        } else {
+            panic!("Failed to mine block number {}", i);
+        }
+    }
+
+    // Ensure treechain has 6 blocks including genesis
+    assert!(treechain.blocks.len() >= 6);
+
+    // Pick the block at index 2 (3rd block added, 0-based index including genesis)
+    // Return Option to avoid panic; use expect or handle if None
+    let start_block = treechain
+        .blocks
+        .get_index(2)
+        .expect("Block at index 2 should exist")
+        .1
+        .clone();
+
+    let missing_blocks = treechain.get_missing_blocks_from(&start_block);
+
+    // They should be ordered starting from the start_block
+    assert!(!missing_blocks.is_empty());
+    assert_eq!(missing_blocks[0].hash, start_block.hash);
+
+    // Total missing blocks count should be treechain.blocks.len() - 2 (start index)
+    assert_eq!(missing_blocks.len(), treechain.blocks.len() - 2);
+}
+
+#[test]
+fn test_get_missing_blocks_from_timestamp_too_old_returns_from_genesis() {
+    let mut treechain = TreeChain::new();
+
+    // Create a block with timestamp older than 18 hours
+    let mut old_block = Block::empty_placeholder(1);
+    old_block.timestamp = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
+        - Duration::from_secs(19 * 3600))
+    .as_secs() as u128; // 19 hours ago
+
+    // Add old_block and some subsequent blocks
+    treechain.add_block(old_block.clone());
+    let mut parent = old_block.clone();
+
+    for i in 2..=4 {
         let mut b = Block::empty_placeholder(i);
         b.parent_hash = parent.hash.clone();
         b.level = parent.level + 1;
@@ -751,13 +815,43 @@ fn test_get_missing_blocks_from() {
         parent = b;
     }
 
-    // Get missing blocks starting from queue_index 2 block
-    let start_block = treechain.blocks.get_index(2).unwrap().1.clone();
-    let missing_blocks = treechain.get_missing_blocks_from(&start_block);
+    // Call get_missing_blocks_from with the old block -> should return blocks from genesis
+    let missing_blocks = treechain.get_missing_blocks_from(&old_block);
 
-    // They should be ordered from that block (index 2) onwards
+    // The first returned block should be genesis
+    let genesis = Block::genesis();
     assert!(!missing_blocks.is_empty());
-    assert_eq!(missing_blocks[0].hash, start_block.hash);
-    // Total missing blocks count should be blocks.len - start_index
-    assert_eq!(missing_blocks.len(), treechain.blocks.len() - 2);
+    assert_eq!(missing_blocks[0].hash, genesis.hash);
+}
+
+#[test]
+fn test_get_missing_blocks_from_timestamp_recent_returns_from_param() {
+    let mut treechain = TreeChain::new();
+
+    let mut recent_block = Block::empty_placeholder(1);
+
+    // Set timestamp to just now (fresh)
+    recent_block.timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u128;
+
+    treechain.add_block(recent_block.clone());
+
+    let mut parent = recent_block.clone();
+    for i in 2..=3 {
+        let mut b = Block::empty_placeholder(i);
+        b.parent_hash = parent.hash.clone();
+        b.level = parent.level + 1;
+        b.pqp_entry.queue_index = i;
+        b.pqp_entry.prev_pqp_commitment = parent.pqp_commitment.clone();
+        Block::calculate_hash_and_pqp_commitment(&mut b);
+        treechain.add_block(b.clone());
+        parent = b;
+    }
+
+    let missing_blocks = treechain.get_missing_blocks_from(&recent_block);
+    // Should start from recent_block, not genesis
+    assert!(!missing_blocks.is_empty());
+    assert_eq!(missing_blocks[0].hash, recent_block.hash);
 }
