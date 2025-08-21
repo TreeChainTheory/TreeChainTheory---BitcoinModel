@@ -528,3 +528,119 @@ fn test_is_valid_tree() {
         "Tree should be invalid after tampering"
     );
 }
+
+#[test]
+fn test_is_valid_pqp_comprehensive() {
+    let mut treechain = TreeChain::new();
+    let mut pqp = PQP::new();
+
+    // Initial check: PQP pool should can be empty and validation should pass for genesis only
+    assert!(treechain.is_valid_pqp(&pqp));
+
+    let genesis = Block::genesis();
+
+    // Add a valid block and PQP entries chain
+    let new_pqp_entry = ParentQueueEntry::new(
+        1,
+        "block1_hash".to_string(),
+        genesis.hash.clone(),
+        "Miner1".to_string(),
+        genesis.pqp_commitment.clone(),
+        "sig1".repeat(8),
+        "pqp_commit_1".to_string(),
+    );
+
+    // pqp.add_entry(new_pqp_entry.clone());
+
+    // Add corresponding block in tree
+    let block1 = Block::new(
+        new_pqp_entry.block_hash.clone(),
+        new_pqp_entry.pqp_commitment.clone(),
+        genesis.level + 1,
+        "0.1".to_string(),
+        1,
+        genesis.hash.clone(),
+        Block::merkle_root(vec!["txdata".to_string()]),
+        1000,
+        "1d00ffff".to_string(),
+        0,
+        1,
+        PQPEntry {
+            queue_index: 1,
+            miner_address: "Miner1".to_string(),
+            prev_pqp_commitment: genesis.pqp_commitment.clone(),
+            signature: "sig1".repeat(8),
+        },
+        1,
+        vec!["txdata".to_string()],
+    );
+
+    // treechain.add_block(block1.clone());
+    treechain.mine_block_demo(
+        &mut pqp,
+        block1.align,
+        block1.tx,
+        block1.pqp_entry.miner_address,
+        block1.pqp_entry.signature,
+    );
+    // Valid PQP should pass now
+    assert!(treechain.is_valid_pqp(&pqp));
+
+    // 1. Test PQP entry with missing block
+    let mut pqp_missing_block = pqp.clone();
+    pqp_missing_block.pool.push(ParentQueueEntry::new(
+        2,
+        "missing_block_hash".to_string(),
+        new_pqp_entry.block_hash.clone(),
+        "Miner2".to_string(),
+        new_pqp_entry.pqp_commitment.clone(),
+        "sig2".repeat(8),
+        "pqp_commit_2".to_string(),
+    ));
+    assert!(!treechain.is_valid_pqp(&pqp_missing_block));
+
+    // 2. Test PQP entry with incorrect PQP commitment
+    let mut pqp_bad_commit = pqp.clone();
+    let mut bad_entry = pqp_bad_commit.pool[1].clone();
+    bad_entry.pqp_commitment = "badcommitment1234567890".to_string();
+    pqp_bad_commit.pool[1] = bad_entry;
+    assert!(!treechain.is_valid_pqp(&pqp_bad_commit));
+
+    // 3. Test PQP entries with invalid queue_index order
+    let mut pqp_bad_order = pqp.clone();
+    let entry1 = pqp_bad_order.pool[0].clone();
+    let entry2 = pqp_bad_order.pool[1].clone();
+    pqp_bad_order.pool[0] = entry2.clone();
+    pqp_bad_order.pool[1] = entry1.clone();
+    assert!(!treechain.is_valid_pqp(&pqp_bad_order));
+
+    // 4. Test PQP siblings with prev_pqp_commitment mismatch
+    let mut pqp_sibling_mismatch = pqp.clone();
+    pqp_sibling_mismatch.pool.push(ParentQueueEntry::new(
+        2,
+        "block2_hash".to_string(),
+        new_pqp_entry.parent_hash.clone(),
+        "Miner2".to_string(),
+        "incorrect_prev_commit".to_string(),
+        "sig2".repeat(8),
+        "pqp_commit_2".to_string(),
+    ));
+    assert!(!treechain.is_valid_pqp(&pqp_sibling_mismatch));
+
+    // 5. Test PQP entries with different parents and incorrect prev_pqp_commitment
+    let mut pqp_diff_parent = pqp.clone();
+    pqp_diff_parent.pool.push(ParentQueueEntry::new(
+        2,
+        "block2_hash".to_string(),
+        "different_parent_hash".to_string(),
+        "Miner2".to_string(),
+        new_pqp_entry.prev_pqp_commitment.clone(), // incorrect for different parent
+        "sig2".repeat(8),
+        "pqp_commit_2".to_string(),
+    ));
+    assert!(!treechain.is_valid_pqp(&pqp_diff_parent));
+
+    // 6. Test PQP with empty pool
+    let empty_pqp = PQP { pool: vec![] };
+    assert!(!treechain.is_valid_pqp(&empty_pqp));
+}

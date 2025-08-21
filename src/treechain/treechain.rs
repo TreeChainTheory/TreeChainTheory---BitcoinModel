@@ -3,8 +3,9 @@ use crate::treechain::block::{Block, PQPEntry};
 use indexmap::IndexMap;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 /// Represents an entry in the global PQP (Pending Queue of Parents)
+use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParentQueueEntry {
     pub queue_index: u32,
@@ -16,7 +17,7 @@ pub struct ParentQueueEntry {
     pub pqp_commitment: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PQP {
     pub pool: Vec<ParentQueueEntry>,
 }
@@ -455,5 +456,150 @@ impl TreeChain {
         }
         println!("✅ Tree and PQP validated successfully");
         true
+    }
+
+    pub fn is_valid_pqp(&self, pqp: &PQP) -> bool {
+        let pool = &pqp.pool;
+        if pool.is_empty() {
+            println!("❌ PQP pool is empty");
+            return false;
+        }
+
+        // step 1: Verify each PQP entry in reverse order
+        for (i, entry) in pool.iter().rev().enumerate() {
+            let block_opt = self.get_block(&entry.block_hash);
+            let block = match block_opt {
+                Some(b) => b,
+                None => {
+                    println!("❌ Block not found for PQP entry: {}", entry.block_hash);
+                    return false;
+                }
+            };
+            //step 2 recalculate pqp_commitment
+
+            let mut pqp_hasher = Sha256::new();
+            pqp_hasher.update(entry.queue_index.to_le_bytes());
+            pqp_hasher.update(hex::decode(&block.hash).unwrap_or_default());
+            pqp_hasher.update(hex::decode(&entry.parent_hash).unwrap_or_default());
+            pqp_hasher.update(entry.miner_address.as_bytes());
+            pqp_hasher.update(hex::decode(&entry.prev_pqp_commitment).unwrap_or_default());
+            pqp_hasher.update(hex::decode(&entry.signature).unwrap_or_default());
+
+            let computed_commitment = hex::encode(pqp_hasher.finalize());
+            if computed_commitment != entry.pqp_commitment {
+                println!(
+                    "❌ PQP commitment mismatch for entry at queue_index {}: \nExpected: {} \nFound:    {}",
+                    entry.queue_index, entry.pqp_commitment, computed_commitment
+                );
+                return false;
+            }
+
+            // Step 3: Signature verification - To be added later
+            if i + 1 < pool.len() {
+                let prev_entry = &pool[pool.len() - 1 - (i + 1)];
+                if prev_entry.queue_index >= entry.queue_index {
+                    println!(
+                        "❌ Invalid queue index order: {} >= {}",
+                        prev_entry.queue_index, entry.queue_index
+                    );
+                    return false;
+                }
+
+                if entry.parent_hash == prev_entry.parent_hash {
+                    if entry.prev_pqp_commitment != prev_entry.prev_pqp_commitment {
+                        println!(
+                            "❌ Prev PQP commitment mismatch for siblings at queue_index {} and {}",
+                            entry.queue_index, prev_entry.queue_index
+                        );
+                        return false;
+                    }
+                } else {
+                    if entry.prev_pqp_commitment != prev_entry.pqp_commitment {
+                        println!(
+                            "❌ Prev PQP commitment mismatch for different parents at queue_index {}",
+                            entry.queue_index
+                        );
+                        return false;
+                    }
+                }
+            }
+        }
+        println!("✅ PQP entries validated successfully");
+        // step 6: Verify PQP entries using blocks in tree
+
+        let blocks_len = self.blocks.len();
+        if blocks_len == 0 {
+            println!("❌ No blocks found in the tree");
+            return false;
+        }
+
+        let (mut current_hash, current_block) = match self.blocks.get_index(blocks_len - 1) {
+            Some(pair) => pair,
+            None => {
+                println!("❌ Failed to get last block");
+                return false;
+            }
+        };
+        let target_parent_hash = &current_block.parent_hash;
+
+        let mut collected_pqp_entries: Vec<ParentQueueEntry> = Vec::new();
+
+        let binding = Self::parent_queue_entry_from_block(current_block);
+        collected_pqp_entries.push(binding);
+        for idx in (0..blocks_len - 1).rev() {
+            let (hash, block) = match self.blocks.get_index(idx) {
+                Some(pair) => pair,
+                None => {
+                    println!("❌ Failed to get block at index {}", idx);
+                    return false;
+                }
+            };
+
+            if hash == target_parent_hash {
+                break;
+            }
+
+            // Skip placeholder blocks if hash is empty string
+            if hash.is_empty() {
+                continue;
+            }
+
+            // Insert each extracted ParentQueueEntry at front (to keep order old→new)
+            collected_pqp_entries.insert(0, Self::parent_queue_entry_from_block(block));
+        }
+
+        // 6. Compare collected PQP entries with the last N entries in PQP.pool
+        let recent_count = collected_pqp_entries.clone().len();
+        let pool_recent = &pool[pool.len() - recent_count..];
+
+        if pool_recent.len() != recent_count {
+            println!("❌ Mismatch in PQP entries count collected vs pool");
+            return false;
+        }
+
+        for (collected_entry, pool_entry) in collected_pqp_entries.iter().zip(pool_recent.iter()) {
+            if *collected_entry != *pool_entry {
+                println!(
+                    "❌ PQP entry mismatch at queue_index {}",
+                    collected_entry.queue_index
+                );
+                return false;
+            }
+        }
+
+        println!("✅ PQP entries in tree match the current PQP pool");
+        true
+    }
+
+    pub fn parent_queue_entry_from_block(block: &Block) -> ParentQueueEntry {
+        ParentQueueEntry {
+            queue_index: block.pqp_entry.queue_index,
+            block_hash: block.hash.clone(),
+            parent_hash: block.parent_hash.clone(),
+            miner_address: block.pqp_entry.miner_address.clone(),
+            prev_pqp_commitment: block.pqp_entry.prev_pqp_commitment.clone(),
+            signature: block.pqp_entry.signature.clone(),
+            pqp_commitment: block.pqp_commitment.clone(),
+        }
     }
 }
