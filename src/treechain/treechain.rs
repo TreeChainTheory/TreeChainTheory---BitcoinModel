@@ -228,8 +228,19 @@ impl TreeChain {
     pub fn add_block(&mut self, block: Block) {
         let hash = block.hash.clone();
         let parent_hash = block.parent_hash.clone();
+        let queue_index = block.pqp_entry.queue_index as usize;
 
-        self.blocks.insert(hash.clone(), block);
+        let len = self.blocks.len();
+
+        for i in len..queue_index {
+            let placeholder_block = Block::empty_placeholder(i as u32);
+            let placeholder_hash = placeholder_block.hash.clone();
+            self.blocks
+                .shift_insert(i, placeholder_hash, placeholder_block);
+        }
+
+        self.blocks
+            .shift_insert(queue_index.clone(), hash.clone(), block);
         self.children_map
             .entry(parent_hash)
             .or_insert_with(Vec::new)

@@ -93,6 +93,42 @@ impl Block {
         )
     }
 
+    pub fn empty_placeholder(queue_index: u32) -> Block {
+        // Create a dummy PQPEntry with empty or zeroed fields
+        let pqp_entry = PQPEntry {
+            queue_index,
+            miner_address: "".to_string(),
+            prev_pqp_commitment: "".repeat(32),
+            signature: "".repeat(64),
+        };
+
+        // Use a unique placeholder parent_hash, e.g. all zeros
+        let parent_hash = "".repeat(32);
+
+        // Create the block with other fields as empty or zero
+        let mut block = Block::new(
+            "".to_string(), // hash (to be calculated)
+            "".to_string(), // pqp_commitment (to be calculated)
+            0,              // level
+            "".to_string(), // position
+            0,              // version
+            parent_hash,    // parent_hash
+            "".repeat(32),  // merkle_root
+            0,              // timestamp
+            "".repeat(4),   // bits
+            0,              // nonce
+            0,              // align
+            pqp_entry,      // pqp_entry
+            0,              // nTx
+            vec![],         // tx
+        );
+
+        // Calculate hash and pqp commitment based on placeholder content
+        Block::calculate_hash_and_pqp_commitment(&mut block);
+
+        block
+    }
+
     pub fn calculate_hash_and_pqp_commitment(block: &mut Block) {
         // --- Step 1: Calculate Block Hash ---
         let mut hasher = Sha256::new();
