@@ -433,18 +433,21 @@ fn test_mine_blocks_with_multiple_aligns() {
         let txs0 = vec![format!("tx{}_a", i).repeat(4)];
         let mined_block_0 = treechain
             .mine_block_demo(&mut pqp, 1, txs0, miner_address.clone(), signature.clone())
-            .expect("Failed to mine block with align 0");
+            .unwrap_or_else(|| panic!("Failed to mine block with align 1, iter: {}", i));
         println!(
-            "\n Mined block (align=0) {}: hash {}",
-            i, mined_block_0.hash
+            "\n Mined block (align={}) {}: hash {}",
+            mined_block_0.align, i, mined_block_0.hash
         );
 
         // Align 1 block
         let txs1 = vec![format!("tx{}_b", i).repeat(4)];
         let mined_block_1 = treechain
             .mine_block_demo(&mut pqp, 2, txs1, miner_address.clone(), signature.clone())
-            .expect("Failed to mine block with align 1");
-        println!("Mined block (align=1) {}: hash {}", i, mined_block_1.hash);
+            .unwrap_or_else(|| panic!("Failed to mine block with align 1, iter: {}", i));
+        println!(
+            "Mined block (align={}) {}: hash {}",
+            mined_block_1.align, i, mined_block_1.hash
+        );
     }
 
     // Print blocks grouped by level to show tree structure

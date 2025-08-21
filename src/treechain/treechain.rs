@@ -41,12 +41,16 @@ impl PQP {
     }
 
     pub fn latest(&self) -> Option<&ParentQueueEntry> {
-        // self.pool
-        //     .iter()
-        //     .rev()
-        //     .take(CHILDREN as usize)
-        //     .max_by_key(|e| e.queue_index)
-        self.pool.last()
+        self.pool
+            .iter()
+            .rev()
+            .take(CHILDREN as usize)
+            .max_by_key(|e| e.queue_index)
+        // self.pool.last()
+    }
+
+    pub fn last(&self) -> Option<ParentQueueEntry> {
+        self.pool.last().cloned()
     }
 
     pub fn current_parent(&self) -> Option<&ParentQueueEntry> {
@@ -65,10 +69,10 @@ impl PQP {
 
     pub fn add_entry(&mut self, entry: ParentQueueEntry) {
         let current_parent = self.current_parent().cloned();
-        print!("\n current_parent: {:?}", current_parent);
+        // print!("\n current_parent: {:?}", current_parent);
         // print!("\n pqp_pool: {:?}", self.pool);
         let next_parent = self.next_parent().cloned();
-        print!("\n next_parent: {:?}", next_parent);
+        // print!("\n next_parent: {:?}", next_parent);
         let latest = self.latest().cloned();
 
         if let Some(current) = current_parent {
@@ -85,18 +89,19 @@ impl PQP {
                 //     latest.clone()
                 // );
                 let expected_prev_commit = if let Some(sibling) = latest_sibling {
-                    println!(
-                        "\n latest_sibling.prev_pqp: {:?},",
-                        sibling.clone().prev_pqp_commitment
-                    );
+                    // println!(
+                    //     "\n latest_sibling.prev_pqp: {:?},",
+                    //     sibling.clone().prev_pqp_commitment
+                    // );
                     // If siblings exist → use last sibling's prev_pqp_commitment
                     sibling.prev_pqp_commitment.clone()
                 } else {
                     // If no siblings → use latest entry's pqp_commitment
                     let Some(latest) = latest else {
+                        println!("❌ Latest entry should exist");
                         panic!("Latest entry should exist");
                     };
-                    println!("\n latest.pqp_commitment: {:?}", latest.pqp_commitment);
+                    // println!("\n latest.pqp_commitment: {:?}", latest.pqp_commitment);
                     latest.pqp_commitment.clone()
                 };
 
@@ -120,15 +125,30 @@ impl PQP {
                     self.pool
                         .iter()
                         .rev()
-                        .take(10)
+                        .take(CHILDREN as usize)
                         .any(|e| e.parent_hash == next.block_hash)
                 } else {
                     false
                 };
 
                 if !next_parent_has_children && children_count_current < CHILDREN as usize {
-                    self.pool.push(entry);
+                    let mut insert_pos = self.pool.len();
 
+                    for i in (0..self.pool.len()).rev() {
+                        if self.pool[i].queue_index < entry.queue_index {
+                            // Insert *after* this one
+                            insert_pos = i + 1;
+                            break;
+                        }
+                    }
+
+                    if insert_pos == self.pool.len() {
+                        self.pool.push(entry);
+                    } else {
+                        self.pool.insert(insert_pos, entry);
+                    }
+
+                    // self.pool.push(entry.clone());
                     let updated_children_count = self
                         .pool
                         .iter()
@@ -250,6 +270,7 @@ impl TreeChain {
             .current_parent()
             .expect("No current parent PQP entry found");
         let latest_pqp = pqp.latest()?;
+        println!("\n current_parent hash: {:?}", current_parent.block_hash);
 
         let sibling_aligns: Vec<u8> = pqp
             .pool
@@ -353,19 +374,27 @@ impl TreeChain {
                         candidate.pqp_commitment.clone(),
                     );
                     pqp.add_entry(new_pqp_entry.clone());
-                    let latest_pqp = pqp.latest().expect("No latest PQP entry found").clone();
-
-                    if latest_pqp == new_pqp_entry {
+                    let latest_pqp = pqp.last().expect("No latest PQP entry found").clone();
+                    let exist: bool = pqp
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(CHILDREN as usize)
+                        .any(|e| e.block_hash == new_pqp_entry.block_hash);
+                    if exist {
                         println!("\nNew PQP entry added: {:?}", new_pqp_entry);
                         self.add_block(candidate.clone());
+                        return Some(candidate);
+                    } else {
+                        println!("❌ Failed :  PQP entry mismatch");
+                        return None;
                     }
-
-                    return Some(candidate);
                 }
             }
 
             nonce = nonce.wrapping_add(1);
             if nonce == u32::MAX {
+                println!("❌ Failed :  Nonce Exhausted");
                 return None;
             }
         }
