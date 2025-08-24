@@ -1,36 +1,55 @@
-// use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
-// use core::hash;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-// use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Represents an entry in the Pending Queue of Parents (PQP).
+/// Each block includes a reference to one PQP entry, which ensures
+/// that block creation is tied to a miner's eligibility
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PQPEntry {
     pub queue_index: u32,
+    /// The miner's public identity (in this prototype a hex string,
+    /// but in a real implementation this would be raw bytes or a public key type).
     pub miner_address: String,
+    /// Commitment to the previous PQP state (hex-encoded string here,
+    /// normally a `[u8; 32]` or `Vec<u8>` in production).
     pub prev_pqp_commitment: String,
+    /// The miner's digital signature over this PQP entry
+    /// (again stored as hex string, but in reality should be raw bytes).
     pub signature: String,
 }
 
+/// Represents a blockchain block.
+/// Each block contains references to its parent, a set of transactions,
+/// a PQP entry, and proof-of-work style fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Block {
+    /// Block hash (calculated over block contents).
+    /// In this prototype: stored as a hex string, but in reality: `[u8; 32]`.
     pub hash: String,
+    /// In this prototype: stored as a hex string, but in reality: `[u8; 32]`.
     pub pqp_commitment: String,
     pub level: u32,
+    /// Logical position (tree-based placement, not just linear height).
     pub position: String,
+    /// Block version (allows protocol upgrades) for now as this is just a prototype its only 1.
     pub version: u32,
+    /// Parent block's hash (hex string here, `[u8; 32]` in real-world).
     pub parent_hash: String,
+    /// Root of the Merkle tree built from transactions.
     pub merkle_root: String,
     pub timestamp: u128,
+    /// Difficulty bits (compact representation of target).
+    /// Stored as hex string (real chain: 4 raw bytes).
     pub bits: String,
     pub nonce: u32,
     pub align: u8,
-
     pub pqp_entry: PQPEntry,
 
     pub nTx: u32,
+
+    /// List of transactions (will be changed later after buiilding transactions).
     pub tx: Vec<String>,
 }
 
