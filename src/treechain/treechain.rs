@@ -80,34 +80,11 @@ impl PQP {
 
         if let Some(current) = current_parent {
             if entry.parent_hash == current.block_hash {
-                let latest_sibling = self
-                    .pool
-                    .iter()
-                    .rev()
-                    .take(10)
-                    .find(|e| e.parent_hash == current.block_hash);
+                let expected_prev_commit = self.get_prev_pqp(entry.align);
                 // println!(
-                //     "\n latest_sibling: {:?}, \n latest: {:?}",
-                //     latest_sibling.cloned(),
-                //     latest.clone()
+                //     "expected_prev_commit in add_entry(): {}",
+                //     expected_prev_commit
                 // );
-                let expected_prev_commit = if let Some(sibling) = latest_sibling {
-                    // println!(
-                    //     "\n latest_sibling.prev_pqp: {:?},",
-                    //     sibling.clone().prev_pqp_commitment
-                    // );
-                    // If siblings exist → use last sibling's prev_pqp_commitment
-                    sibling.prev_pqp_commitment.clone()
-                } else {
-                    // If no siblings → use latest entry's pqp_commitment
-                    let Some(latest) = latest else {
-                        println!("❌ Latest entry should exist");
-                        panic!("Latest entry should exist");
-                    };
-                    // println!("\n latest.pqp_commitment: {:?}", latest.pqp_commitment);
-                    latest.pqp_commitment.clone()
-                };
-
                 if entry.prev_pqp_commitment != expected_prev_commit {
                     // Invalid commit → reject early
                     println!(
@@ -166,6 +143,7 @@ impl PQP {
                 } else {
                     self.pool.retain(|e| e.block_hash != current.block_hash);
                 }
+                // println!("\n pqp at add_entry:{:?}", &self.pool);
             } else if let Some(next) = next_parent {
                 if entry.parent_hash == next.block_hash {
                     let Some(latest) = latest else {
@@ -183,6 +161,48 @@ impl PQP {
         } else {
             self.pool.push(entry);
         }
+    }
+
+    pub fn get_prev_pqp(&self, align: u8) -> String {
+        if let Some(last) = self.pool.last() {
+            if let Some(current_parent) = self.current_parent() {
+                let prev_parent = if current_parent.block_hash == last.parent_hash {
+                    // find another parent (not same as current's parent)
+                    self.pool
+                        .iter()
+                        .rev()
+                        .take(CHILDREN as usize)
+                        .find(|e| e.parent_hash != last.parent_hash)
+                } else {
+                    Some(last) // default: use last
+                };
+
+                if let Some(prev_parent) = prev_parent {
+                    let siblings: Vec<&ParentQueueEntry> = self
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(10)
+                        .filter(|e| e.parent_hash == prev_parent.parent_hash)
+                        .collect();
+
+                    // exact align match
+                    if let Some(sibling) = siblings.iter().find(|s| s.align == align) {
+                        return sibling.pqp_commitment.clone();
+                    }
+
+                    // fallback: latest sibling
+                    if let Some(last_sibling) = siblings.iter().max_by_key(|e| e.queue_index) {
+                        return last_sibling.pqp_commitment.clone();
+                    }
+                }
+            }
+        }
+        // Fallback: pool non-empty
+        self.pool
+            .last()
+            .map(|e| e.pqp_commitment.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -313,6 +333,7 @@ impl TreeChain {
                 return None;
             }
         }
+        let prev_pqp = pqp.get_prev_pqp(align);
 
         let max_queue_index = pqp.latest()?.queue_index;
 
@@ -320,7 +341,7 @@ impl TreeChain {
             pqp.pool
                 .iter()
                 .rev()
-                .find(|entry| entry.pqp_commitment == latest_pqp.prev_pqp_commitment)
+                .find(|entry| entry.parent_hash != current_parent.block_hash)
                 .map(|entry| entry.queue_index)
                 .unwrap_or(max_queue_index)
         } else {
@@ -333,11 +354,7 @@ impl TreeChain {
         );
         let queue_index = base_index + align as u32;
         // let queue_index = latest_pqp.queue_index + align as u32;
-        let prev_pqp = if latest_pqp.parent_hash == current_parent.block_hash {
-            latest_pqp.prev_pqp_commitment.clone()
-        } else {
-            latest_pqp.pqp_commitment.clone()
-        };
+
         let pqp_entry = PQPEntry {
             queue_index,
             miner_address: miner_address.clone(),
@@ -391,7 +408,6 @@ impl TreeChain {
                         candidate.pqp_commitment.clone(),
                     );
                     pqp.add_entry(new_pqp_entry.clone());
-                    let latest_pqp = pqp.last().expect("No latest PQP entry found").clone();
                     let exist: bool = pqp
                         .pool
                         .iter()
@@ -511,21 +527,68 @@ impl TreeChain {
                     return false;
                 }
 
-                if entry.parent_hash == prev_entry.parent_hash {
-                    if entry.prev_pqp_commitment != prev_entry.prev_pqp_commitment {
-                        println!(
-                            "❌ Prev PQP commitment mismatch for siblings at queue_index {} and {}",
-                            entry.queue_index, prev_entry.queue_index
-                        );
-                        return false;
+                if entry.parent_hash != prev_entry.parent_hash {
+                    let prev_siblings: Vec<&ParentQueueEntry> = pqp
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(10)
+                        .filter(|e| e.parent_hash == prev_entry.parent_hash)
+                        .collect();
+                    let mut found = false;
+                    for sib in &prev_siblings {
+                        if entry.align == sib.align {
+                            if entry.prev_pqp_commitment != sib.pqp_commitment {
+                                return false;
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        if let Some(max_sibling) =
+                            prev_siblings.iter().max_by_key(|e| e.queue_index)
+                        {
+                            if entry.prev_pqp_commitment != max_sibling.pqp_commitment {
+                                return false;
+                            }
+                        }
                     }
                 } else {
-                    if entry.prev_pqp_commitment != prev_entry.pqp_commitment {
-                        println!(
-                            "❌ Prev PQP commitment mismatch for different parents at queue_index {}",
-                            entry.queue_index
-                        );
-                        return false;
+                    let mut ancestor_opt = None;
+                    for ancestor in pqp.pool.iter().take(i).rev() {
+                        if ancestor.parent_hash != entry.parent_hash {
+                            ancestor_opt = Some(ancestor);
+                            break;
+                        }
+                    }
+                    if let Some(ancestor) = ancestor_opt {
+                        let siblings: Vec<&ParentQueueEntry> = pqp
+                            .pool
+                            .iter()
+                            .rev()
+                            .take(10)
+                            .filter(|e| e.parent_hash == ancestor.parent_hash)
+                            .collect();
+
+                        let mut found = false;
+                        for sib in &siblings {
+                            if entry.align == sib.align {
+                                if entry.prev_pqp_commitment != sib.pqp_commitment {
+                                    return false;
+                                }
+                                found = true;
+                                break;
+                            }
+                        }
+                        if !found {
+                            if let Some(max_sibling) = siblings.iter().max_by_key(|e| e.queue_index)
+                            {
+                                if entry.prev_pqp_commitment != max_sibling.pqp_commitment {
+                                    return false;
+                                }
+                            }
+                        }
                     }
                 }
             }

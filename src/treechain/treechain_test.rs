@@ -471,7 +471,7 @@ fn test_mine_blocks_with_multiple_aligns() {
         .max()
         .unwrap_or(0);
 
-    println!("\nTreeChain blocks by level:");
+    // println!("\nTreeChain blocks by level:");
     // println!("Total blocks: {:?}", treechain.blocks);
     // println!("pqp: {:?}", pqp.pool);
     for level in 0..=max_level {
@@ -491,7 +491,7 @@ fn test_mine_blocks_with_multiple_aligns() {
             );
         }
     }
-
+    assert!(treechain.is_valid_tree(&pqp));
     println!("pqp: {:?}", pqp.pool);
 }
 
@@ -867,4 +867,227 @@ fn test_get_missing_blocks_from_timestamp_recent_returns_from_param() {
     // Should start from recent_block, not genesis
     assert!(!missing_blocks.is_empty());
     assert_eq!(missing_blocks[0].hash, recent_block.hash);
+}
+
+#[test]
+fn test_get_prev_pqp_empty_pool() {
+    let pqp = PQP { pool: vec![] };
+    assert_eq!(pqp.get_prev_pqp(1), "");
+}
+
+#[test]
+fn test_get_prev_pqp_only_genesis() {
+    let pqp = PQP::new();
+    let expected = "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd".to_string();
+    assert_eq!(pqp.get_prev_pqp(1), expected);
+}
+
+#[test]
+fn test_get_prev_pqp_incomplete_siblings() {
+    // Manually construct pool with genesis + 1 child
+    let genesis_entry = ParentQueueEntry {
+        queue_index: 0,
+        align: 0,
+        block_hash: "gen".to_string(),
+        parent_hash: "00".to_string(),
+        miner_address: "gen".to_string(),
+        prev_pqp_commitment: "00".to_string(),
+        signature: "".to_string(),
+        pqp_commitment: "gen_commit".to_string(),
+    };
+
+    let child1 = ParentQueueEntry {
+        queue_index: 1,
+        align: 1,
+        block_hash: "c1".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner1".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig1".to_string(),
+        pqp_commitment: "c1_commit".to_string(),
+    };
+
+    let pqp = PQP {
+        pool: vec![genesis_entry, child1],
+    };
+
+    // Should fallback to genesis commit
+    assert_eq!(pqp.get_prev_pqp(2), "gen_commit");
+    assert_eq!(pqp.get_prev_pqp(1), "gen_commit"); // Even for existing align, since siblings only genesis
+}
+
+#[test]
+fn test_get_prev_pqp_complete_siblings() {
+    // Pool after completing siblings and removing genesis: [c1, c2, c3]
+    let child1 = ParentQueueEntry {
+        queue_index: 1,
+        align: 1,
+        block_hash: "c1".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner1".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig1".to_string(),
+        pqp_commitment: "c1_commit".to_string(),
+    };
+
+    let child2 = ParentQueueEntry {
+        queue_index: 2,
+        align: 2,
+        block_hash: "c2".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner2".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig2".to_string(),
+        pqp_commitment: "c2_commit".to_string(),
+    };
+
+    let child3 = ParentQueueEntry {
+        queue_index: 3,
+        align: 3,
+        block_hash: "c3".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner3".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig3".to_string(),
+        pqp_commitment: "c3_commit".to_string(),
+    };
+
+    let pqp = PQP {
+        pool: vec![child1, child2, child3],
+    };
+
+    // Matches exact align
+    assert_eq!(pqp.get_prev_pqp(1), "c1_commit");
+    assert_eq!(pqp.get_prev_pqp(2), "c2_commit");
+    assert_eq!(pqp.get_prev_pqp(3), "c3_commit");
+
+    // Fallback to max queue_index (c3)
+    assert_eq!(pqp.get_prev_pqp(4), "c3_commit");
+}
+
+#[test]
+fn test_get_prev_pqp_with_next_level_incomplete() {
+    // Pool: [c1, c2, c3, d1] where d1 is child of c1
+    let child1 = ParentQueueEntry {
+        queue_index: 1,
+        align: 1,
+        block_hash: "c1".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner1".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig1".to_string(),
+        pqp_commitment: "c1_commit".to_string(),
+    };
+
+    let child2 = ParentQueueEntry {
+        queue_index: 2,
+        align: 2,
+        block_hash: "c2".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner2".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig2".to_string(),
+        pqp_commitment: "c2_commit".to_string(),
+    };
+
+    let child3 = ParentQueueEntry {
+        queue_index: 3,
+        align: 3,
+        block_hash: "c3".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner3".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig3".to_string(),
+        pqp_commitment: "c3_commit".to_string(),
+    };
+
+    let d1 = ParentQueueEntry {
+        queue_index: 4,
+        align: 1,
+        block_hash: "d1".to_string(),
+        parent_hash: "c1".to_string(),
+        miner_address: "miner4".to_string(),
+        prev_pqp_commitment: "c1_commit".to_string(),
+        signature: "sig4".to_string(),
+        pqp_commitment: "d1_commit".to_string(),
+    };
+
+    let pqp = PQP {
+        pool: vec![child1, child2, child3, d1],
+    };
+
+    // Should get from previous group (c1, c2, c3)
+    assert_eq!(pqp.get_prev_pqp(1), "c1_commit");
+    assert_eq!(pqp.get_prev_pqp(2), "c2_commit");
+    assert_eq!(pqp.get_prev_pqp(3), "c3_commit");
+    assert_eq!(pqp.get_prev_pqp(4), "c3_commit"); // Fallback
+}
+
+#[test]
+fn test_get_prev_pqp_after_removing_previous_parent() {
+    // Pool after filling children for c1 and removing c1: [c2, c3, d1, d2, d3]
+    let child2 = ParentQueueEntry {
+        queue_index: 2,
+        align: 2,
+        block_hash: "c2".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner2".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig2".to_string(),
+        pqp_commitment: "c2_commit".to_string(),
+    };
+
+    let child3 = ParentQueueEntry {
+        queue_index: 3,
+        align: 3,
+        block_hash: "c3".to_string(),
+        parent_hash: "gen".to_string(),
+        miner_address: "miner3".to_string(),
+        prev_pqp_commitment: "gen_commit".to_string(),
+        signature: "sig3".to_string(),
+        pqp_commitment: "c3_commit".to_string(),
+    };
+
+    let d1 = ParentQueueEntry {
+        queue_index: 4,
+        align: 1,
+        block_hash: "d1".to_string(),
+        parent_hash: "c1".to_string(),
+        miner_address: "miner4".to_string(),
+        prev_pqp_commitment: "c1_commit".to_string(), // Assuming c1_commit from previous
+        signature: "sig4".to_string(),
+        pqp_commitment: "d1_commit".to_string(),
+    };
+
+    let d2 = ParentQueueEntry {
+        queue_index: 5,
+        align: 2,
+        block_hash: "d2".to_string(),
+        parent_hash: "c1".to_string(),
+        miner_address: "miner5".to_string(),
+        prev_pqp_commitment: "c2_commit".to_string(),
+        signature: "sig5".to_string(),
+        pqp_commitment: "d2_commit".to_string(),
+    };
+
+    let d3 = ParentQueueEntry {
+        queue_index: 6,
+        align: 3,
+        block_hash: "d3".to_string(),
+        parent_hash: "c1".to_string(),
+        miner_address: "miner6".to_string(),
+        prev_pqp_commitment: "c3_commit".to_string(),
+        signature: "sig6".to_string(),
+        pqp_commitment: "d3_commit".to_string(),
+    };
+
+    let pqp = PQP {
+        pool: vec![child2, child3, d1, d2, d3],
+    };
+
+    // Should get from latest group (d1, d2, d3)
+    assert_eq!(pqp.get_prev_pqp(1), "d1_commit");
+    assert_eq!(pqp.get_prev_pqp(2), "d2_commit");
+    assert_eq!(pqp.get_prev_pqp(3), "d3_commit");
+    assert_eq!(pqp.get_prev_pqp(4), "d3_commit"); // Fallback to max (d3)
 }
