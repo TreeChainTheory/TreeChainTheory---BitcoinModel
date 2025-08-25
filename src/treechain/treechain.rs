@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParentQueueEntry {
     pub queue_index: u32,
+    pub align: u8,
     pub block_hash: String,
     pub parent_hash: String,
     pub miner_address: String,
@@ -28,6 +29,7 @@ impl PQP {
 
         let genesis_entry = ParentQueueEntry {
             queue_index: 0,
+            align: genesis.align,
             block_hash: genesis.hash.clone(),
             parent_hash: genesis.parent_hash.clone(),
             miner_address: genesis.pqp_entry.miner_address,
@@ -187,6 +189,7 @@ impl PQP {
 impl ParentQueueEntry {
     pub fn new(
         queue_index: u32,
+        align: u8,
         block_hash: String,
         parent_hash: String,
         miner_address: String,
@@ -196,6 +199,7 @@ impl ParentQueueEntry {
     ) -> Self {
         Self {
             queue_index,
+            align,
             block_hash,
             parent_hash,
             miner_address,
@@ -309,11 +313,6 @@ impl TreeChain {
                 return None;
             }
         }
-        let prev_pqp = if latest_pqp.parent_hash == current_parent.block_hash {
-            latest_pqp.prev_pqp_commitment.clone()
-        } else {
-            latest_pqp.pqp_commitment.clone()
-        };
 
         let max_queue_index = pqp.latest()?.queue_index;
 
@@ -334,6 +333,11 @@ impl TreeChain {
         );
         let queue_index = base_index + align as u32;
         // let queue_index = latest_pqp.queue_index + align as u32;
+        let prev_pqp = if latest_pqp.parent_hash == current_parent.block_hash {
+            latest_pqp.prev_pqp_commitment.clone()
+        } else {
+            latest_pqp.pqp_commitment.clone()
+        };
         let pqp_entry = PQPEntry {
             queue_index,
             miner_address: miner_address.clone(),
@@ -378,6 +382,7 @@ impl TreeChain {
                 if val < target {
                     let new_pqp_entry = ParentQueueEntry::new(
                         candidate.pqp_entry.queue_index,
+                        candidate.align,
                         candidate.hash.clone(),
                         candidate.parent_hash.clone(),
                         candidate.pqp_entry.miner_address.clone(),
@@ -479,6 +484,7 @@ impl TreeChain {
 
             let mut pqp_hasher = Sha256::new();
             pqp_hasher.update(entry.queue_index.to_le_bytes());
+            pqp_hasher.update(&[block.align]);
             pqp_hasher.update(hex::decode(&block.hash).unwrap_or_default());
             pqp_hasher.update(hex::decode(&entry.parent_hash).unwrap_or_default());
             pqp_hasher.update(entry.miner_address.as_bytes());
@@ -594,6 +600,7 @@ impl TreeChain {
     pub fn parent_queue_entry_from_block(block: &Block) -> ParentQueueEntry {
         ParentQueueEntry {
             queue_index: block.pqp_entry.queue_index,
+            align: block.align,
             block_hash: block.hash.clone(),
             parent_hash: block.parent_hash.clone(),
             miner_address: block.pqp_entry.miner_address.clone(),

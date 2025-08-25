@@ -17,7 +17,6 @@ fn test_pqp_initialization() {
 }
 
 #[test]
-#[test]
 fn test_add_entry_normal_behavior() {
     let mut pqp = PQP::new();
     let current_parent = pqp
@@ -26,6 +25,7 @@ fn test_add_entry_normal_behavior() {
         .clone();
     let latest = pqp.latest().expect("Should have latest entry").clone();
     let new_entry = ParentQueueEntry::new(
+        1,
         1,
         "block1".to_string(),
         current_parent.block_hash.clone(),
@@ -42,7 +42,6 @@ fn test_add_entry_normal_behavior() {
 }
 
 #[test]
-#[test]
 fn test_current_and_next_parent() {
     let mut pqp = PQP::new();
     let current_parent = pqp
@@ -56,6 +55,7 @@ fn test_current_and_next_parent() {
     for i in 1..=(CHILDREN as u32) {
         let entry = ParentQueueEntry::new(
             i,
+            1,
             format!("block{}", i),
             current_parent.block_hash.clone(),
             format!("Miner{}", i),
@@ -103,6 +103,7 @@ fn test_children_limit_removes_current_parent() {
     for i in 1..=CHILDREN as u32 {
         let entry = ParentQueueEntry::new(
             i,
+            1,
             format!("block{}", i),
             parent_hash.clone(),
             format!("Miner{}", i),
@@ -135,6 +136,7 @@ fn test_next_parent_children_removal_of_current_parent() {
     // Add a next parent with queue_index larger than genesis and its child entries
     let next_parent = ParentQueueEntry::new(
         1,
+        1,
         "next_parent_block".to_string(),
         current_parent.block_hash.clone(),
         "MinerX".to_string(),
@@ -146,6 +148,7 @@ fn test_next_parent_children_removal_of_current_parent() {
     // Add a child entry for the new next parent block
     let next_parent = pqp.next_parent().expect("Should have next parent").clone();
     let next_parent_child = ParentQueueEntry::new(
+        2,
         2,
         "child_of_next_parent".to_string(),
         next_parent.block_hash.clone(),
@@ -230,6 +233,7 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
     for i in 1..=(CHILDREN as u32) {
         let sibling = ParentQueueEntry::new(
             i,
+            1,
             format!("sibling{}", i),
             current_parent.block_hash.clone(),
             format!("MinerSibling{}", i),
@@ -248,6 +252,7 @@ fn test_pqp_prev_pqp_commit_with_siblings() {
             // Use an incorrect prev_pqp_commitment for negative test
             let bad_sibling = ParentQueueEntry::new(
                 i,
+                2,
                 format!("bad_sibling{}", i),
                 current_parent.block_hash.clone(),
                 format!("MinerBad{}", i),
@@ -295,6 +300,7 @@ fn test_prev_commit_for_first_child_is_latest_commit() {
     // For the first child of the parent, prev_pqp_commitment must be latest.pqp_commitment
     let child = ParentQueueEntry::new(
         1,
+        1,
         "first_child".to_string(),
         current_parent.block_hash.clone(),
         "MinerFirst".to_string(),
@@ -307,6 +313,7 @@ fn test_prev_commit_for_first_child_is_latest_commit() {
 
     // Now try with a wrong prev_pqp_commitment
     let bad_child = ParentQueueEntry::new(
+        2,
         2,
         "bad_child".to_string(),
         current_parent.block_hash.clone(),
@@ -328,6 +335,7 @@ fn test_out_of_order_child_rejected_and_next_parent_behavior() {
     // Add a new next_parent right after genesis (same parent is genesis)
     let new_parent_entry = ParentQueueEntry::new(
         1,
+        1,
         "next_parent".to_string(),
         current_parent.block_hash.clone(),
         "MinerNext".to_string(),
@@ -340,6 +348,7 @@ fn test_out_of_order_child_rejected_and_next_parent_behavior() {
     // Try to add a child for current_parent, but now that next_parent exists, if its child is added, current_parent must be removed
     let next_parent = pqp.next_parent().unwrap().clone();
     let child_for_next_parent = ParentQueueEntry::new(
+        2,
         2,
         "child_of_next".to_string(),
         next_parent.block_hash.clone(),
@@ -546,6 +555,7 @@ fn test_is_valid_pqp_comprehensive() {
     // Add a valid block and PQP entries chain
     let new_pqp_entry = ParentQueueEntry::new(
         1,
+        1,
         "block1_hash".to_string(),
         genesis.hash.clone(),
         "Miner1".to_string(),
@@ -594,6 +604,7 @@ fn test_is_valid_pqp_comprehensive() {
     let mut pqp_missing_block = pqp.clone();
     pqp_missing_block.pool.push(ParentQueueEntry::new(
         2,
+        2,
         "missing_block_hash".to_string(),
         new_pqp_entry.block_hash.clone(),
         "Miner2".to_string(),
@@ -622,6 +633,7 @@ fn test_is_valid_pqp_comprehensive() {
     let mut pqp_sibling_mismatch = pqp.clone();
     pqp_sibling_mismatch.pool.push(ParentQueueEntry::new(
         2,
+        2,
         "block2_hash".to_string(),
         new_pqp_entry.parent_hash.clone(),
         "Miner2".to_string(),
@@ -634,6 +646,7 @@ fn test_is_valid_pqp_comprehensive() {
     // 5. Test PQP entries with different parents and incorrect prev_pqp_commitment
     let mut pqp_diff_parent = pqp.clone();
     pqp_diff_parent.pool.push(ParentQueueEntry::new(
+        2,
         2,
         "block2_hash".to_string(),
         "different_parent_hash".to_string(),

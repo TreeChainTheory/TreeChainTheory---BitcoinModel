@@ -91,7 +91,7 @@ impl Block {
     pub fn genesis() -> Block {
         Block::new(
             "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b".to_string(),
-            "c5a3eaba46eaad14671403501bdc7721c93c6d7b452deb0f6a9381395d893233".to_string(),
+            "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd".to_string(),
             0,
             "0".to_string(),
             1,
@@ -174,6 +174,7 @@ impl Block {
         // --- Step 2: Calculate PQP Commitment ---
         let mut pqp_hasher = Sha256::new();
         pqp_hasher.update(block.pqp_entry.queue_index.to_le_bytes());
+        pqp_hasher.update(&[block.align]);
         pqp_hasher.update(hex::decode(&block.hash).unwrap_or_default());
         pqp_hasher.update(hex::decode(&block.parent_hash).unwrap_or_default());
         pqp_hasher.update(block.pqp_entry.miner_address.as_bytes());
@@ -213,6 +214,7 @@ impl Block {
         // Recalculate the PQP commitment
         let mut pqp_hasher = Sha256::new();
         pqp_hasher.update(self.pqp_entry.queue_index.to_le_bytes());
+        pqp_hasher.update(&[self.align]);
         pqp_hasher.update(hex::decode(&self.hash).unwrap_or_default());
         pqp_hasher.update(hex::decode(&self.parent_hash).unwrap_or_default());
         pqp_hasher.update(self.pqp_entry.miner_address.as_bytes());
