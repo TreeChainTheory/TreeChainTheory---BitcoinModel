@@ -436,7 +436,7 @@ fn test_mine_block_demo() {
 fn test_mine_blocks_with_multiple_aligns() {
     let mut treechain = TreeChain::new();
     let mut pqp = PQP::new();
-
+    println!("Initial Tree: {:?}", treechain.blocks);
     let miner_address = "MinerXYZ".to_string();
     let signature = "sig123456".to_string();
 
@@ -472,7 +472,7 @@ fn test_mine_blocks_with_multiple_aligns() {
         .unwrap_or(0);
 
     // println!("\nTreeChain blocks by level:");
-    // println!("Total blocks: {:?}", treechain.blocks);
+    println!("Total blocks: {}", treechain.blocks.len());
     // println!("pqp: {:?}", pqp.pool);
     for level in 0..=max_level {
         let blocks_at_level = treechain.blocks_at_level(level);
@@ -489,8 +489,50 @@ fn test_mine_blocks_with_multiple_aligns() {
                     .clone(),
                 treechain.get_block(&hash).unwrap().align
             );
+            if let Some((_, current_block)) = treechain.blocks.get_index(
+                treechain
+                    .get_block(&hash)
+                    .unwrap()
+                    .pqp_entry
+                    .queue_index
+                    .clone()
+                    .try_into()
+                    .unwrap(),
+            ) {
+                println!(
+                    "  {}  {}  {}",
+                    current_block.hash, current_block.pqp_entry.queue_index, current_block.align
+                );
+            }
         }
     }
+
+    println!("\nTrace blocks by queue_index:");
+    for q in 0..treechain.blocks.len() {
+        if let Some((_, block)) = treechain.blocks.get_index(q) {
+            println!(
+                "  [{}] hash={} level={} align={} miner={} ",
+                q, block.hash, block.level, block.align, block.pqp_entry.miner_address
+            );
+        } else {
+            println!("  [{}] <missing>", q);
+        }
+    }
+
+    println!("\nTree:");
+    for (hash, block) in &treechain.blocks {
+        println!(
+            "\nBlock {{\n  hash: {}\n  parent:{}\n level: {}\n  align: {}\n  queue_index: {}\n  miner: {}\n  prev_pqp: {}\n}}",
+            hash,
+            block.parent_hash,
+            block.level,
+            block.align,
+            block.pqp_entry.queue_index,
+            block.pqp_entry.miner_address,
+            block.pqp_entry.prev_pqp_commitment
+        );
+    }
+
     assert!(treechain.is_valid_tree(&pqp));
     println!("pqp: {:?}", pqp.pool);
 }
@@ -669,6 +711,7 @@ fn test_verify_and_add_block_success() {
     // Clone genesis and slightly modify hash so it passes verification failure
     let mut block = genesis.clone();
     block.nonce = 1;
+    block.pqp_entry.queue_index = 1;
     Block::calculate_hash_and_pqp_commitment(&mut block);
 
     let added = treechain.verify_and_add_block(&block);
@@ -849,12 +892,15 @@ fn test_get_missing_blocks_from_timestamp_recent_returns_from_param() {
         .unwrap()
         .as_secs() as u128;
 
+    recent_block.pqp_entry.queue_index = 1;
+    recent_block.position = "0.1".to_string();
     treechain.add_block(recent_block.clone());
 
     let mut parent = recent_block.clone();
     for i in 2..=3 {
         let mut b = Block::empty_placeholder(i);
         b.parent_hash = parent.hash.clone();
+        b.position = format!("{}.{}", parent.position, i);
         b.level = parent.level + 1;
         b.pqp_entry.queue_index = i;
         b.pqp_entry.prev_pqp_commitment = parent.pqp_commitment.clone();

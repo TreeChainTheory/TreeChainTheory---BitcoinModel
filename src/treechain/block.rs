@@ -122,7 +122,7 @@ impl Block {
         };
 
         // Use a unique placeholder parent_hash, e.g. all zeros
-        let parent_hash = "".repeat(32);
+        let parent_hash = "".to_string();
 
         // Create the block with other fields as empty or zero
         let mut block = Block::new(

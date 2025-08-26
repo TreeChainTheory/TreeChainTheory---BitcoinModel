@@ -255,23 +255,43 @@ impl TreeChain {
         let parent_hash = block.parent_hash.clone();
         let queue_index = block.pqp_entry.queue_index as usize;
 
-        let len = self.blocks.len();
-
-        for i in len..queue_index {
-            let placeholder_block = Block::empty_placeholder(i as u32);
+        // Insert placeholders for indices up to queue_index - 1
+        while self.blocks.len() < queue_index {
+            let placeholder_index = self.blocks.len() as u32;
+            let placeholder_block = Block::empty_placeholder(placeholder_index);
             let placeholder_hash = placeholder_block.hash.clone();
-            self.blocks
-                .shift_insert(i, placeholder_hash, placeholder_block);
+            self.blocks.insert(placeholder_hash, placeholder_block);
         }
 
-        self.blocks
-            .shift_insert(queue_index.clone(), hash.clone(), block);
-        self.children_map
-            .entry(parent_hash)
-            .or_insert_with(Vec::new)
-            .push(hash);
-    }
+        // Check if there's a block at queue_index
+        if let Some((existing_hash, existing_block)) = self.blocks.get_index(queue_index) {
+            if !(existing_block.position.is_empty()) {
+                // If there's a non-placeholder block at queue_index, do not overwrite
+                println!("existing_block: {:?}", existing_block);
+                println!(
+                    "❌ Block with queue_index {} already exists and is not a placeholder: {}",
+                    queue_index, existing_hash
+                );
+                return;
+            }
 
+            // 🔥 Correct way: preserve order while replacing key/value
+            self.blocks.swap_remove_index(queue_index); // remove placeholder
+            let tail = self.blocks.split_off(queue_index); // save everything after index
+            self.blocks.insert(hash.clone(), block); // insert our new block at correct spot
+            self.blocks.extend(tail); // restore the rest
+        } else {
+            self.blocks.insert(hash.clone(), block);
+        }
+
+        // Update children_map for the parent
+        if !parent_hash.is_empty() {
+            self.children_map
+                .entry(parent_hash)
+                .or_insert_with(Vec::new)
+                .push(hash);
+        }
+    }
     pub fn get_block(&self, hash: &str) -> Option<&Block> {
         self.blocks.get(hash)
     }
@@ -364,7 +384,10 @@ impl TreeChain {
 
         let parent_block_hash = &current_parent.block_hash.clone();
         let parent_block = self.get_block(parent_block_hash)?;
-
+        println!(
+            "parent block: level:{}, postion:{},queue_index:{}",
+            parent_block.level, parent_block.position, parent_block.pqp_entry.queue_index
+        );
         let merkle_root = Block::merkle_root(tx.clone());
 
         let target = Block::calculate_target(BITS.to_string()).expect("Invalid bits");
@@ -434,9 +457,11 @@ impl TreeChain {
     }
 
     pub fn is_valid_tree(&self, pqp: &PQP) -> bool {
+        println!("is valid tree started");
+        println!("pqp: {:?}", pqp.pool);
         for entry in &pqp.pool {
             let mut current_hash = entry.block_hash.clone();
-
+            println!("current pqp entry: {:?}", entry);
             loop {
                 let block_opt = self.get_block(&current_hash);
                 let block = match block_opt {
@@ -446,6 +471,65 @@ impl TreeChain {
                         return false;
                     }
                 };
+                let genesis = Block::genesis();
+                if block.hash == genesis.hash {
+                    break;
+                }
+
+                let base_index = if block.pqp_entry.queue_index >= block.align as u32 {
+                    (block.pqp_entry.queue_index - block.align as u32) as usize
+                } else {
+                    0
+                };
+                println!("base index: {}", base_index);
+
+                let mut prev_pqp_block = None;
+                let mut prev_pqp_block_hash = String::new();
+
+                // Start from base_index and go backward
+                if block.pqp_entry.queue_index >= block.align as u32 {
+                    if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
+                        prev_pqp_block = Some(base_block);
+                        prev_pqp_block_hash = hash.clone();
+
+                        // Traverse backward to find a block with matching align and same parent_hash
+                        for idx in (0..base_index + 1).rev() {
+                            if let Some((hash, candidate_block)) = self.blocks.get_index(idx) {
+                                if candidate_block.align == block.align
+                                    && candidate_block.parent_hash
+                                        == prev_pqp_block.unwrap().parent_hash
+                                {
+                                    prev_pqp_block = Some(candidate_block);
+                                    prev_pqp_block_hash = hash.clone();
+                                    break;
+                                } else if candidate_block.parent_hash
+                                    != prev_pqp_block.unwrap().parent_hash
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If no matching block is found, use the base_index block
+                let (prev_pqp_block_hash, prev_pqp_block) = match prev_pqp_block {
+                    Some(block) => (prev_pqp_block_hash, block),
+                    None => {
+                        println!("❌ Failed to get base block at index {}", base_index);
+                        return false;
+                    }
+                };
+                println!("prev_pqp_block: {:?}", prev_pqp_block);
+                if prev_pqp_block.pqp_commitment != block.pqp_entry.prev_pqp_commitment {
+                    println!(
+                        "❌ Previous PQP commitment mismatch for block {} \nExpected: {} \nFound: {}",
+                        block.hash,
+                        prev_pqp_block.pqp_commitment,
+                        block.pqp_entry.prev_pqp_commitment
+                    );
+                    return false;
+                }
 
                 let mut candidate = block.clone();
                 Block::calculate_hash_and_pqp_commitment(&mut candidate);
@@ -464,11 +548,6 @@ impl TreeChain {
                         current_hash, block.pqp_commitment, candidate.pqp_commitment
                     );
                     return false;
-                }
-
-                let genesis = Block::genesis();
-                if block.hash == genesis.hash {
-                    break;
                 }
 
                 // Move one step up
@@ -629,7 +708,7 @@ impl TreeChain {
             }
 
             // Skip placeholder blocks if hash is empty string
-            if hash.is_empty() {
+            if block.position.is_empty() {
                 continue;
             }
 
@@ -738,7 +817,7 @@ impl TreeChain {
 
         for i in start_index..self.blocks.len() {
             if let Some((_, block)) = self.blocks.get_index(i) {
-                if block.hash.is_empty() {
+                if block.position.is_empty() {
                     // Skip placeholders
                     continue;
                 }
