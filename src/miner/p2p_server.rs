@@ -1,9 +1,11 @@
 // //1st terminal cargo run
 // //2nd terminal HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 cargo run
 // //3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 cargo run
+use crate::config::INVMESSAGE_LIMIT;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
 use TreeChainTheorey::treechain;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -14,6 +16,7 @@ use tokio::time::{Duration, timeout};
 
 const MESSAGE_TYPE_CONNECTION_INFO: &str = "CONNECTION_INFO";
 const MESSAGE_TYPE_GETBLOCKS: &str = "GETBLOCKS";
+const MESSAGE_TYPE_INVMESSAGE: &str = "INVMESSAGE";
 
 pub struct P2PServer {
     pub treechain: Arc<Mutex<TreeChain>>,
@@ -21,6 +24,17 @@ pub struct P2PServer {
     pub peers: Vec<String>,
     // Store only writers here (readers are managed by message_handler tasks)
     pub writers: Arc<Mutex<Vec<Arc<Mutex<OwnedWriteHalf>>>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvEntry {
+    pub queue_index: u32,
+    pub block_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvMessage {
+    pub inventories: Vec<InvEntry>,
 }
 
 impl P2PServer {
@@ -58,39 +72,8 @@ impl P2PServer {
             "stopping_hash": stopping_hash
         });
 
-        let message_bytes = match serde_json::to_vec(&message) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                eprintln!("Failed to serialize GETBLOCKS message: {}", e);
-                return;
-            }
-        };
-
-        let len = message_bytes.len() as u32;
-        println!("msg bytes len: {}", len);
-
-        let mut locked_writer = writer.lock().await;
-        println!("writer locked");
-
-        if let Err(e) = locked_writer.write_all(&len.to_be_bytes()).await {
-            eprintln!("Failed to send length for GETBLOCKS: {}", e);
-            return;
-        }
-        if let Err(e) = locked_writer.write_all(&message_bytes).await {
-            eprintln!("Failed to send GETBLOCKS message: {}", e);
-            return;
-        }
-        if let Err(e) = locked_writer.flush().await {
-            eprintln!("Failed to flush GETBLOCKS message: {}", e);
-            return;
-        }
-
-        println!(
-            "Sent GETBLOCKS message with {} hashes",
-            message["block_locator"].as_array().unwrap().len()
-        );
+        Self::send_message(writer, &message, "GETBLOCKS").await;
     }
-
     pub async fn listen(self: Arc<Self>, port: u16) {
         let addr = format!("127.0.0.1:{}", port);
         let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
@@ -107,6 +90,77 @@ impl P2PServer {
                     .await;
             });
         }
+    }
+
+    async fn send_invmessages(
+        &self,
+        writer: Arc<Mutex<OwnedWriteHalf>>,
+        block_locator: Vec<String>,
+    ) {
+        let treechain = self.treechain.lock().await;
+
+        // find first matching locator
+        let mut start_index = None;
+        for locator in block_locator {
+            if let Some((idx, (hash, _))) = treechain
+                .blocks
+                .iter()
+                .enumerate()
+                .find(|(_, (hash, _))| *hash == &locator)
+            {
+                start_index = Some(idx);
+                break;
+            }
+        }
+
+        if let Some(start) = start_index {
+            let mut inventories = Vec::new();
+            for (idx, (hash, _)) in treechain.blocks.iter().enumerate().skip(start + 1) {
+                inventories.push(InvEntry {
+                    queue_index: idx as u32,
+                    block_hash: hash.clone(),
+                });
+                if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
+                    break;
+                }
+            }
+
+            let message = serde_json::json!({
+                "type": MESSAGE_TYPE_INVMESSAGE,
+                "inventories": inventories
+            });
+
+            drop(treechain);
+            Self::send_message(writer, &message, "INVMESSAGE").await;
+        }
+    }
+
+    async fn send_message(writer: Arc<Mutex<OwnedWriteHalf>>, message: &Value, tag: &str) {
+        let message_bytes = match serde_json::to_vec(message) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                eprintln!("Failed to serialize {} message: {}", tag, e);
+                return;
+            }
+        };
+
+        let len = message_bytes.len() as u32;
+        let mut locked_writer = writer.lock().await;
+
+        if let Err(e) = locked_writer.write_all(&len.to_be_bytes()).await {
+            eprintln!("Failed to send length for {}: {}", tag, e);
+            return;
+        }
+        if let Err(e) = locked_writer.write_all(&message_bytes).await {
+            eprintln!("Failed to send {} message: {}", tag, e);
+            return;
+        }
+        if let Err(e) = locked_writer.flush().await {
+            eprintln!("Failed to flush {} message: {}", tag, e);
+            return;
+        }
+
+        println!("Sent {} message ({} bytes)", tag, len);
     }
 
     async fn connect_to_peers(self: Arc<Self>) {
@@ -253,6 +307,23 @@ impl P2PServer {
                                                 "Received GETBLOCKS from {} with block locator: {:?}",
                                                 peer_addr, block_locator
                                             );
+                                            self.send_invmessages(writer.clone(), block_locator)
+                                                .await;
+                                        }
+                                        MESSAGE_TYPE_INVMESSAGE => {
+                                            let inventories: Vec<InvEntry> =
+                                                serde_json::from_value(
+                                                    data.get("inventories")
+                                                        .cloned()
+                                                        .unwrap_or_default(),
+                                                )
+                                                .unwrap_or_default();
+                                            println!(
+                                                "Received INVMESSAGE from {} with {} entries",
+                                                peer_addr,
+                                                inventories.len()
+                                            );
+                                            // println!("inventries: {:?}", inventories);
                                         }
                                         _ => {
                                             println!("Other type from {}: {:?}", peer_addr, data);
