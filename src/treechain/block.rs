@@ -143,7 +143,7 @@ impl Block {
         );
 
         // Calculate hash and pqp commitment based on placeholder content
-        Block::calculate_hash_and_pqp_commitment(&mut block);
+        // Block::calculate_hash_and_pqp_commitment(&mut block);
 
         block
     }
@@ -232,7 +232,14 @@ impl Block {
         if tx.is_empty() {
             return "0".repeat(64);
         }
-        let mut hashes = tx;
+        let mut hashes: Vec<String> = tx
+            .iter()
+            .map(|t| {
+                let hash = Sha256::digest(t.as_bytes()); // hash raw string bytes
+                hex::encode(Sha256::digest(hash)) // double SHA-256
+            })
+            .collect();
+
         while hashes.len() > 1 {
             let mut next_level = Vec::new();
             let mut i = 0;
@@ -243,10 +250,14 @@ impl Block {
                 } else {
                     left
                 };
-                let concat = format!("{}{}", left, right);
-                let bytes = hex::decode(&concat).unwrap();
-                let hash = Sha256::digest(&bytes);
-                let hash2 = Sha256::digest(&hash);
+
+                let concat = [
+                    hex::decode(left).unwrap_or_default(),
+                    hex::decode(right).unwrap_or_default(),
+                ]
+                .concat();
+                let hash = Sha256::digest(&concat);
+                let hash2 = Sha256::digest(hash);
                 next_level.push(hex::encode(hash2));
                 i += 2;
             }
