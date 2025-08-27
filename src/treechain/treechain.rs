@@ -458,10 +458,10 @@ impl TreeChain {
 
     pub fn is_valid_tree(&self, pqp: &PQP) -> bool {
         println!("is valid tree started");
-        println!("pqp: {:?}", pqp.pool);
+        // println!("pqp: {:?}", pqp.pool);
         for entry in &pqp.pool {
             let mut current_hash = entry.block_hash.clone();
-            println!("current pqp entry: {:?}", entry);
+            // println!("current pqp entry: {:?}", entry);
             loop {
                 let block_opt = self.get_block(&current_hash);
                 let block = match block_opt {
@@ -481,7 +481,7 @@ impl TreeChain {
                 } else {
                     0
                 };
-                println!("base index: {}", base_index);
+                // println!("base index: {}", base_index);
 
                 let mut prev_pqp_block = None;
                 let mut prev_pqp_block_hash = String::new();
@@ -520,7 +520,7 @@ impl TreeChain {
                         return false;
                     }
                 };
-                println!("prev_pqp_block: {:?}", prev_pqp_block);
+                // println!("prev_pqp_block: {:?}", prev_pqp_block);
                 if prev_pqp_block.pqp_commitment != block.pqp_entry.prev_pqp_commitment {
                     println!(
                         "❌ Previous PQP commitment mismatch for block {} \nExpected: {} \nFound: {}",
@@ -691,6 +691,7 @@ impl TreeChain {
         let target_parent_hash = &current_block.parent_hash;
 
         let mut collected_pqp_entries: Vec<ParentQueueEntry> = Vec::new();
+        let mut target_parent_children_count: u8 = 1;
 
         let binding = Self::parent_queue_entry_from_block(current_block);
         collected_pqp_entries.push(binding);
@@ -703,7 +704,14 @@ impl TreeChain {
                 }
             };
 
+            if block.parent_hash == *target_parent_hash {
+                target_parent_children_count += 1;
+            }
+
             if hash == target_parent_hash {
+                if target_parent_children_count < CHILDREN {
+                    collected_pqp_entries.insert(0, Self::parent_queue_entry_from_block(block));
+                }
                 break;
             }
 
@@ -718,7 +726,7 @@ impl TreeChain {
 
         // 6. Compare collected PQP entries with the last N entries in PQP.pool
         let recent_count = collected_pqp_entries.clone().len();
-        let pool_recent = &pool[pool.len() - recent_count..];
+        let pool_recent = pool;
 
         if pool_recent.len() != recent_count {
             println!("❌ Mismatch in PQP entries count collected vs pool");
@@ -737,6 +745,63 @@ impl TreeChain {
 
         println!("✅ PQP entries in tree match the current PQP pool");
         true
+    }
+
+    pub fn extract_pqp_from_tree(&self) -> PQP {
+        let mut pqp = PQP::new();
+        let blocks_len = self.blocks.len();
+        if blocks_len == 0 {
+            println!("❌ No blocks found in the tree");
+            pqp.pool = vec![];
+            return pqp;
+        }
+
+        let (mut current_hash, current_block) = match self.blocks.get_index(blocks_len - 1) {
+            Some(pair) => pair,
+            None => {
+                println!("❌ Failed to get last block");
+                pqp.pool = vec![];
+                return pqp;
+            }
+        };
+        let target_parent_hash = &current_block.parent_hash;
+        let mut collected_pqp_entries: Vec<ParentQueueEntry> = Vec::new();
+        let mut target_parent_children_count: u8 = 1;
+
+        let binding = Self::parent_queue_entry_from_block(current_block);
+        collected_pqp_entries.push(binding);
+
+        for idx in (0..blocks_len - 1).rev() {
+            let (hash, block) = match self.blocks.get_index(idx) {
+                Some(pair) => pair,
+                None => {
+                    println!("❌ Failed to get block at index {}", idx);
+                    pqp.pool = vec![];
+                    return pqp;
+                }
+            };
+
+            if block.parent_hash == *target_parent_hash {
+                target_parent_children_count += 1;
+            }
+
+            if hash == target_parent_hash {
+                if target_parent_children_count < CHILDREN {
+                    collected_pqp_entries.insert(0, Self::parent_queue_entry_from_block(block));
+                }
+                break;
+            }
+
+            // Skip placeholder blocks if hash is empty string
+            if block.position.is_empty() {
+                continue;
+            }
+
+            // Insert each extracted ParentQueueEntry at front (to keep order old→new)
+            collected_pqp_entries.insert(0, Self::parent_queue_entry_from_block(block));
+        }
+        pqp.pool = collected_pqp_entries;
+        return pqp;
     }
 
     pub fn parent_queue_entry_from_block(block: &Block) -> ParentQueueEntry {

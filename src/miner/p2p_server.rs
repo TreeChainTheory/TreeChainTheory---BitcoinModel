@@ -1,7 +1,570 @@
-// //1st terminal cargo run
-// //2nd terminal HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 cargo run
-// //3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 cargo run
-use crate::config::INVMESSAGE_LIMIT;
+// use crate::config::{GETDATA_LIMIT, INVMESSAGE_LIMIT};
+// use crate::treechain::block::Block;
+// use crate::treechain::treechain::{PQP, TreeChain};
+// use TreeChainTheorey::treechain;
+// use serde::{Deserialize, Serialize};
+// use serde_json::Value;
+// use std::sync::Arc;
+// use tokio::io::{AsyncReadExt, AsyncWriteExt};
+// use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+// use tokio::net::{TcpListener, TcpStream};
+// use tokio::sync::Mutex;
+// use tokio::time::{Duration, timeout};
+
+// const MESSAGE_TYPE_CONNECTION_INFO: &str = "CONNECTION_INFO";
+// const MESSAGE_TYPE_GETBLOCKS: &str = "GETBLOCKS";
+// const MESSAGE_TYPE_INVMESSAGE: &str = "INVMESSAGE";
+// const MESSAGE_TYPE_GETDATA: &str = "GETDATA";
+// const MESSAGE_TYPE_BLOCK: &str = "BLOCK";
+
+// pub struct P2PServer {
+//     pub treechain: Arc<Mutex<TreeChain>>,
+//     pub pqp: Arc<Mutex<PQP>>,
+//     pub peers: Vec<String>,
+//     // Store only writers here (readers are managed by message_handler tasks)
+//     pub writers: Arc<Mutex<Vec<Arc<Mutex<OwnedWriteHalf>>>>>,
+//     pub best_peer: Arc<Mutex<Option<(String, u64)>>>, // (peer_addr, chain_length)
+// }
+
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct InvEntry {
+//     pub queue_index: u32,
+//     pub block_hash: String,
+// }
+
+// #[derive(Debug, Clone, Serialize, Deserialize)]
+// pub struct InvMessage {
+//     pub inventories: Vec<InvEntry>,
+// }
+
+// impl P2PServer {
+//     pub fn new(treechain: Arc<Mutex<TreeChain>>, pqp: Arc<Mutex<PQP>>, peers: Vec<String>) -> Self {
+//         P2PServer {
+//             treechain,
+//             pqp,
+//             peers,
+//             writers: Arc::new(Mutex::new(Vec::new())),
+//             best_peer: Arc::new(Mutex::new(None)), // this is all just to get data from that peer which is having longest tree
+//         }
+//     }
+
+//     async fn build_block_locator(&self) -> Vec<String> {
+//         println!("Trying to lock treechain");
+//         let treechain = self.treechain.lock().await;
+//         println!("Locked treechain");
+//         let mut hashes: Vec<String> = treechain.blocks.keys().cloned().collect();
+//         hashes.reverse();
+//         hashes.truncate(10);
+//         drop(treechain);
+//         println!("Dropped treechain lock");
+//         hashes
+//     }
+
+//     async fn send_getblocks(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+//         println!("get blocks called");
+//         let block_locator = self.build_block_locator().await;
+//         println!("block_locator in send_getblocks: {:?}", block_locator);
+//         let stopping_hash = "0".repeat(64);
+
+//         let message = serde_json::json!({
+//             "type": MESSAGE_TYPE_GETBLOCKS,
+//             "protocol_version": 70002,
+//             "block_locator": block_locator,
+//             "stopping_hash": stopping_hash
+//         });
+
+//         Self::send_message(writer, &message, "GETBLOCKS").await;
+//     }
+//     pub async fn listen(self: Arc<Self>, port: u16) {
+//         let addr = format!("127.0.0.1:{}", port);
+//         let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
+
+//         println!("Listening for peer to peer connections on {}", addr);
+//         self.clone().connect_to_peers().await;
+
+//         loop {
+//             let (stream, peer_addr) = listener.accept().await.unwrap();
+//             let self_clone = self.clone();
+//             tokio::spawn(async move {
+//                 self_clone
+//                     .connect_socket(stream, peer_addr.to_string())
+//                     .await;
+//             });
+//         }
+//     }
+
+//     async fn send_invmessages(
+//         &self,
+//         writer: Arc<Mutex<OwnedWriteHalf>>,
+//         block_locator: Vec<String>,
+//     ) {
+//         let treechain = self.treechain.lock().await;
+
+//         // find first matching locator
+//         let mut start_index = None;
+//         for locator in block_locator {
+//             if let Some((idx, (hash, _))) = treechain
+//                 .blocks
+//                 .iter()
+//                 .enumerate()
+//                 .find(|(_, (hash, _))| *hash == &locator)
+//             {
+//                 start_index = Some(idx);
+//                 break;
+//             }
+//         }
+
+//         if let Some(start) = start_index {
+//             let mut inventories = Vec::new();
+//             for (idx, (hash, _)) in treechain.blocks.iter().enumerate().skip(start + 1) {
+//                 inventories.push(InvEntry {
+//                     queue_index: idx as u32,
+//                     block_hash: hash.clone(),
+//                 });
+//                 if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
+//                     break;
+//                 }
+//             }
+
+//             let message = serde_json::json!({
+//                 "type": MESSAGE_TYPE_INVMESSAGE,
+//                 "inventories": inventories
+//             });
+
+//             drop(treechain);
+//             Self::send_message(writer, &message, "INVMESSAGE").await;
+//         }
+//     }
+
+//     async fn send_getdatamessage(
+//         &self,
+//         writer: Arc<Mutex<OwnedWriteHalf>>,
+//         inventories: Vec<InvEntry>,
+//     ) {
+//         let message = serde_json::json!({
+//             "type": MESSAGE_TYPE_GETDATA,
+//             "entries": inventories,
+//         });
+
+//         Self::send_message(writer, &message, "GETDATA").await;
+//     }
+
+//     async fn send_blockmessage(&self, writer: Arc<Mutex<OwnedWriteHalf>>, block: Block) {
+//         let message = serde_json::json!({
+//             "type": MESSAGE_TYPE_BLOCK,
+//             "block": block,
+//         });
+
+//         Self::send_message(writer, &message, "BLOCK").await;
+//     }
+
+//     async fn send_message(writer: Arc<Mutex<OwnedWriteHalf>>, message: &Value, tag: &str) {
+//         let message_bytes = match serde_json::to_vec(message) {
+//             Ok(bytes) => bytes,
+//             Err(e) => {
+//                 eprintln!("Failed to serialize {} message: {}", tag, e);
+//                 return;
+//             }
+//         };
+
+//         let len = message_bytes.len() as u32;
+//         let mut locked_writer = writer.lock().await;
+
+//         if let Err(e) = locked_writer.write_all(&len.to_be_bytes()).await {
+//             eprintln!("Failed to send length for {}: {}", tag, e);
+//             return;
+//         }
+//         if let Err(e) = locked_writer.write_all(&message_bytes).await {
+//             eprintln!("Failed to send {} message: {}", tag, e);
+//             return;
+//         }
+//         if let Err(e) = locked_writer.flush().await {
+//             eprintln!("Failed to flush {} message: {}", tag, e);
+//             return;
+//         }
+
+//         println!("Sent {} message ({} bytes)", tag, len);
+//     }
+
+//     async fn connect_to_peers(self: Arc<Self>) {
+//         let peers = self.peers.clone();
+//         println!("peers in connect to peers: {:?}", peers);
+//         for peer in peers {
+//             println!("connect to peer: {:?}", peer);
+//             let result = timeout(Duration::from_secs(5), TcpStream::connect(&peer)).await;
+//             match result {
+//                 Ok(Ok(stream)) => {
+//                     println!("Connected to peer {}", peer);
+//                     let self_clone = self.clone();
+//                     tokio::spawn(async move {
+//                         self_clone.connect_socket(stream, peer).await;
+//                     });
+//                 }
+//                 Ok(Err(e)) => {
+//                     eprintln!("Failed to connect to peer {}: {}", peer, e);
+//                 }
+//                 Err(_) => {
+//                     eprintln!("Timeout while connecting to peer: {}", peer);
+//                 }
+//             }
+//         }
+//     }
+
+//     async fn connect_socket(self: Arc<Self>, socket: TcpStream, peer_addr: String) {
+//         println!("New connection from {}", peer_addr);
+
+//         let (reader, writer) = socket.into_split();
+//         let writer = Arc::new(Mutex::new(writer));
+//         self.writers.lock().await.push(writer.clone());
+
+//         // Send initial CONNECTION_INFO
+//         {
+//             let treechain = self.treechain.lock().await;
+//             let chain_length = treechain.blocks.len();
+//             let last_block = treechain
+//                 .blocks
+//                 .get_index(chain_length - 1)
+//                 .map(|(_, v)| v.clone());
+//             let message = serde_json::json!({
+//                 "type": MESSAGE_TYPE_CONNECTION_INFO,
+//                 "chain_length": chain_length,
+//                 "last_block": last_block
+//             });
+
+//             let message_bytes = serde_json::to_vec(&message).unwrap();
+//             let len = message_bytes.len() as u32;
+
+//             let mut locked_writer = writer.lock().await;
+//             if let Err(e) = locked_writer.write_all(&len.to_be_bytes()).await {
+//                 eprintln!("Failed to send message length to {}: {}", peer_addr, e);
+//                 return;
+//             }
+//             if let Err(e) = locked_writer.write_all(&message_bytes).await {
+//                 eprintln!("Failed to send treechain data to {}: {}", peer_addr, e);
+//                 return;
+//             }
+//             if let Err(e) = locked_writer.flush().await {
+//                 eprintln!("Failed to flush socket to {}: {}", peer_addr, e);
+//                 return;
+//             }
+//             println!(
+//                 "Sent chain_length: {}, last_block to {}",
+//                 chain_length, peer_addr
+//             );
+//         }
+
+//         // Spawn message handler for the read half
+//         let self_clone = Arc::clone(&self);
+//         tokio::spawn(async move {
+//             self_clone
+//                 .message_handler(reader, writer.clone(), peer_addr)
+//                 .await;
+//         });
+//     }
+
+//     async fn message_handler(
+//         &self,
+//         mut reader: OwnedReadHalf,
+//         writer: Arc<Mutex<OwnedWriteHalf>>,
+//         peer_addr: String,
+//     ) {
+//         let mut buffer = vec![0u8; 4096];
+//         let mut received_data = Vec::new();
+
+//         loop {
+//             match reader.read(&mut buffer).await {
+//                 Ok(0) => {
+//                     println!("Connection closed by peer: {}", peer_addr);
+//                     self.remove_writer(writer.clone()).await;
+//                     break;
+//                 }
+//                 Ok(n) => {
+//                     println!("Received {} bytes from {}", n, peer_addr);
+//                     received_data.extend_from_slice(&buffer[..n]);
+//                     while let Some((msg, remaining)) = Self::parse_message(&received_data) {
+//                         received_data = remaining;
+//                         match serde_json::from_value::<Value>(msg) {
+//                             Ok(data) => {
+//                                 if let Some(msg_type) = data.get("type").and_then(|v| v.as_str()) {
+//                                     match msg_type {
+//                                         MESSAGE_TYPE_CONNECTION_INFO => {
+//                                             let chain_length_remote = data
+//                                                 .get("chain_length")
+//                                                 .and_then(|v| v.as_u64())
+//                                                 .unwrap_or(0);
+
+//                                             let chain_local_len = {
+//                                                 let treechain = self.treechain.lock().await;
+//                                                 treechain.blocks.len()
+//                                             };
+
+//                                             println!(
+//                                                 "CONNECTION_INFO from {}: remote_len={}, local_len={}",
+//                                                 peer_addr, chain_length_remote, chain_local_len
+//                                             );
+//                                             let mut best_peer = self.best_peer.lock().await;
+
+//                                             match &*best_peer {
+//                                                 Some((current_peer, current_len))
+//                                                     if chain_length_remote <= *current_len =>
+//                                                 {
+//                                                     println!(
+//                                                         "{} has chain length {}, but best peer is {} with {}",
+//                                                         peer_addr,
+//                                                         chain_length_remote,
+//                                                         current_peer,
+//                                                         current_len
+//                                                     );
+//                                                 }
+//                                                 _ => {
+//                                                     println!(
+//                                                         "🌐 Selecting {} as best peer with chain length {}",
+//                                                         peer_addr, chain_length_remote
+//                                                     );
+//                                                     *best_peer = Some((
+//                                                         peer_addr.clone(),
+//                                                         chain_length_remote,
+//                                                     ));
+//                                                     self.send_getblocks(writer.clone()).await;
+//                                                 }
+//                                             }
+
+//                                             if chain_length_remote > chain_local_len as u64 {
+//                                                 println!(
+//                                                     "Peer has longer chain, sending GETBLOCKS"
+//                                                 );
+//                                                 self.send_getblocks(writer.clone()).await;
+//                                             } else {
+//                                                 println!(
+//                                                     "Our chain is equal or longer, no GETBLOCKS needed"
+//                                                 );
+//                                             }
+//                                         }
+//                                         MESSAGE_TYPE_GETBLOCKS => {
+//                                             let block_locator = data
+//                                                 .get("block_locator")
+//                                                 .and_then(|v| v.as_array())
+//                                                 .map(|arr| {
+//                                                     arr.iter()
+//                                                         .filter_map(|v| {
+//                                                             v.as_str().map(String::from)
+//                                                         })
+//                                                         .collect::<Vec<String>>()
+//                                                 })
+//                                                 .unwrap_or_default();
+//                                             println!(
+//                                                 "Received GETBLOCKS from {} with block locator: {:?}",
+//                                                 peer_addr, block_locator
+//                                             );
+//                                             self.send_invmessages(writer.clone(), block_locator)
+//                                                 .await;
+//                                         }
+//                                         MESSAGE_TYPE_INVMESSAGE => {
+//                                             let best_peer = self.best_peer.lock().await;
+//                                             if Some(peer_addr.clone())
+//                                                 != best_peer.as_ref().map(|(p, _)| p.clone())
+//                                             {
+//                                                 println!(
+//                                                     "Ignoring INVMESSAGE from {}, best peer is {:?}",
+//                                                     peer_addr, *best_peer
+//                                                 );
+//                                                 return;
+//                                             }
+//                                             drop(best_peer);
+//                                             let inventories: Vec<InvEntry> =
+//                                                 serde_json::from_value(
+//                                                     data.get("inventories")
+//                                                         .cloned()
+//                                                         .unwrap_or_default(),
+//                                                 )
+//                                                 .unwrap_or_default();
+//                                             println!(
+//                                                 "Received INVMESSAGE from {} with {} entries",
+//                                                 peer_addr,
+//                                                 inventories.len()
+//                                             );
+//                                             // println!("inventries: {:?}", inventories);
+//                                             //send getData message () until you cover all the inventeries
+//                                             //loop it send getDatamessage with only GETDATA_LIMIT num of entries
+//                                             //after receiving GETDATA_LIMIT num of blocks
+//                                             //compute the pqp = extract_pqp_from_tree(treechain.blocks)
+//                                             //perform is_valid_tree(pqp)
+//                                             //if true continue with the next GETDATA message
+//                                             //loop it until you receive the total inventiories
+//                                             //after that send the GetBLOCKS MESSAGE again until you receive less num of inventories than the limit
+//                                             //(which indicates that all blocks are received)
+
+//                                             let mut start = 0;
+
+//                                             while start < inventories.len() {
+//                                                 let end = std::cmp::min(
+//                                                     start + GETDATA_LIMIT as usize,
+//                                                     inventories.len(),
+//                                                 );
+//                                                 let batch = inventories[start..end].to_vec();
+
+//                                                 self.send_getdatamessage(writer.clone(), batch)
+//                                                     .await;
+
+//                                                 // here we wait until GETDATA_LIMIT blocks arrive (or less for the final batch).
+//                                                 // after they arrive, recompute PQP and validate tree
+//                                                 {
+//                                                     let treechain = self.treechain.lock().await;
+//                                                     let extracted_pqp =
+//                                                         treechain.extract_pqp_from_tree();
+//                                                     if !treechain.is_valid_tree(&extracted_pqp) {
+//                                                         println!(
+//                                                             "❌ Invalid tree detected after syncing blocks"
+//                                                         );
+//                                                         break;
+//                                                     }
+//                                                 }
+
+//                                                 start = end;
+//                                             }
+//                                             if inventories.len() >= INVMESSAGE_LIMIT as usize {
+//                                                 println!(
+//                                                     "Inventory was full, asking for next batch via GETBLOCKS"
+//                                                 );
+//                                                 self.send_getblocks(writer.clone()).await;
+//                                             } else {
+//                                                 println!(
+//                                                     "✅ Finished syncing all available blocks"
+//                                                 );
+//                                             }
+//                                         }
+//                                         MESSAGE_TYPE_GETDATA => {
+//                                             // for i in GETDATA.entries send BLOCK - send_block(i.block_hash)
+//                                             let entries: Vec<InvEntry> = serde_json::from_value(
+//                                                 data.get("entries").cloned().unwrap_or_default(),
+//                                             )
+//                                             .unwrap_or_default();
+//                                             println!("received get Data message , sending blocks");
+//                                             for entry in entries {
+//                                                 let treechain = self.treechain.lock().await;
+//                                                 if let Some(block) =
+//                                                     treechain.blocks.get(&entry.block_hash)
+//                                                 {
+//                                                     self.send_blockmessage(
+//                                                         writer.clone(),
+//                                                         block.clone(),
+//                                                     )
+//                                                     .await;
+//                                                 }
+//                                             }
+//                                         }
+//                                         MESSAGE_TYPE_BLOCK => {
+//                                             let best_peer = self.best_peer.lock().await;
+//                                             if Some(peer_addr.clone())
+//                                                 != best_peer.as_ref().map(|(p, _)| p.clone())
+//                                             {
+//                                                 println!(
+//                                                     "Ignoring BLOCK from {}, best peer is {:?}",
+//                                                     peer_addr, *best_peer
+//                                                 );
+//                                                 return;
+//                                             }
+//                                             drop(best_peer);
+//                                             //treechain.verify_add_block
+//                                             if let Some(block_val) = data.get("block") {
+//                                                 let block: Block =
+//                                                     match serde_json::from_value(block_val.clone())
+//                                                     {
+//                                                         Ok(b) => b,
+//                                                         Err(_) => {
+//                                                             println!(
+//                                                                 "❌ Failed to deserialize BLOCK"
+//                                                             );
+//                                                             return; // exits the match arm cleanly
+//                                                         }
+//                                                     };
+
+//                                                 let mut treechain = self.treechain.lock().await;
+//                                                 if treechain.verify_and_add_block(&block.clone()) {
+//                                                     println!(
+//                                                         "✅ Block {} added successfully",
+//                                                         block.hash
+//                                                     );
+//                                                 } else {
+//                                                     println!(
+//                                                         "❌ Failed to add block {}",
+//                                                         block.hash
+//                                                     );
+//                                                 }
+//                                             }
+//                                         }
+//                                         _ => {
+//                                             println!("Other type from {}: {:?}", peer_addr, data);
+//                                         }
+//                                     }
+//                                 }
+//                             }
+//                             Err(e) => eprintln!("Invalid JSON from {}: {}", peer_addr, e),
+//                         }
+//                     }
+//                 }
+//                 Err(e) => {
+//                     eprintln!("Read error from {}: {}", peer_addr, e);
+//                     self.remove_writer(writer.clone()).await;
+//                     break;
+//                 }
+//             }
+//         }
+//     }
+
+//     async fn remove_writer(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+//         let mut writers = self.writers.lock().await;
+//         writers.retain(|w| !Arc::ptr_eq(w, &writer));
+//         println!("Removed disconnected writer");
+//     }
+
+//     fn parse_message(data: &[u8]) -> Option<(Value, Vec<u8>)> {
+//         if data.len() < 4 {
+//             return None;
+//         }
+//         let len = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
+//         if data.len() < 4 + len {
+//             return None;
+//         }
+//         let msg_data = &data[4..4 + len];
+//         match serde_json::from_slice::<Value>(msg_data) {
+//             Ok(msg) => Some((msg, data[4 + len..].to_vec())),
+//             Err(_) => None,
+//         }
+//     }
+// }
+
+// pub fn start_p2p_server(
+//     port: String,
+//     peers: String,
+//     treechain: Arc<Mutex<TreeChain>>,
+//     pqp: Arc<Mutex<PQP>>,
+// ) -> std::thread::JoinHandle<()> {
+//     std::thread::spawn(move || {
+//         let runtime = tokio::runtime::Builder::new_multi_thread()
+//             .enable_all()
+//             .build()
+//             .unwrap();
+//         println!("peers: {}", peers);
+//         runtime.block_on(async move {
+//             let peer_list: Vec<String> = peers
+//                 .split(',')
+//                 .map(|s| s.trim().to_string())
+//                 .filter(|s| !s.is_empty())
+//                 .collect();
+//             let server = P2PServer::new(treechain, pqp, peer_list);
+//             Arc::new(server)
+//                 .listen(port.parse::<u16>().expect("Invalid port number"))
+//                 .await;
+//         })
+//     })
+// }
+
+//1st terminal cargo run
+//2nd terminal HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 cargo run
+//3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 cargo run
+
+use crate::config::{GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
 use TreeChainTheorey::treechain;
@@ -17,13 +580,15 @@ use tokio::time::{Duration, timeout};
 const MESSAGE_TYPE_CONNECTION_INFO: &str = "CONNECTION_INFO";
 const MESSAGE_TYPE_GETBLOCKS: &str = "GETBLOCKS";
 const MESSAGE_TYPE_INVMESSAGE: &str = "INVMESSAGE";
+const MESSAGE_TYPE_GETDATA: &str = "GETDATA";
+const MESSAGE_TYPE_BLOCK: &str = "BLOCK";
 
 pub struct P2PServer {
     pub treechain: Arc<Mutex<TreeChain>>,
     pub pqp: Arc<Mutex<PQP>>,
     pub peers: Vec<String>,
-    // Store only writers here (readers are managed by message_handler tasks)
     pub writers: Arc<Mutex<Vec<Arc<Mutex<OwnedWriteHalf>>>>>,
+    pub best_peer: Arc<Mutex<Option<(String, u64)>>>, // (peer_addr, chain_length)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +609,7 @@ impl P2PServer {
             pqp,
             peers,
             writers: Arc::new(Mutex::new(Vec::new())),
+            best_peer: Arc::new(Mutex::new(None)), //just to communicate with that peer which is having longer tree
         }
     }
 
@@ -62,7 +628,7 @@ impl P2PServer {
     async fn send_getblocks(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
         println!("get blocks called");
         let block_locator = self.build_block_locator().await;
-        println!("block_locator in send_getblocks: {:?}", block_locator);
+        // println!("block_locator in send_getblocks: {:?}", block_locator);
         let stopping_hash = "0".repeat(64);
 
         let message = serde_json::json!({
@@ -74,6 +640,7 @@ impl P2PServer {
 
         Self::send_message(writer, &message, "GETBLOCKS").await;
     }
+
     pub async fn listen(self: Arc<Self>, port: u16) {
         let addr = format!("127.0.0.1:{}", port);
         let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
@@ -99,7 +666,6 @@ impl P2PServer {
     ) {
         let treechain = self.treechain.lock().await;
 
-        // find first matching locator
         let mut start_index = None;
         for locator in block_locator {
             if let Some((idx, (hash, _))) = treechain
@@ -133,6 +699,28 @@ impl P2PServer {
             drop(treechain);
             Self::send_message(writer, &message, "INVMESSAGE").await;
         }
+    }
+
+    async fn send_getdatamessage(
+        &self,
+        writer: Arc<Mutex<OwnedWriteHalf>>,
+        inventories: Vec<InvEntry>,
+    ) {
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_GETDATA,
+            "entries": inventories,
+        });
+
+        Self::send_message(writer, &message, "GETDATA").await;
+    }
+
+    async fn send_blockmessage(&self, writer: Arc<Mutex<OwnedWriteHalf>>, block: Block) {
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_BLOCK,
+            "block": block,
+        });
+
+        Self::send_message(writer, &message, "BLOCK").await;
     }
 
     async fn send_message(writer: Arc<Mutex<OwnedWriteHalf>>, message: &Value, tag: &str) {
@@ -194,7 +782,6 @@ impl P2PServer {
         let writer = Arc::new(Mutex::new(writer));
         self.writers.lock().await.push(writer.clone());
 
-        // Send initial CONNECTION_INFO
         {
             let treechain = self.treechain.lock().await;
             let chain_length = treechain.blocks.len();
@@ -230,7 +817,6 @@ impl P2PServer {
             );
         }
 
-        // Spawn message handler for the read half
         let self_clone = Arc::clone(&self);
         tokio::spawn(async move {
             self_clone
@@ -279,16 +865,41 @@ impl P2PServer {
                                                 "CONNECTION_INFO from {}: remote_len={}, local_len={}",
                                                 peer_addr, chain_length_remote, chain_local_len
                                             );
+                                            let mut best_peer = self.best_peer.lock().await;
 
-                                            if chain_length_remote > chain_local_len as u64 {
-                                                println!(
-                                                    "Peer has longer chain, sending GETBLOCKS"
-                                                );
-                                                self.send_getblocks(writer.clone()).await;
-                                            } else {
-                                                println!(
-                                                    "Our chain is equal or longer, no GETBLOCKS needed"
-                                                );
+                                            match &*best_peer {
+                                                Some((current_peer, current_len))
+                                                    if chain_length_remote <= *current_len =>
+                                                {
+                                                    println!(
+                                                        "{} has chain length {}, but best peer is {} with {}",
+                                                        peer_addr,
+                                                        chain_length_remote,
+                                                        current_peer,
+                                                        current_len
+                                                    );
+                                                }
+                                                _ => {
+                                                    println!(
+                                                        "🌐 Selecting {} as best peer with chain length {}",
+                                                        peer_addr, chain_length_remote
+                                                    );
+                                                    *best_peer = Some((
+                                                        peer_addr.clone(),
+                                                        chain_length_remote,
+                                                    ));
+                                                    if chain_length_remote > chain_local_len as u64
+                                                    {
+                                                        println!(
+                                                            "Peer has longer chain, sending GETBLOCKS"
+                                                        );
+                                                        self.send_getblocks(writer.clone()).await;
+                                                    } else {
+                                                        println!(
+                                                            "Our chain is equal or longer, no GETBLOCKS needed"
+                                                        );
+                                                    }
+                                                }
                                             }
                                         }
                                         MESSAGE_TYPE_GETBLOCKS => {
@@ -311,6 +922,17 @@ impl P2PServer {
                                                 .await;
                                         }
                                         MESSAGE_TYPE_INVMESSAGE => {
+                                            let best_peer = self.best_peer.lock().await;
+                                            if Some(peer_addr.clone())
+                                                != best_peer.as_ref().map(|(p, _)| p.clone())
+                                            {
+                                                println!(
+                                                    "Ignoring INVMESSAGE from {}, best peer is {:?}",
+                                                    peer_addr, *best_peer
+                                                );
+                                                continue;
+                                            }
+                                            drop(best_peer);
                                             let inventories: Vec<InvEntry> =
                                                 serde_json::from_value(
                                                     data.get("inventories")
@@ -323,7 +945,109 @@ impl P2PServer {
                                                 peer_addr,
                                                 inventories.len()
                                             );
-                                            // println!("inventries: {:?}", inventories);
+
+                                            //send getData message () until you cover all the inventeries
+                                            //loop it send getDatamessage with only GETDATA_LIMIT num of entries
+                                            //after receiving GETDATA_LIMIT num of blocks
+                                            //compute the pqp = extract_pqp_from_tree(treechain.blocks)
+                                            //perform is_valid_tree(pqp)
+                                            //if true continue with the next GETDATA message
+                                            //loop it until you receive the total inventiories
+                                            //after that send the GetBLOCKS MESSAGE again until you receive less num of inventories than the limit
+                                            //(which indicates that all blocks are received)
+                                            let mut start = 0;
+                                            while start < inventories.len() {
+                                                let end = std::cmp::min(
+                                                    start + GETDATA_LIMIT as usize,
+                                                    inventories.len(),
+                                                );
+                                                let batch = inventories[start..end].to_vec();
+
+                                                self.send_getdatamessage(writer.clone(), batch)
+                                                    .await;
+
+                                                let treechain = self.treechain.lock().await;
+                                                let extracted_pqp =
+                                                    treechain.extract_pqp_from_tree();
+                                                if !treechain.is_valid_tree(&extracted_pqp) {
+                                                    println!(
+                                                        "❌ Invalid tree detected after syncing blocks"
+                                                    );
+                                                    break;
+                                                }
+                                                start = end;
+                                            }
+                                            if inventories.len() >= INVMESSAGE_LIMIT as usize {
+                                                println!(
+                                                    "Inventory was full, asking for next batch via GETBLOCKS"
+                                                );
+                                                self.send_getblocks(writer.clone()).await;
+                                            } else {
+                                                println!(
+                                                    "✅ Finished syncing all available blocks"
+                                                );
+                                            }
+                                        }
+                                        MESSAGE_TYPE_GETDATA => {
+                                            let entries: Vec<InvEntry> = serde_json::from_value(
+                                                data.get("entries").cloned().unwrap_or_default(),
+                                            )
+                                            .unwrap_or_default();
+                                            println!(
+                                                "Received GETDATA from {}, sending blocks",
+                                                peer_addr
+                                            );
+                                            for entry in entries {
+                                                let treechain = self.treechain.lock().await;
+                                                if let Some(block) =
+                                                    treechain.blocks.get(&entry.block_hash)
+                                                {
+                                                    self.send_blockmessage(
+                                                        writer.clone(),
+                                                        block.clone(),
+                                                    )
+                                                    .await;
+                                                }
+                                            }
+                                        }
+                                        MESSAGE_TYPE_BLOCK => {
+                                            let best_peer = self.best_peer.lock().await;
+                                            if Some(peer_addr.clone())
+                                                != best_peer.as_ref().map(|(p, _)| p.clone())
+                                            {
+                                                println!(
+                                                    "Ignoring BLOCK from {}, best peer is {:?}",
+                                                    peer_addr, *best_peer
+                                                );
+                                                continue;
+                                            }
+                                            drop(best_peer);
+                                            if let Some(block_val) = data.get("block") {
+                                                let block: Block =
+                                                    match serde_json::from_value(block_val.clone())
+                                                    {
+                                                        Ok(b) => b,
+                                                        Err(_) => {
+                                                            println!(
+                                                                "❌ Failed to deserialize BLOCK"
+                                                            );
+                                                            continue;
+                                                        }
+                                                    };
+
+                                                let mut treechain = self.treechain.lock().await;
+                                                if treechain.verify_and_add_block(&block.clone()) {
+                                                    println!(
+                                                        "✅ Block {} added successfully",
+                                                        block.hash
+                                                    );
+                                                } else {
+                                                    println!(
+                                                        "❌ Failed to add block {}",
+                                                        block.hash
+                                                    );
+                                                }
+                                            }
                                         }
                                         _ => {
                                             println!("Other type from {}: {:?}", peer_addr, data);
