@@ -275,7 +275,6 @@ impl TreeChain {
                 return;
             }
 
-            // 🔥 Correct way: preserve order while replacing key/value
             self.blocks.swap_remove_index(queue_index); // remove placeholder
             let tail = self.blocks.split_off(queue_index); // save everything after index
             self.blocks.insert(hash.clone(), block); // insert our new block at correct spot
@@ -383,7 +382,10 @@ impl TreeChain {
         };
 
         let parent_block_hash = &current_parent.block_hash.clone();
-        let parent_block = self.get_block(parent_block_hash)?;
+        println!("got parent block hash");
+        let parent_block = self
+            .get_block(parent_block_hash)
+            .expect("failed to get block");
         println!(
             "parent block: level:{}, postion:{},queue_index:{}",
             parent_block.level, parent_block.position, parent_block.pqp_entry.queue_index
@@ -457,7 +459,7 @@ impl TreeChain {
     }
 
     pub fn is_valid_tree(&self, pqp: &PQP) -> bool {
-        println!("is valid tree started");
+        println!("is valid tree started with length: {}", self.blocks.len());
         // println!("pqp: {:?}", pqp.pool);
         for entry in &pqp.pool {
             let mut current_hash = entry.block_hash.clone();
