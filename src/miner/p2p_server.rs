@@ -2,7 +2,7 @@
 //2nd terminal HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 cargo run
 //3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 cargo run
 
-use crate::config::{GETDATA_LIMIT, INVMESSAGE_LIMIT};
+use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
 use TreeChainTheorey::treechain;
@@ -245,6 +245,7 @@ impl P2PServer {
 
     /// Starts the next GETDATA batch if there is no pending batch.
     async fn maybe_start_next_batch(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+        println!("called start next batch");
         // take a look without holding the lock across await
         let next_batch: Option<Vec<InvEntry>>;
         let after_empty_inv_was_full: bool;
@@ -292,6 +293,7 @@ impl P2PServer {
     /// Called after each BLOCK arrival; decrements pending and, if the batch is complete,
     /// validates the tree and triggers next batch (or next GETBLOCKS).
     async fn on_block_delivered(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+        println!("on_block_delivered called");
         let make_post_batch_call: bool;
         {
             let mut st_opt = self.sync_state.lock().await;
@@ -306,18 +308,26 @@ impl P2PServer {
             make_post_batch_call = st.pending == 0;
         }
 
+        println!("make_post_batch_call: {}", make_post_batch_call);
+
         if make_post_batch_call {
             // Validate PQP/tree after completing a batch
             {
                 let treechain = self.treechain.lock().await;
-                let mut pqp = self.pqp.lock().await;
-                let extracted_pqp = treechain.extract_pqp_from_tree();
-                *pqp = extracted_pqp.clone();
-                if !treechain.is_valid_tree(&*pqp) {
-                    println!("❌ Invalid tree detected after syncing a batch");
-                    // reset state so we don't continue blindly
-                    self.reset_sync_state().await;
-                    return;
+                let pqp = self.pqp.lock().await;
+
+                {
+                    if !treechain.is_valid_pqp(&pqp) {
+                        println!("❌ Invalid pqp detected after syncing a batch");
+                        self.reset_sync_state().await;
+                        return;
+                    }
+                    if !treechain.is_valid_tree(&pqp) {
+                        println!("❌ Invalid tree detected after syncing a batch");
+                        // reset state so we don't continue blindly
+                        self.reset_sync_state().await;
+                        return;
+                    }
                 }
             }
             // Start next batch or request next inventory window
@@ -511,6 +521,7 @@ impl P2PServer {
                                                 });
                                             }
 
+                                            println!("calling start next batch ");
                                             // Begin first GETDATA batch. Following batches advance via BLOCK arrivals.
                                             self.maybe_start_next_batch(writer.clone()).await;
                                         }
@@ -560,22 +571,46 @@ impl P2PServer {
                                                             continue;
                                                         }
                                                     };
+                                                {
+                                                    let mut treechain = self.treechain.lock().await;
+                                                    let mut pqp = self.pqp.lock().await;
+                                                    let pqp_entry =
+                                                        TreeChain::parent_queue_entry_from_block(
+                                                            &block,
+                                                        );
+                                                    pqp.add_entry(pqp_entry.clone());
+                                                    let exist: bool = pqp
+                                                        .pool
+                                                        .iter()
+                                                        .rev()
+                                                        .take(CHILDREN as usize)
+                                                        .any(|e| {
+                                                            e.block_hash == pqp_entry.block_hash
+                                                        });
+                                                    if exist {
+                                                        if treechain
+                                                            .verify_and_add_block(&block.clone())
+                                                        {
+                                                            println!(
+                                                                "✅ Block {} added successfully",
+                                                                block.hash
+                                                            );
+                                                        } else {
+                                                            println!(
+                                                                "❌ Failed to add block {} (duplicate or invalid)",
+                                                                block.hash
+                                                            );
+                                                            // Even if duplicate, we still count delivery against pending.
+                                                        }
+                                                    } else {
+                                                        println!(
+                                                            "ParentQueueEntry of the current Block is not added"
+                                                        );
+                                                    }
 
-                                                let mut treechain = self.treechain.lock().await;
-                                                if treechain.verify_and_add_block(&block.clone()) {
-                                                    println!(
-                                                        "✅ Block {} added successfully",
-                                                        block.hash
-                                                    );
-                                                } else {
-                                                    println!(
-                                                        "❌ Failed to add block {} (duplicate or invalid)",
-                                                        block.hash
-                                                    );
-                                                    // Even if duplicate, we still count delivery against pending.
+                                                    drop(treechain);
+                                                    drop(pqp);
                                                 }
-                                                drop(treechain);
-
                                                 // Update batch accounting and trigger follow-up when batch completes
                                                 self.on_block_delivered(writer.clone()).await;
                                             }

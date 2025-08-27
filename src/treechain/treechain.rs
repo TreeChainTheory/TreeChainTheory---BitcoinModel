@@ -566,6 +566,12 @@ impl TreeChain {
             println!("❌ PQP pool is empty");
             return false;
         }
+        // for entry in pqp.pool.iter().rev() {
+        //     println!(
+        //         "\n q_i: {} p_h: {} h: {} ",
+        //         entry.queue_index, entry.parent_hash, entry.block_hash
+        //     );
+        // }
 
         // step 1: Verify each PQP entry in reverse order
         for (i, entry) in pool.iter().rev().enumerate() {
@@ -609,17 +615,24 @@ impl TreeChain {
                 }
 
                 if entry.parent_hash != prev_entry.parent_hash {
-                    let prev_siblings: Vec<&ParentQueueEntry> = pqp
-                        .pool
-                        .iter()
-                        .rev()
-                        .take(10)
-                        .filter(|e| e.parent_hash == prev_entry.parent_hash)
-                        .collect();
+                    let mut prev_siblings = vec![];
+                    if let Some(child_hashes) = self.children_map.get(&prev_entry.parent_hash) {
+                        for hash in child_hashes {
+                            if let Some(block) = self.get_block(hash) {
+                                // Optional: skip placeholder blocks via `block.position.is_empty()`
+                                let pqp_entry = TreeChain::parent_queue_entry_from_block(block);
+                                prev_siblings.push(pqp_entry);
+                            }
+                        }
+                    }
+                    // println!("prev siblings: {:?}", prev_siblings);
                     let mut found = false;
                     for sib in &prev_siblings {
                         if entry.align == sib.align {
                             if entry.prev_pqp_commitment != sib.pqp_commitment {
+                                println!(
+                                    "failed at entry.prev_pqp_commitment != sib.pqp_commitment "
+                                );
                                 return false;
                             }
                             found = true;
@@ -631,31 +644,47 @@ impl TreeChain {
                             prev_siblings.iter().max_by_key(|e| e.queue_index)
                         {
                             if entry.prev_pqp_commitment != max_sibling.pqp_commitment {
+                                println!("entry: {:?}", entry);
+                                println!("prev siblings: {:?}", prev_siblings);
+                                println!(
+                                    "failed at entry.prev_pqp_commitment != max_sibling.pqp_commitment"
+                                );
                                 return false;
                             }
                         }
                     }
                 } else {
                     let mut ancestor_opt = None;
-                    for ancestor in pqp.pool.iter().take(i).rev() {
-                        if ancestor.parent_hash != entry.parent_hash {
+                    for ancestor in pqp.pool.iter().rev() {
+                        if ancestor.parent_hash != entry.parent_hash
+                            && (ancestor.queue_index < entry.queue_index)
+                        {
                             ancestor_opt = Some(ancestor);
                             break;
                         }
                     }
+                    // println!("anc:{}", ancestor_opt.unwrap().parent_hash);
                     if let Some(ancestor) = ancestor_opt {
-                        let siblings: Vec<&ParentQueueEntry> = pqp
-                            .pool
-                            .iter()
-                            .rev()
-                            .take(10)
-                            .filter(|e| e.parent_hash == ancestor.parent_hash)
-                            .collect();
+                        let mut siblings = vec![];
+                        if let Some(child_hashes) = self.children_map.get(&ancestor.parent_hash) {
+                            for hash in child_hashes {
+                                if let Some(block) = self.get_block(hash) {
+                                    // Optional: skip placeholder blocks via `block.position.is_empty()`
+                                    let pqp_entry = TreeChain::parent_queue_entry_from_block(block);
+                                    siblings.push(pqp_entry);
+                                }
+                            }
+                        }
 
                         let mut found = false;
                         for sib in &siblings {
                             if entry.align == sib.align {
                                 if entry.prev_pqp_commitment != sib.pqp_commitment {
+                                    println!(
+                                        "entry q_i: {} sib q_i:{} ; entry a_i: {} sib a_i:{}",
+                                        entry.queue_index, sib.queue_index, entry.align, sib.align
+                                    );
+                                    println!("failed here 1");
                                     return false;
                                 }
                                 found = true;
@@ -666,6 +695,15 @@ impl TreeChain {
                             if let Some(max_sibling) = siblings.iter().max_by_key(|e| e.queue_index)
                             {
                                 if entry.prev_pqp_commitment != max_sibling.pqp_commitment {
+                                    println!("siblings: {:?}", siblings);
+                                    println!(
+                                        "entry q_i: {} maxsib q_i:{} ; entry a_i: {} maxsib a_i:{}",
+                                        entry.queue_index,
+                                        max_sibling.queue_index,
+                                        entry.align,
+                                        max_sibling.align
+                                    );
+                                    println!("failed here 2");
                                     return false;
                                 }
                             }
@@ -830,8 +868,22 @@ impl TreeChain {
             println!("❌ Parent block missing for block: {}", block.hash);
             return false;
         }
+        // let queue_index = block.pqp_entry.queue_index;
         // Add the block
         self.add_block(block.clone());
+        // let (_hash, point_block) = match self
+        //     .blocks
+        //     .get_index(queue_index.clone().try_into().unwrap())
+        // {
+        //     Some(pair) => pair,
+        //     None => {
+        //         println!("❌ Failed to get block at index {}", queue_index);
+        //         return false;
+        //     }
+        // };
+        // if point_block.hash != block.hash {
+        //     return false;
+        // }
         true
     }
 
