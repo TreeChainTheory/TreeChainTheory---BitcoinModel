@@ -1,6 +1,6 @@
 //1st terminal cargo run
-//2nd terminal HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 cargo run
-//3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 cargo run
+//2nd terminal HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 MINER_ADDRESS=MINER_ABC cargo run
+//3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 MINER_ADDRESS=MINER_XYZ cargo run
 
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
@@ -9,6 +9,7 @@ use TreeChainTheorey::treechain;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use std::sync::Mutex as SyncMutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
@@ -46,10 +47,18 @@ pub struct P2PServer {
     pub writers: Arc<Mutex<Vec<Arc<Mutex<OwnedWriteHalf>>>>>,
     pub best_peer: Arc<Mutex<Option<(String, u64)>>>, // (peer_addr, chain_length)
     sync_state: Arc<Mutex<Option<SyncState>>>,
+    pub current_mining_target: Arc<SyncMutex<Option<u32>>>,
+    pub abort_mining: Arc<SyncMutex<bool>>,
 }
 
 impl P2PServer {
-    pub fn new(treechain: Arc<Mutex<TreeChain>>, pqp: Arc<Mutex<PQP>>, peers: Vec<String>) -> Self {
+    pub fn new(
+        treechain: Arc<Mutex<TreeChain>>,
+        pqp: Arc<Mutex<PQP>>,
+        peers: Vec<String>,
+        current_mining_target: Arc<SyncMutex<Option<u32>>>,
+        abort_mining: Arc<SyncMutex<bool>>,
+    ) -> Self {
         P2PServer {
             treechain,
             pqp,
@@ -57,6 +66,8 @@ impl P2PServer {
             writers: Arc::new(Mutex::new(Vec::new())),
             best_peer: Arc::new(Mutex::new(None)), // communicate only with the peer that has the longer tree
             sync_state: Arc::new(Mutex::new(None)),
+            current_mining_target,
+            abort_mining,
         }
     }
 
@@ -720,6 +731,20 @@ impl P2PServer {
                                                         }
                                                     };
                                                 {
+                                                    let target_guard =
+                                                        self.current_mining_target.lock().unwrap();
+                                                    if let Some(target) = *target_guard {
+                                                        if block.pqp_entry.queue_index == target {
+                                                            println!(
+                                                                "Received MINEDBLOCK with same queue_index {} as current mining target, aborting current mine",
+                                                                target
+                                                            );
+                                                            *self.abort_mining.lock().unwrap() =
+                                                                true;
+                                                        }
+                                                    }
+                                                }
+                                                {
                                                     let mut treechain = self.treechain.lock().await;
                                                     let mut pqp = self.pqp.lock().await;
                                                     let pqp_entry =
@@ -887,13 +912,21 @@ pub fn start_p2p_server(
     peers: String,
     treechain: Arc<Mutex<TreeChain>>,
     pqp: Arc<Mutex<PQP>>,
+    current_mining_target: Arc<SyncMutex<Option<u32>>>,
+    abort_mining: Arc<SyncMutex<bool>>,
 ) -> Arc<P2PServer> {
     let peer_list: Vec<String> = peers
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let server = Arc::new(P2PServer::new(treechain, pqp, peer_list));
+    let server = Arc::new(P2PServer::new(
+        treechain,
+        pqp,
+        peer_list,
+        current_mining_target,
+        abort_mining,
+    ));
     let server_clone = Arc::clone(&server);
     std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_multi_thread()

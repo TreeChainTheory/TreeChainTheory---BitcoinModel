@@ -5,6 +5,7 @@ use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 /// Represents an entry in the global PQP (Pending Queue of Parents)
 use sha2::{Digest, Sha256};
+use std::sync::{Arc, Mutex as SyncMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParentQueueEntry {
@@ -342,6 +343,120 @@ impl TreeChain {
             }
         }
         result
+    }
+
+    pub fn mine_block_demo_2(
+        &mut self,
+        pqp: &mut PQP,
+        mut align: u8,
+        tx: Vec<String>,
+        miner_address: String,
+        signature: String,
+        abort: &Arc<SyncMutex<bool>>,
+    ) -> Option<Block> {
+        if align == 0 || align > CHILDREN {
+            return None;
+        }
+        let current_parent = pqp
+            .current_parent()
+            .expect("No current parent PQP entry found");
+        println!("\n current_parent hash: {:?}", current_parent.block_hash);
+
+        let (queue_index, align, prev_pqp) = match self.calculate_queue_index(pqp, align) {
+            Some(result) => result,
+            None => return None,
+        };
+
+        let pqp_entry = PQPEntry {
+            queue_index,
+            miner_address: miner_address.clone(),
+            prev_pqp_commitment: prev_pqp,
+            signature: signature.clone(),
+        };
+
+        let parent_block_hash = &current_parent.block_hash.clone();
+        println!("got parent block hash");
+        let parent_block = self
+            .get_block(parent_block_hash)
+            .expect("failed to get block");
+        println!(
+            "parent block: level:{}, postion:{},queue_index:{}",
+            parent_block.level, parent_block.position, parent_block.pqp_entry.queue_index
+        );
+        let merkle_root = Block::merkle_root(tx.clone());
+
+        let target = Block::calculate_target(BITS.to_string()).expect("Invalid bits");
+
+        let mut new_block = Block::new(
+            "".to_string(),
+            "".to_string(),
+            parent_block.level + 1,
+            format!("{}.{}", parent_block.position, align),
+            1,
+            parent_block_hash.clone(),
+            merkle_root,
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as u128,
+            BITS.to_string(),
+            0,
+            align,
+            pqp_entry,
+            tx.len() as u32,
+            tx.clone(),
+        );
+        let mut nonce = 0;
+
+        loop {
+            new_block.nonce = nonce;
+            let mut candidate = new_block.clone();
+            Block::calculate_hash_and_pqp_commitment(&mut candidate);
+            if let Ok(bytes) = hex::decode(&candidate.hash) {
+                let val = BigUint::from_bytes_le(&bytes);
+                if val < target {
+                    let new_pqp_entry = ParentQueueEntry::new(
+                        candidate.pqp_entry.queue_index,
+                        candidate.align,
+                        candidate.hash.clone(),
+                        candidate.parent_hash.clone(),
+                        candidate.pqp_entry.miner_address.clone(),
+                        candidate.pqp_entry.prev_pqp_commitment.clone(),
+                        candidate.pqp_entry.signature.clone(),
+                        candidate.pqp_commitment.clone(),
+                    );
+                    pqp.add_entry(new_pqp_entry.clone());
+                    let exist: bool = pqp
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(CHILDREN as usize)
+                        .any(|e| e.block_hash == new_pqp_entry.block_hash);
+                    if exist {
+                        println!("\nNew PQP entry added: {:?}", new_pqp_entry);
+                        self.add_block(candidate.clone());
+                        return Some(candidate);
+                    } else {
+                        println!("❌ Failed :  PQP entry mismatch");
+                        return None;
+                    }
+                }
+            }
+
+            nonce = nonce.wrapping_add(1);
+            if nonce % 1000 == 0 {
+                if let Ok(guard) = abort.lock() {
+                    if *guard {
+                        println!("Mining aborted due to received block");
+                        return None;
+                    }
+                }
+            }
+            if nonce == u32::MAX {
+                println!("❌ Failed :  Nonce Exhausted");
+                return None;
+            }
+        }
     }
 
     pub fn mine_block_demo(

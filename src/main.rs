@@ -8,6 +8,7 @@ use actix_web::{App, HttpServer, web};
 use dotenv::dotenv;
 use std::env;
 use std::sync::Arc;
+use std::sync::Mutex as SyncMutex;
 use std::thread;
 use tokio::sync::Mutex;
 
@@ -25,6 +26,7 @@ async fn main() {
     let http_port = env::var("HTTP_PORT").unwrap_or_else(|_| "3001".into());
     let p2p_port = env::var("P2P_PORT").unwrap_or_else(|_| "5001".into());
     let peers = env::var("PEERS").unwrap_or_else(|_| "".into());
+    let miner_address = env::var("MINER_ADDRESS").unwrap_or_else(|_| "Miner 123".to_string());
 
     println!("Starting HTTP server on http://localhost:{}", http_port);
     println!("Starting P2P server on http://localhost:{}", p2p_port);
@@ -32,6 +34,8 @@ async fn main() {
     let treechain = Arc::new(Mutex::new(TreeChain::new()));
     let pqp = Arc::new(Mutex::new(PQP::new()));
     let mining_flag = Arc::new(Mutex::new(false));
+    let current_mining_target = Arc::new(SyncMutex::new(None::<u32>));
+    let abort_mining = Arc::new(SyncMutex::new(false));
 
     let p2p_port_clone = p2p_port.clone();
     let peers_clone = peers.clone();
@@ -53,6 +57,8 @@ async fn main() {
         peers_clone,
         Arc::clone(&treechain),
         Arc::clone(&pqp),
+        Arc::clone(&current_mining_target),
+        Arc::clone(&abort_mining),
     );
 
     HttpServer::new(move || {
@@ -62,6 +68,9 @@ async fn main() {
                 Arc::clone(&pqp),
                 Arc::clone(&mining_flag),
                 Arc::clone(&p2p_server),
+                Arc::clone(&current_mining_target),
+                Arc::clone(&abort_mining),
+                miner_address.clone(),
             )))
             .configure(miner::routes::init_routes)
     })

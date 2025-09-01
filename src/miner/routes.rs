@@ -2,7 +2,7 @@ use crate::p2p_server::P2PServer;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
 use actix_web::{HttpResponse, Responder, get, web};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as SyncMutex};
 use tokio::sync::Mutex;
 
 #[get("/start_mining")]
@@ -12,15 +12,29 @@ async fn start_mining(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
+        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<bool>>,
+        String,
     )>,
 ) -> impl Responder {
-    let (treechain, pqp, mining_flag, p2p_server) = {
+    let (
+        treechain,
+        pqp,
+        mining_flag,
+        p2p_server,
+        current_mining_target,
+        abort_mining,
+        miner_address,
+    ) = {
         let d = data.as_ref();
         (
             Arc::clone(&d.0),
             Arc::clone(&d.1),
             Arc::clone(&d.2),
             Arc::clone(&d.3),
+            Arc::clone(&d.4),
+            Arc::clone(&d.5),
+            d.6.clone(),
         )
     };
 
@@ -44,7 +58,6 @@ async fn start_mining(
     // Static values for mining parameters
     let align = 1;
     let tx = vec!["tx1".to_string(), "tx2".to_string()];
-    let miner_address = "MINER_ADDRESS_123".to_string();
     let signature = "DUMMY_SIGNATURE_64_BYTES".to_string().repeat(3);
 
     tokio::spawn(async move {
@@ -55,31 +68,66 @@ async fn start_mining(
                 break;
             }
 
+            *abort_mining.lock().unwrap() = false;
+
             let mut chain = treechain.lock().await;
             let mut pqp_guard = pqp.lock().await;
 
-            match chain.mine_block_demo(
-                &mut pqp_guard,
-                align,
-                tx.clone(),
-                miner_address.clone(),
-                signature.clone(),
-            ) {
-                Some(block) => {
-                    println!("Successfully mined block: {}", block.hash);
-                    let writers = p2p_server.writers.lock().await;
-                    for writer in writers.iter() {
-                        p2p_server
-                            .clone()
-                            .send_minedblock(writer.clone(), block.clone())
-                            .await;
+            let calc = chain.calculate_queue_index(&mut pqp_guard, align);
+
+            if let Some((queue_index, calculated_align, prev_pqp)) = calc {
+                *current_mining_target.lock().unwrap() = Some(queue_index);
+                match chain.mine_block_demo_2(
+                    &mut pqp_guard,
+                    align,
+                    tx.clone(),
+                    miner_address.clone(),
+                    signature.clone(),
+                    &abort_mining,
+                ) {
+                    Some(block) => {
+                        println!("Successfully mined block: {}", block.hash);
+                        let writers = p2p_server.writers.lock().await;
+                        for writer in writers.iter() {
+                            p2p_server
+                                .clone()
+                                .send_minedblock(writer.clone(), block.clone())
+                                .await;
+                        }
+                    }
+                    None => {
+                        println!("Failed to mine block, retrying...");
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
                 }
-                None => {
-                    println!("Failed to mine block, retrying...");
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                }
+            } else {
+                println!("Failed to calculate queue index, retrying...");
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
+
+            // match chain.mine_block_demo(
+            //     &mut pqp_guard,
+            //     align,
+            //     tx.clone(),
+            //     miner_address.clone(),
+            //     signature.clone(),
+            // ) {
+            //     Some(block) => {
+            //         println!("Successfully mined block: {}", block.hash);
+            //         let writers = p2p_server.writers.lock().await;
+            //         for writer in writers.iter() {
+            //             p2p_server
+            //                 .clone()
+            //                 .send_minedblock(writer.clone(), block.clone())
+            //                 .await;
+            //         }
+            //     }
+            //     None => {
+            //         println!("Failed to mine block, retrying...");
+            //         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            //     }
+            // }
+            *current_mining_target.lock().unwrap() = None;
         }
     });
 
@@ -96,9 +144,12 @@ async fn stop_mining(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
+        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<bool>>,
+        String,
     )>,
 ) -> impl Responder {
-    let (_, _, mining_flag, _) = data.as_ref();
+    let (_, _, mining_flag, _, _, _, _) = data.as_ref();
     let mut mining = mining_flag.lock().await;
 
     if !*mining {
@@ -122,9 +173,12 @@ async fn get_blocks(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
+        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<bool>>,
+        String,
     )>,
 ) -> impl Responder {
-    let (treechain, _, _, _) = data.as_ref();
+    let (treechain, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
 
     let blocks: Vec<Block> = chain
