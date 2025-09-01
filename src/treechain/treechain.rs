@@ -138,10 +138,22 @@ impl PQP {
                         .count();
 
                     if updated_children_count >= CHILDREN as usize {
-                        self.pool.retain(|e| e.block_hash != current.block_hash);
+                        if let Some(pos) = self
+                            .pool
+                            .iter()
+                            .position(|e| e.block_hash == current.block_hash)
+                        {
+                            self.pool.remove(pos);
+                        }
                     }
                 } else {
-                    self.pool.retain(|e| e.block_hash != current.block_hash);
+                    if let Some(pos) = self
+                        .pool
+                        .iter()
+                        .position(|e| e.block_hash == current.block_hash)
+                    {
+                        self.pool.remove(pos);
+                    }
                 }
                 // println!("\n pqp at add_entry:{:?}", &self.pool);
             } else if let Some(next) = next_parent {
@@ -155,11 +167,33 @@ impl PQP {
                         return; // invalid → reject
                     }
                     self.pool.push(entry);
-                    self.pool.retain(|e| e.block_hash != current.block_hash);
+                    if let Some(pos) = self
+                        .pool
+                        .iter()
+                        .position(|e| e.block_hash == current.block_hash)
+                    {
+                        self.pool.remove(pos);
+                    }
                 }
             }
         } else {
             self.pool.push(entry);
+        }
+    }
+
+    pub fn remove_pqp_entry(&mut self, entry: ParentQueueEntry) -> bool {
+        if let Some(rev_pos) = self
+            .pool
+            .iter()
+            .rev()
+            .position(|e| e.block_hash == entry.block_hash)
+        {
+            // Convert reverse index to forward index
+            let pos = self.pool.len() - 1 - rev_pos;
+            self.pool.remove(pos);
+            true
+        } else {
+            false
         }
     }
 
@@ -324,55 +358,12 @@ impl TreeChain {
         let current_parent = pqp
             .current_parent()
             .expect("No current parent PQP entry found");
-        let latest_pqp = pqp.latest()?;
         println!("\n current_parent hash: {:?}", current_parent.block_hash);
 
-        let sibling_aligns: Vec<u8> = pqp
-            .pool
-            .iter()
-            .rev()
-            .take(CHILDREN as usize)
-            .filter(|e| e.parent_hash == current_parent.block_hash)
-            .filter_map(|e| self.get_block(&e.block_hash))
-            .map(|block| block.align)
-            .collect();
-        if sibling_aligns.contains(&align) {
-            let mut chosen_align = None;
-            for candidate in 1..CHILDREN + 1 {
-                if !sibling_aligns.contains(&candidate) {
-                    chosen_align = Some(candidate);
-                    break;
-                }
-            }
-
-            if let Some(new_align) = chosen_align {
-                align = new_align;
-            } else {
-                // No available align; cannot mine new sibling block
-                return None;
-            }
-        }
-        let prev_pqp = pqp.get_prev_pqp(align);
-
-        let max_queue_index = pqp.latest()?.queue_index;
-
-        let base_index = if latest_pqp.parent_hash == current_parent.block_hash {
-            pqp.pool
-                .iter()
-                .rev()
-                .find(|entry| entry.parent_hash != current_parent.block_hash)
-                .map(|entry| entry.queue_index)
-                .unwrap_or(max_queue_index)
-        } else {
-            max_queue_index
+        let (queue_index, align, prev_pqp) = match self.calculate_queue_index(pqp, align) {
+            Some(result) => result,
+            None => return None,
         };
-
-        println!(
-            "\n base_index: {},max_queue_index: {}, align: {}, latest_pqp.queue_index: {}",
-            base_index, max_queue_index, align, latest_pqp.queue_index
-        );
-        let queue_index = base_index + align as u32;
-        // let queue_index = latest_pqp.queue_index + align as u32;
 
         let pqp_entry = PQPEntry {
             queue_index,
@@ -456,6 +447,66 @@ impl TreeChain {
                 return None;
             }
         }
+    }
+
+    pub fn calculate_queue_index(&self, pqp: &PQP, mut align: u8) -> Option<(u32, u8, String)> {
+        let current_parent = pqp
+            .current_parent()
+            .expect("No current parent PQP entry found");
+        let latest_pqp = pqp.latest()?;
+        println!("\n current_parent hash: {:?}", current_parent.block_hash);
+
+        // Collect sibling aligns
+        let sibling_aligns: Vec<u8> = pqp
+            .pool
+            .iter()
+            .rev()
+            .take(CHILDREN as usize)
+            .filter(|e| e.parent_hash == current_parent.block_hash)
+            .filter_map(|e| self.get_block(&e.block_hash))
+            .map(|block| block.align)
+            .collect();
+
+        // If requested align is already taken, pick first available
+        if sibling_aligns.contains(&align) {
+            let mut chosen_align = None;
+            for candidate in 1..=CHILDREN {
+                if !sibling_aligns.contains(&candidate) {
+                    chosen_align = Some(candidate);
+                    break;
+                }
+            }
+            if let Some(new_align) = chosen_align {
+                align = new_align;
+            } else {
+                // No available align; cannot mine new sibling block
+                return None;
+            }
+        }
+
+        let prev_pqp = pqp.get_prev_pqp(align);
+        let max_queue_index = latest_pqp.queue_index;
+
+        // Determine base index depending on parent relationship
+        let base_index = if latest_pqp.parent_hash == current_parent.block_hash {
+            pqp.pool
+                .iter()
+                .rev()
+                .find(|entry| entry.parent_hash != current_parent.block_hash)
+                .map(|entry| entry.queue_index)
+                .unwrap_or(max_queue_index)
+        } else {
+            max_queue_index
+        };
+
+        let queue_index = base_index + align as u32;
+
+        println!(
+            "\n base_index: {}, max_queue_index: {}, align: {}, latest_pqp.queue_index: {}, queue_index: {}",
+            base_index, max_queue_index, align, latest_pqp.queue_index, queue_index
+        );
+
+        Some((queue_index, align, prev_pqp))
     }
 
     pub fn is_valid_tree(&self, pqp: &PQP) -> bool {

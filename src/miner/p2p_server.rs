@@ -20,6 +20,7 @@ const MESSAGE_TYPE_GETBLOCKS: &str = "GETBLOCKS";
 const MESSAGE_TYPE_INVMESSAGE: &str = "INVMESSAGE";
 const MESSAGE_TYPE_GETDATA: &str = "GETDATA";
 const MESSAGE_TYPE_BLOCK: &str = "BLOCK";
+const MESSAGE_TYPE_MINEDBLOCK: &str = "MINED_BLOCK";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvEntry {
@@ -97,6 +98,14 @@ impl P2PServer {
         });
 
         Self::send_message(writer, &message, "GETDATA").await;
+    }
+
+    pub async fn send_minedblock(&self, writer: Arc<Mutex<OwnedWriteHalf>>, block: Block) {
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_MINEDBLOCK ,
+            "block": block ,
+        });
+        Self::send_message(writer, &message, "MINED_BLOCK").await;
     }
 
     async fn send_blockmessage(&self, writer: Arc<Mutex<OwnedWriteHalf>>, block: Block) {
@@ -243,7 +252,6 @@ impl P2PServer {
         *st = None;
     }
 
-    /// Starts the next GETDATA batch if there is no pending batch.
     async fn maybe_start_next_batch(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
         println!("called start next batch");
         // take a look without holding the lock across await
@@ -308,8 +316,8 @@ impl P2PServer {
             make_post_batch_call = st.pending == 0;
         }
 
-        println!("make_post_batch_call: {}", make_post_batch_call);
-
+        // println!("make_post_batch_call: {}", make_post_batch_call);
+        //
         if make_post_batch_call {
             // Validate PQP/tree after completing a batch
             {
@@ -378,16 +386,38 @@ impl P2PServer {
                                                 .and_then(|v| v.as_u64())
                                                 .unwrap_or(0);
 
-                                            let chain_local_len = {
+                                            // remote last_block.timestamp (if provided)
+                                            let remote_last_ts = data
+                                                .get("last_block")
+                                                .and_then(|lb| lb.get("timestamp"))
+                                                .and_then(|t| t.as_u64());
+
+                                            let (chain_length_local, local_last_ts) = {
                                                 let treechain = self.treechain.lock().await;
-                                                treechain.blocks.len()
+                                                let len = treechain.blocks.len();
+
+                                                // walk from the end until we find a non-placeholder (position != "")
+                                                let mut last_ts: Option<u64> = None;
+                                                for idx in (0..len).rev() {
+                                                    if let Some((_h, b)) =
+                                                        treechain.blocks.get_index(idx)
+                                                    {
+                                                        if !b.position.is_empty() {
+                                                            last_ts = Some(b.timestamp as u64);
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                                (len, last_ts)
                                             };
 
                                             println!(
                                                 "CONNECTION_INFO from {}: remote_len={}, local_len={}",
-                                                peer_addr, chain_length_remote, chain_local_len
+                                                peer_addr, chain_length_remote, chain_length_local
                                             );
 
+                                            // 🕒 Compare timestamps if remote sent last_block
+                                            const DAY_SECS: u64 = 24 * 60 * 60;
                                             // Choose best peer (longest chain). If selecting a new best, reset sync state.
                                             let mut best_peer = self.best_peer.lock().await;
                                             let mut changed = false;
@@ -428,11 +458,59 @@ impl P2PServer {
                                             }
 
                                             if self.is_best_peer(&peer_addr).await {
-                                                if chain_length_remote > chain_local_len as u64 {
-                                                    println!(
-                                                        "Best peer has longer chain, sending GETBLOCKS"
-                                                    );
-                                                    self.send_getblocks(writer.clone()).await;
+                                                if chain_length_remote > chain_length_local as u64 {
+                                                    let remote_ahead =
+                                                        match (remote_last_ts, local_last_ts) {
+                                                            (Some(rts), Some(lts)) => {
+                                                                rts.saturating_sub(lts) > DAY_SECS
+                                                            }
+                                                            (Some(_), None) => true, // local has no valid timestamp
+                                                            _ => false,
+                                                        };
+
+                                                    if remote_ahead {
+                                                        println!(
+                                                            "⚠️ Remote ahead by >24h (remote_ts={:?}, local_ts={:?}); reinitializing to genesis",
+                                                            remote_last_ts, local_last_ts
+                                                        );
+
+                                                        {
+                                                            let mut treechain =
+                                                                self.treechain.lock().await;
+                                                            // keep genesis only
+                                                            let genesis = treechain
+                                                                .blocks
+                                                                .get_index(0)
+                                                                .map(|(_, b)| b.clone())
+                                                                .expect("genesis block must exist");
+                                                            let ghash = genesis.hash.clone();
+
+                                                            treechain.blocks.clear();
+                                                            treechain.children_map.clear();
+
+                                                            // reinsert genesis
+                                                            treechain.blocks.insert(
+                                                                ghash.clone(),
+                                                                genesis.clone(),
+                                                            );
+                                                            treechain
+                                                                .children_map
+                                                                .insert(ghash.clone(), vec![]);
+
+                                                            // reset PQP and insert genesis entry
+                                                            let mut pqp = self.pqp.lock().await;
+                                                            *pqp = PQP::new();
+                                                        }
+                                                        println!(
+                                                            "🌐 Requesting full sync from genesis via GETBLOCKS"
+                                                        );
+                                                        self.send_getblocks(writer.clone()).await;
+                                                    } else {
+                                                        println!(
+                                                            "Best peer has longer chain, sending GETBLOCKS (timestamps close)"
+                                                        );
+                                                        self.send_getblocks(writer.clone()).await;
+                                                    }
                                                 } else {
                                                     println!(
                                                         "Our chain is equal or longer, no GETBLOCKS needed"
@@ -466,6 +544,7 @@ impl P2PServer {
                                                 .await;
                                         }
                                         MESSAGE_TYPE_INVMESSAGE => {
+                                            println!("received inv message");
                                             // Only handle INVMESSAGE from the best peer
                                             if !self.is_best_peer(&peer_addr).await {
                                                 println!(
@@ -600,11 +679,23 @@ impl P2PServer {
                                                                 "❌ Failed to add block {} (duplicate or invalid)",
                                                                 block.hash
                                                             );
+                                                            if pqp
+                                                                .remove_pqp_entry(pqp_entry.clone())
+                                                            {
+                                                                println!(
+                                                                    "✅ removed the pqp entry "
+                                                                );
+                                                            } else {
+                                                                println!(
+                                                                    "❌ failed to remove the pqp entry "
+                                                                );
+                                                            }
                                                             // Even if duplicate, we still count delivery against pending.
                                                         }
                                                     } else {
                                                         println!(
-                                                            "ParentQueueEntry of the current Block is not added"
+                                                            "ParentQueueEntry of the current Block is not added {}",
+                                                            pqp_entry.block_hash
                                                         );
                                                     }
 
@@ -613,6 +704,86 @@ impl P2PServer {
                                                 }
                                                 // Update batch accounting and trigger follow-up when batch completes
                                                 self.on_block_delivered(writer.clone()).await;
+                                            }
+                                        }
+                                        MESSAGE_TYPE_MINEDBLOCK => {
+                                            if let Some(block_val) = data.get("block") {
+                                                let block: Block =
+                                                    match serde_json::from_value(block_val.clone())
+                                                    {
+                                                        Ok(b) => b,
+                                                        Err(_) => {
+                                                            println!(
+                                                                "❌ Failed to deserialize BLOCK"
+                                                            );
+                                                            continue;
+                                                        }
+                                                    };
+                                                {
+                                                    let mut treechain = self.treechain.lock().await;
+                                                    let mut pqp = self.pqp.lock().await;
+                                                    let pqp_entry =
+                                                        TreeChain::parent_queue_entry_from_block(
+                                                            &block,
+                                                        );
+                                                    pqp.add_entry(pqp_entry.clone());
+                                                    let exist: bool = pqp
+                                                        .pool
+                                                        .iter()
+                                                        .rev()
+                                                        .take(CHILDREN as usize)
+                                                        .any(|e| {
+                                                            e.block_hash == pqp_entry.block_hash
+                                                        });
+                                                    if exist {
+                                                        if treechain
+                                                            .verify_and_add_block(&block.clone())
+                                                        {
+                                                            println!(
+                                                                "✅ Block {} added successfully",
+                                                                block.hash
+                                                            );
+                                                        } else {
+                                                            println!(
+                                                                "❌ Failed to add block {} (duplicate or invalid)",
+                                                                block.hash
+                                                            );
+                                                            if pqp
+                                                                .remove_pqp_entry(pqp_entry.clone())
+                                                            {
+                                                                println!(
+                                                                    "✅ removed the pqp entry "
+                                                                );
+                                                            } else {
+                                                                println!(
+                                                                    "❌ failed to remove the pqp entry "
+                                                                );
+                                                            }
+                                                        }
+                                                    } else {
+                                                        println!(
+                                                            "ParentQueueEntry of the current Block is not added"
+                                                        );
+
+                                                        if let Some(latest) = pqp.latest() {
+                                                            if block.pqp_entry.queue_index
+                                                                > ((2 * CHILDREN as usize) //donot change CHILDREN into MAX_CHILDREN
+                                                                    + (latest.queue_index as usize))
+                                                                    .try_into()
+                                                                    .unwrap()
+                                                            {
+                                                                println!(
+                                                                    "sending the get_blocks message:"
+                                                                );
+                                                                self.send_getblocks(writer.clone())
+                                                                    .await;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    drop(treechain);
+                                                    drop(pqp);
+                                                }
                                             }
                                         }
                                         _ => {
@@ -716,7 +887,14 @@ pub fn start_p2p_server(
     peers: String,
     treechain: Arc<Mutex<TreeChain>>,
     pqp: Arc<Mutex<PQP>>,
-) -> std::thread::JoinHandle<()> {
+) -> Arc<P2PServer> {
+    let peer_list: Vec<String> = peers
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let server = Arc::new(P2PServer::new(treechain, pqp, peer_list));
+    let server_clone = Arc::clone(&server);
     std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -724,15 +902,11 @@ pub fn start_p2p_server(
             .unwrap();
         println!("peers: {}", peers);
         runtime.block_on(async move {
-            let peer_list: Vec<String> = peers
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            let server = P2PServer::new(treechain, pqp, peer_list);
-            Arc::new(server)
+            server_clone
                 .listen(port.parse::<u16>().expect("Invalid port number"))
                 .await;
         })
-    })
+    });
+
+    server
 }

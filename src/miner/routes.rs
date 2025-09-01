@@ -1,3 +1,4 @@
+use crate::p2p_server::P2PServer;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
 use actix_web::{HttpResponse, Responder, get, web};
@@ -6,9 +7,22 @@ use tokio::sync::Mutex;
 
 #[get("/start_mining")]
 async fn start_mining(
-    data: web::Data<(Arc<Mutex<TreeChain>>, Arc<Mutex<PQP>>, Arc<Mutex<bool>>)>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+    )>,
 ) -> impl Responder {
-    let (treechain, pqp, mining_flag) = data.as_ref();
+    let (treechain, pqp, mining_flag, p2p_server) = {
+        let d = data.as_ref();
+        (
+            Arc::clone(&d.0),
+            Arc::clone(&d.1),
+            Arc::clone(&d.2),
+            Arc::clone(&d.3),
+        )
+    };
 
     // Lock the mining flag once to check if already running
     {
@@ -23,9 +37,9 @@ async fn start_mining(
     }
 
     // Clone Arcs for background task
-    let treechain = Arc::clone(treechain);
-    let pqp = Arc::clone(pqp);
-    let mining_flag = Arc::clone(mining_flag);
+    let treechain = Arc::clone(&treechain);
+    let pqp = Arc::clone(&pqp);
+    let mining_flag = Arc::clone(&mining_flag);
 
     // Static values for mining parameters
     let align = 1;
@@ -53,6 +67,13 @@ async fn start_mining(
             ) {
                 Some(block) => {
                     println!("Successfully mined block: {}", block.hash);
+                    let writers = p2p_server.writers.lock().await;
+                    for writer in writers.iter() {
+                        p2p_server
+                            .clone()
+                            .send_minedblock(writer.clone(), block.clone())
+                            .await;
+                    }
                 }
                 None => {
                     println!("Failed to mine block, retrying...");
@@ -70,9 +91,14 @@ async fn start_mining(
 
 #[get("/stop_mining")]
 async fn stop_mining(
-    data: web::Data<(Arc<Mutex<TreeChain>>, Arc<Mutex<PQP>>, Arc<Mutex<bool>>)>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+    )>,
 ) -> impl Responder {
-    let (_, _, mining_flag) = data.as_ref();
+    let (_, _, mining_flag, _) = data.as_ref();
     let mut mining = mining_flag.lock().await;
 
     if !*mining {
@@ -91,9 +117,14 @@ async fn stop_mining(
 
 #[get("/get_blocks")]
 async fn get_blocks(
-    data: web::Data<(Arc<Mutex<TreeChain>>, Arc<Mutex<PQP>>, Arc<Mutex<bool>>)>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+    )>,
 ) -> impl Responder {
-    let (treechain, _, _) = data.as_ref();
+    let (treechain, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
 
     let blocks: Vec<Block> = chain

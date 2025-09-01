@@ -11,6 +11,8 @@ use std::sync::Arc;
 use std::thread;
 use tokio::sync::Mutex;
 
+use crate::miner::p2p_server::{self, start_p2p_server};
+
 #[actix_web::main]
 async fn main() {
     // let mut genisis_block = Block::genesis();
@@ -37,14 +39,21 @@ async fn main() {
     let treechain_clone = Arc::clone(&treechain);
     let pqp_clone = Arc::clone(&pqp);
 
-    thread::spawn(move || {
-        miner::p2p_server::start_p2p_server(
-            p2p_port_clone,
-            peers_clone,
-            treechain_clone,
-            pqp_clone,
-        );
-    });
+    // thread::spawn(move || {
+    //     miner::p2p_server::start_p2p_server(
+    //         p2p_port_clone,
+    //         peers_clone,
+    //         treechain_clone,
+    //         pqp_clone,
+    //     );
+    // });
+
+    let p2p_server = start_p2p_server(
+        p2p_port_clone,
+        peers_clone,
+        Arc::clone(&treechain),
+        Arc::clone(&pqp),
+    );
 
     HttpServer::new(move || {
         App::new()
@@ -52,6 +61,7 @@ async fn main() {
                 Arc::clone(&treechain),
                 Arc::clone(&pqp),
                 Arc::clone(&mining_flag),
+                Arc::clone(&p2p_server),
             )))
             .configure(miner::routes::init_routes)
     })
