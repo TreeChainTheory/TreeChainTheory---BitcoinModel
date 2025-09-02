@@ -73,14 +73,35 @@ impl P2PServer {
 
     async fn build_block_locator(&self) -> Vec<String> {
         println!("Trying to lock treechain");
-        let treechain = self.treechain.lock().await;
-        println!("Locked treechain");
-        let mut hashes: Vec<String> = treechain.blocks.keys().cloned().collect();
-        hashes.reverse();
-        hashes.truncate(10);
-        drop(treechain);
-        println!("Dropped treechain lock");
-        hashes
+        // Attempt to acquire the lock without waiting.
+        // tokio::sync::Mutex::try_lock() returns Result<MutexGuard, TryLockError>.
+        match self.treechain.try_lock() {
+            Ok(treechain) => {
+                println!("Locked treechain (fast path) for building block locator");
+                // Collect recent hashes (reverse order, truncate to 10 like before)
+                let mut hashes: Vec<String> = treechain.blocks.keys().cloned().collect();
+                hashes.reverse();
+                hashes.truncate(10);
+                println!("Built block locator (from local treechain): {:?}", hashes);
+                hashes
+            }
+            Err(_) => {
+                // Could not obtain lock immediately.
+                // Fallback behavior: return a lightweight locator that causes the peer
+                // to send inventories from the beginning (or you can try a cached tip).
+                //
+                // Two sensible fallback options:
+                // 1) return an empty Vec<String> -> the peer will treat this as "no locator" and
+                //    send inventory starting from genesis.
+                // 2) return a vec with the last-known-tip hash if you cache it elsewhere.
+                //
+                // Here we return an empty locator (safe & simple).
+                println!(
+                    "Could not immediately lock treechain -- returning empty block locator fallback"
+                );
+                Vec::new()
+            }
+        }
     }
 
     async fn send_getblocks(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
@@ -355,7 +376,7 @@ impl P2PServer {
     }
 
     async fn message_handler(
-        &self,
+        self: Arc<Self>,
         mut reader: OwnedReadHalf,
         writer: Arc<Mutex<OwnedWriteHalf>>,
         peer_addr: String,
@@ -424,7 +445,9 @@ impl P2PServer {
 
                                             println!(
                                                 "CONNECTION_INFO from {}: remote_len={}, local_len={}",
-                                                peer_addr, chain_length_remote, chain_length_local
+                                                peer_addr,
+                                                chain_length_remote,
+                                                chain_length_local.clone()
                                             );
 
                                             // 🕒 Compare timestamps if remote sent last_block
@@ -434,7 +457,10 @@ impl P2PServer {
                                             let mut changed = false;
                                             match &*best_peer {
                                                 Some((current_peer, current_len)) => {
-                                                    if chain_length_remote > *current_len {
+                                                    if chain_length_remote > *current_len
+                                                        && chain_length_remote
+                                                            > chain_length_local.clone() as u64
+                                                    {
                                                         println!(
                                                             "🌐 Selecting {} as best peer with chain length {} (prev {} @ {})",
                                                             peer_addr,
@@ -450,15 +476,19 @@ impl P2PServer {
                                                     }
                                                 }
                                                 None => {
-                                                    println!(
-                                                        "🌐 Selecting {} as best peer with chain length {}",
-                                                        peer_addr, chain_length_remote
-                                                    );
-                                                    *best_peer = Some((
-                                                        peer_addr.clone(),
-                                                        chain_length_remote,
-                                                    ));
-                                                    changed = true;
+                                                    if chain_length_remote
+                                                        > chain_length_local as u64
+                                                    {
+                                                        println!(
+                                                            "🌐 Selecting {} as best peer with chain length {}",
+                                                            peer_addr, chain_length_remote
+                                                        );
+                                                        *best_peer = Some((
+                                                            peer_addr.clone(),
+                                                            chain_length_remote,
+                                                        ));
+                                                        changed = true;
+                                                    }
                                                 }
                                             }
                                             drop(best_peer);
@@ -551,8 +581,14 @@ impl P2PServer {
                                                 "Received GETBLOCKS from {} with block locator: {:?}",
                                                 peer_addr, block_locator
                                             );
-                                            self.send_invmessages(writer.clone(), block_locator)
-                                                .await;
+
+                                            let writer_clone = writer.clone();
+                                            let server_clone = Arc::clone(&self);
+                                            tokio::spawn(async move {
+                                                server_clone
+                                                    .send_invmessages(writer_clone, block_locator)
+                                                    .await;
+                                            });
                                         }
                                         MESSAGE_TYPE_INVMESSAGE => {
                                             println!("received inv message");
@@ -718,6 +754,21 @@ impl P2PServer {
                                             }
                                         }
                                         MESSAGE_TYPE_MINEDBLOCK => {
+                                            {
+                                                let sync_state = self.sync_state.lock().await;
+                                                if let Some(st) = &*sync_state {
+                                                    if st.pending > 0 || !st.inventories.is_empty()
+                                                    {
+                                                        println!(
+                                                            "Ignoring MINED_BLOCK from {}: still in downloading phase (pending: {}, inventories: {})",
+                                                            peer_addr,
+                                                            st.pending,
+                                                            st.inventories.len()
+                                                        );
+                                                        continue;
+                                                    }
+                                                }
+                                            }
                                             if let Some(block_val) = data.get("block") {
                                                 let block: Block =
                                                     match serde_json::from_value(block_val.clone())
@@ -863,26 +914,58 @@ impl P2PServer {
             }
         }
 
-        if let Some(start) = start_index {
-            let mut inventories = Vec::new();
-            for (idx, (hash, _)) in treechain.blocks.iter().enumerate().skip(start + 1) {
-                inventories.push(InvEntry {
-                    queue_index: idx as u32,
-                    block_hash: hash.clone(),
-                });
-                if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
-                    break;
-                }
+        let mut inventories = Vec::new();
+        // If no match found, start from the beginning (genesis block)
+        let start = start_index.unwrap_or(0);
+        for (idx, (hash, block)) in treechain.blocks.iter().enumerate().skip(start) {
+            // Skip placeholder blocks
+            if block.position.is_empty() {
+                continue;
             }
+            inventories.push(InvEntry {
+                queue_index: block.pqp_entry.queue_index,
+                block_hash: hash.clone(),
+            });
+            if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
+                break;
+            }
+        }
 
+        if inventories.is_empty() {
+            println!(
+                "No blocks to send in INVMESSAGE (start_index: {:?})",
+                start_index
+            );
+        } else {
+            println!("Sending INVMESSAGE with {} entries", inventories.len());
             let message = serde_json::json!({
                 "type": MESSAGE_TYPE_INVMESSAGE,
                 "inventories": inventories
             });
-
-            drop(treechain);
             Self::send_message(writer, &message, "INVMESSAGE").await;
         }
+        drop(treechain);
+
+        // if let Some(start) = start_index {
+        //     let mut inventories = Vec::new();
+        //     for (idx, (hash, _)) in treechain.blocks.iter().enumerate().skip(start + 1) {
+        //         inventories.push(InvEntry {
+        //             queue_index: idx as u32,
+        //             block_hash: hash.clone(),
+        //         });
+        //         if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
+        //             break;
+        //         }
+        //     }
+
+        //     let message = serde_json::json!({
+        //         "type": MESSAGE_TYPE_INVMESSAGE,
+        //         "inventories": inventories
+        //     });
+
+        //     drop(treechain);
+        //     Self::send_message(writer, &message, "INVMESSAGE").await;
+        // }
     }
 
     async fn remove_writer(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
