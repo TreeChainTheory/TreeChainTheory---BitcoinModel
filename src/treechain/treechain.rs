@@ -1034,34 +1034,7 @@ impl TreeChain {
             println!("❌ Parent block missing for block: {}", block.hash);
             return false;
         }
-        // let queue_index = block.pqp_entry.queue_index;
-        // Add the block
         self.add_block(block.clone());
-        // let (_hash, point_block) = match self
-        //     .blocks
-        //     .get_index(queue_index.clone().try_into().unwrap())
-        // {
-        //     Some(pair) => pair,
-        //     None => {
-        //         println!("❌ Failed to get block at index {}", queue_index);
-        //         return false;
-        //     }
-        // };
-        // if point_block.hash != block.hash {
-        //     return false;
-        // }
-        true
-    }
-
-    /// Add multiple blocks verifying each with `verify_and_add_block`.
-    /// Stops immediately on failure, returning false.
-    pub fn add_received_blocks(&mut self, blocks: Vec<Block>) -> bool {
-        for block in blocks.iter() {
-            if !self.verify_and_add_block(block) {
-                println!("❌ Failed to add block in sequence: {}", block.hash);
-                return false;
-            }
-        }
         true
     }
 

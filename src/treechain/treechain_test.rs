@@ -730,69 +730,6 @@ fn test_verify_and_add_block_fail_on_bad_hash() {
 }
 
 #[test]
-fn test_add_received_blocks_all_valid() {
-    let mut treechain = TreeChain::new();
-
-    let mut blocks = Vec::new();
-    let mut parent = Block::genesis();
-
-    for i in 1..=3 {
-        let mut b = Block::empty_placeholder(i);
-        b.parent_hash = parent.hash.clone();
-        b.level = parent.level + 1;
-        b.pqp_entry.queue_index = i;
-        b.pqp_entry.prev_pqp_commitment = parent.pqp_commitment.clone();
-        Block::calculate_hash_and_pqp_commitment(&mut b);
-        blocks.push(b.clone());
-        parent = b;
-    }
-
-    let added = treechain.add_received_blocks(blocks);
-    assert!(added);
-
-    // Check blocks added in treechain
-    for i in 1..=3 {
-        let key_exists = treechain
-            .blocks
-            .values()
-            .any(|b| b.pqp_entry.queue_index == i);
-        assert!(key_exists);
-    }
-}
-
-#[test]
-fn test_add_received_blocks_partial_failure() {
-    let mut treechain = TreeChain::new();
-
-    let mut blocks = Vec::new();
-    let mut parent = Block::genesis();
-
-    // Add one valid block
-    let mut b1 = Block::empty_placeholder(1);
-    b1.parent_hash = parent.hash.clone();
-    b1.level = parent.level + 1;
-    b1.pqp_entry.queue_index = 1;
-    b1.pqp_entry.prev_pqp_commitment = parent.pqp_commitment.clone();
-    Block::calculate_hash_and_pqp_commitment(&mut b1);
-    blocks.push(b1.clone());
-
-    // Add invalid block (bad hash)
-    let mut b2 = Block::empty_placeholder(2);
-    b2.parent_hash = b1.hash.clone();
-    b2.level = b1.level + 1;
-    b2.pqp_entry.queue_index = 2;
-    b2.pqp_entry.prev_pqp_commitment = b1.pqp_commitment.clone();
-    b2.hash = "bad_hash_invalid".to_string(); // corrupt hash
-    blocks.push(b2.clone());
-
-    let added = treechain.add_received_blocks(blocks);
-    assert!(!added);
-    // Only first block added
-    assert!(treechain.blocks.contains_key(&b1.hash));
-    assert!(!treechain.blocks.contains_key(&b2.hash));
-}
-
-#[test]
 fn test_get_prev_pqp_empty_pool() {
     let pqp = PQP { pool: vec![] };
     assert_eq!(pqp.get_prev_pqp(1), "");

@@ -9,7 +9,6 @@ use dotenv::dotenv;
 use std::env;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
-use std::thread;
 use tokio::sync::Mutex;
 
 use crate::miner::p2p_server::{self, start_p2p_server};
@@ -39,18 +38,6 @@ async fn main() {
 
     let p2p_port_clone = p2p_port.clone();
     let peers_clone = peers.clone();
-
-    let treechain_clone = Arc::clone(&treechain);
-    let pqp_clone = Arc::clone(&pqp);
-
-    // thread::spawn(move || {
-    //     miner::p2p_server::start_p2p_server(
-    //         p2p_port_clone,
-    //         peers_clone,
-    //         treechain_clone,
-    //         pqp_clone,
-    //     );
-    // });
 
     let p2p_server = start_p2p_server(
         p2p_port_clone,
