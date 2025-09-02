@@ -45,7 +45,7 @@ impl Transaction {
 
     pub fn new_coinbase(
         version: u32,
-        miner_address: String,
+        miner_pubkey: String, //it is raw pubkey hex not the address
         queue_index: u32,
         subsidy: u64,
         fees: u64,
@@ -59,10 +59,14 @@ impl Transaction {
             sequence: 0xffffffff,
         };
 
+        let pubkey_hash = Self::pubkey_hash_from_pubkey(&miner_pubkey);
+        let miner_address =
+            Self::address_from_pubkey_hash(&pubkey_hash).expect("Failed to derive address");
+
         let miner_output = TxOutput {
             value: subsidy + fees,
-            script_pubkey: Self::create_p2pkh_script(miner_address),
-            address: miner_address,
+            script_pubkey: Self::create_p2pkh_script(pubkey_hash),
+            address: Some(miner_address),
         };
 
         let mut tx = Transaction {
@@ -85,7 +89,6 @@ impl Transaction {
         let mut hasher = Sha256::new();
 
         hasher.update(self.version.to_le_bytes());
-        hasher.update(self.queue_index.to_le_bytes());
         hasher.update((self.vin.len() as u8).to_le_bytes());
         for input in &self.vin {
             hasher.update(hex::decode(&input.prev_txid).expect("Invalid txid hex"));
@@ -112,19 +115,88 @@ impl Transaction {
         let hash2 = hasher.finalize();
         hex::encode(hash2)
     }
+
+    pub fn pubkey_hash_from_pubkey(pubkey_hex: &str) -> String {
+        let pubkey_bytes = hex::decode(pubkey_hex).expect("Invalid pubkey hex");
+
+        // SHA256
+        let sha256 = Sha256::digest(&pubkey_bytes);
+
+        // RIPEMD160
+        let ripemd = Ripemd160::digest(&sha256);
+
+        hex::encode(ripemd)
+    }
+
+    pub fn pubkey_hash_from_address(address: &str) -> Result<String, String> {
+        // Decode Base58Check address
+        let decoded = bs58::decode(address)
+            .into_vec()
+            .map_err(|e| format!("Base58 decode error: {}", e))?;
+
+        // Check length (25 bytes for P2PKH: 1 version byte + 20 hash bytes + 4 checksum bytes)
+        if decoded.len() != 25 {
+            return Err("Invalid address length".to_string());
+        }
+
+        // Verify version byte (0x00 for P2PKH mainnet)
+        if decoded[0] != 0x00 {
+            return Err("Invalid address version (only P2PKH supported)".to_string());
+        }
+
+        // Verify checksum
+        let payload = &decoded[0..21]; // version + pubkey hash
+        let checksum = &decoded[21..25];
+        let mut hasher = Sha256::new();
+        hasher.update(payload);
+        let hash1 = hasher.finalize();
+        let mut hasher = Sha256::new();
+        hasher.update(hash1);
+        let hash2 = hasher.finalize();
+        if checksum != &hash2[0..4] {
+            return Err("Invalid address checksum".to_string());
+        }
+
+        // Extract 20-byte pubkey hash
+        let pubkey_hash = &decoded[1..21];
+        Ok(hex::encode(pubkey_hash))
+    }
+
+    pub fn address_from_pubkey_hash(pubkey_hash: &str) -> Result<String, String> {
+        let hash_bytes =
+            hex::decode(pubkey_hash).map_err(|e| format!("Invalid pubkey hash hex: {}", e))?;
+        if hash_bytes.len() != 20 {
+            return Err("Pubkey hash must be 20 bytes".to_string());
+        }
+
+        // Create payload: version byte (0x00 for P2PKH) + pubkey hash
+        let mut payload = vec![0x00];
+        payload.extend_from_slice(&hash_bytes);
+
+        // Compute checksum: first 4 bytes of SHA256(SHA256(payload))
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        let hash1 = hasher.finalize();
+        let mut hasher = Sha256::new();
+        hasher.update(hash1);
+        let hash2 = hasher.finalize();
+        payload.extend_from_slice(&hash2[0..4]);
+
+        // Encode to Base58Check
+        Ok(bs58::encode(payload).into_string())
+    }
 }
 
 impl fmt::Display for Transaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Transaction {{ txid: {}, version: {}, locktime: {}, inputs: {}, outputs: {}, is_coinbase: {} }}",
+            "Transaction {{ txid: {}, version: {}, locktime: {}, inputs: {}, outputs: {} }}",
             self.txid,
             self.version,
             self.locktime,
             self.vin.len(),
             self.vout.len(),
-            self.is_coinbase.unwrap_or(false)
         )
     }
 }
