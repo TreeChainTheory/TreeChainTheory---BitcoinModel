@@ -615,6 +615,14 @@ impl P2PServer {
                                                 inventories.len()
                                             );
 
+                                            if inventories.is_empty() {
+                                                println!(
+                                                    "Received empty INVMESSAGE from best peer {}, confirming sync complete",
+                                                    peer_addr
+                                                );
+                                                continue;
+                                            }
+
                                             // If already syncing (pending > 0 or have leftover inventories), ignore new inv
                                             // until current sync finishes, to avoid mixing windows.
                                             let should_ignore = {
@@ -909,7 +917,7 @@ impl P2PServer {
                 .enumerate()
                 .find(|(_, (hash, _))| *hash == &locator)
             {
-                start_index = Some(idx);
+                start_index = Some(idx + 1);
                 break;
             }
         }

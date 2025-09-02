@@ -2,6 +2,7 @@ use crate::p2p_server::P2PServer;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
 use actix_web::{HttpResponse, Responder, get, web};
+use num_bigint::BigUint;
 use std::sync::{Arc, Mutex as SyncMutex};
 use tokio::sync::Mutex;
 
@@ -70,64 +71,112 @@ async fn start_mining(
 
             *abort_mining.lock().unwrap() = false;
 
-            let mut chain = treechain.lock().await;
-            let mut pqp_guard = pqp.lock().await;
-
-            let calc = chain.calculate_queue_index(&mut pqp_guard, align);
+            // Brief lock for queue index calculation
+            let calc;
+            {
+                let mut chain = treechain.lock().await;
+                let mut pqp_guard = pqp.lock().await;
+                calc = chain.calculate_queue_index(&mut pqp_guard, align);
+            } // Release locks
 
             if let Some((queue_index, calculated_align, prev_pqp)) = calc {
                 *current_mining_target.lock().unwrap() = Some(queue_index);
-                match chain.mine_block_demo_2(
-                    &mut pqp_guard,
-                    align,
-                    tx.clone(),
-                    miner_address.clone(),
-                    signature.clone(),
-                    &abort_mining,
-                ) {
-                    Some(block) => {
-                        println!("Successfully mined block: {}", block.hash);
-                        let writers = p2p_server.writers.lock().await;
-                        for writer in writers.iter() {
-                            p2p_server
-                                .clone()
-                                .send_minedblock(writer.clone(), block.clone())
-                                .await;
+
+                // Brief lock for template preparation
+                let block_template_opt;
+                {
+                    let chain = treechain.lock().await;
+                    let mut pqp_guard = pqp.lock().await;
+                    block_template_opt = chain.prepare_block_template(
+                        &mut pqp_guard,
+                        align,
+                        tx.clone(),
+                        miner_address.clone(),
+                        signature.clone(),
+                    );
+                } // Release locks
+
+                if let Some(mut block_template) = block_template_opt {
+                    // Offload nonce search to blocking thread
+                    let abort_clone = Arc::clone(&abort_mining);
+                    let mined_result = tokio::task::spawn_blocking(move || {
+                        let target = Block::calculate_target(block_template.bits.clone())
+                            .unwrap_or_else(|| BigUint::from(0u32));
+                        let mut nonce = 0u32;
+                        let mut iteration = 0;
+                        loop {
+                            if iteration % 1000 == 0 && *abort_clone.lock().unwrap() {
+                                return None;
+                            }
+
+                            block_template.nonce = nonce;
+                            Block::calculate_hash_and_pqp_commitment(&mut block_template);
+
+                            let hash_bytes = hex::decode(&block_template.hash).unwrap_or_default();
+                            let hash_int = BigUint::from_bytes_be(&hash_bytes);
+
+                            if hash_int < target {
+                                return Some(block_template);
+                            }
+
+                            nonce = nonce.wrapping_add(1);
+                            iteration += 1;
                         }
-                    }
-                    None => {
-                        println!("Failed to mine block, retrying...");
+                    })
+                    .await
+                    .unwrap();
+
+                    *current_mining_target.lock().unwrap() = None;
+
+                    if let Some(mined_block) = mined_result {
+                        // Brief lock to add and broadcast
+                        {
+                            let mut chain = treechain.lock().await;
+                            let mut pqp_guard = pqp.lock().await;
+
+                            let pqp_entry = TreeChain::parent_queue_entry_from_block(&mined_block);
+                            pqp_guard.add_entry(pqp_entry.clone());
+
+                            let exist: bool = pqp_guard
+                                .pool
+                                .iter()
+                                .rev()
+                                .take(crate::config::CHILDREN as usize)
+                                .any(|e| e.block_hash == pqp_entry.block_hash);
+
+                            if exist {
+                                if chain.verify_and_add_block(&mined_block) {
+                                    println!("Successfully mined block: {}", mined_block.hash);
+                                    let writers = p2p_server.writers.lock().await;
+                                    for writer in writers.iter() {
+                                        p2p_server
+                                            .clone()
+                                            .send_minedblock(writer.clone(), mined_block.clone())
+                                            .await;
+                                    }
+                                } else {
+                                    println!(
+                                        "Failed to add block {} (duplicate or invalid)",
+                                        mined_block.hash
+                                    );
+                                    pqp_guard.remove_pqp_entry(pqp_entry);
+                                }
+                            } else {
+                                println!("Failed to add PQP entry for mined block, retrying...");
+                            }
+                        }
+                    } else {
+                        println!("Mining aborted, retrying...");
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
+                } else {
+                    println!("Failed to prepare block template, retrying...");
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             } else {
                 println!("Failed to calculate queue index, retrying...");
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
-
-            // match chain.mine_block_demo(
-            //     &mut pqp_guard,
-            //     align,
-            //     tx.clone(),
-            //     miner_address.clone(),
-            //     signature.clone(),
-            // ) {
-            //     Some(block) => {
-            //         println!("Successfully mined block: {}", block.hash);
-            //         let writers = p2p_server.writers.lock().await;
-            //         for writer in writers.iter() {
-            //             p2p_server
-            //                 .clone()
-            //                 .send_minedblock(writer.clone(), block.clone())
-            //                 .await;
-            //         }
-            //     }
-            //     None => {
-            //         println!("Failed to mine block, retrying...");
-            //         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            //     }
-            // }
-            *current_mining_target.lock().unwrap() = None;
         }
     });
 
@@ -137,6 +186,7 @@ async fn start_mining(
     }))
 }
 
+// The rest of the file (stop_mining, get_blocks, init_routes) remains unchanged.
 #[get("/stop_mining")]
 async fn stop_mining(
     data: web::Data<(

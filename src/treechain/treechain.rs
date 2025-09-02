@@ -1065,50 +1065,70 @@ impl TreeChain {
         true
     }
 
-    /// Get all blocks from (and including) the given starting block to the end, in queue_index order.
-    /// If genesis block is passed, return all blocks from genesis onwards.
-    pub fn get_missing_blocks_from(&self, start_block: &Block) -> Vec<Block> {
-        let eighteen_hours = 18 * 3600;
-        let now_unix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|_| Duration::from_secs(0))
-            .as_secs(); // current UNIX timestamp in seconds
-        println!("timestamp: {}", start_block.timestamp);
-        let block_time = start_block.timestamp as u64;
-        println!(
-            "now_unix: {}, block_time: {}, block_age_secs: {}",
-            now_unix,
-            block_time,
-            now_unix.saturating_sub(block_time)
-        );
+    pub fn prepare_block_template(
+        &self,
+        pqp: &mut PQP,
+        align: u8,
+        tx: Vec<String>,
+        miner_address: String,
+        signature: String,
+    ) -> Option<Block> {
+        let calc = self.calculate_queue_index(pqp, align);
+        if let Some((queue_index, calculated_align, prev_pqp)) = calc {
+            // Assuming this is how you get parent (from current PQP)
+            let parent_entry = match pqp.current_parent() {
+                Some(entry) => entry.clone(),
+                None => return None,
+            };
+            let parent_hash = parent_entry.block_hash;
 
-        // If block timestamp is older than 18 hours, start from genesis
-        if now_unix > block_time + eighteen_hours && start_block.hash != Block::genesis().hash {
-            if let Some((_, genesis_block)) = self.blocks.get_index(0) {
-                return self.get_missing_blocks_from(genesis_block);
-            }
+            // Get parent block to calculate level/position (adjust if your logic differs)
+            let parent_block = match self.blocks.get(&parent_hash) {
+                Some(block) => block.clone(),
+                None => return None,
+            };
+
+            let level = parent_block.level + 1;
+
+            // Assume a method to calculate position; replace with your actual logic (e.g., based on align/parent.position)
+            let position = format!("{}.{}", parent_block.position, calculated_align); // Placeholder; adjust
+
+            let merkle_root = Block::merkle_root(tx.clone());
+
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .as_millis();
+
+            let bits = crate::config::BITS.to_string(); // Or however bits are determined
+
+            let pqp_entry = PQPEntry {
+                queue_index,
+                miner_address,
+                prev_pqp_commitment: prev_pqp,
+                signature,
+            };
+
+            let mut block = Block::new(
+                "".to_string(), // hash (computed later)
+                "".to_string(), // pqp_commitment (computed later)
+                level,
+                position,
+                1, // version
+                parent_hash,
+                merkle_root,
+                timestamp,
+                bits,
+                0, // nonce starts at 0
+                calculated_align,
+                pqp_entry,
+                tx.len() as u32,
+                tx,
+            );
+
+            Some(block)
+        } else {
+            None
         }
-
-        let mut blocks_vec = Vec::new();
-
-        // Find the queue_index of the start block
-        let start_index = match self.blocks.get_index_of(&start_block.hash) {
-            Some(idx) => idx,
-            None => {
-                println!("❌ Start block not found in tree: {}", start_block.hash);
-                return blocks_vec;
-            }
-        };
-
-        for i in start_index..self.blocks.len() {
-            if let Some((_, block)) = self.blocks.get_index(i) {
-                if block.position.is_empty() {
-                    // Skip placeholders
-                    continue;
-                }
-                blocks_vec.push(block.clone());
-            }
-        }
-        blocks_vec
     }
 }
