@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 // Represents a transaction input (vin)
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TxInput {
     pub txid: String,       // 32-byte txid in hex
     pub vout: u32,          // Output index from previous tx
@@ -14,13 +14,13 @@ pub struct TxInput {
 }
 
 // Represents a transaction output (vout)
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TxOutput {
     pub value: u64,            // Amount in satoshis
     pub script_pubkey: String, // Hex-encoded P2PKH script
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Transaction {
     pub txid: String,        // Computed txid (double-SHA256)
     pub version: u32,        // Transaction version
@@ -58,7 +58,7 @@ impl Transaction {
             sequence: 0xffffffff,
         };
 
-        let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&miner_address);
+        let pubkey_hash = ChainUtil::pubkey_hash_from_address(&miner_address).expect("msg");
 
         let miner_output = TxOutput {
             value: subsidy + fees,
@@ -90,13 +90,14 @@ impl Transaction {
     pub fn create_normal_txn(
         version: u32,
         vin: Vec<TxInput>,
-        recipients: Vec<(u64, String)>, // (value, recipient_pubkey)
+        recipients: Vec<(u64, String)>, // (value, recipient_address)
         locktime: u32,
     ) -> Self {
         let vout: Vec<TxOutput> = recipients
             .into_iter()
-            .map(|(value, pubkey)| {
-                let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&pubkey);
+            .map(|(value, address)| {
+                let pubkey_hash = ChainUtil::pubkey_hash_from_address(&address)
+                    .expect("Invalid recipient address in create_normal_txn");
                 TxOutput {
                     value,
                     script_pubkey: Self::create_p2pkh_script(&pubkey_hash),
@@ -106,15 +107,16 @@ impl Transaction {
         Self::new(version, locktime, vin, vout)
     }
 
+    /// Standard multisig creation **requires raw public keys** (not addresses).
     pub fn create_multisig_txn(
         version: u32,
         vin: Vec<TxInput>,
         m: u8,
-        pubkeys: Vec<String>,
+        pubkeys_hex: Vec<String>, // raw pubkey hex strings (not addresses)
         value: u64,
         locktime: u32,
     ) -> Self {
-        let redeem_script = Self::create_multisig_redeem_script(m, &pubkeys);
+        let redeem_script = Self::create_multisig_redeem_script(m, &pubkeys_hex);
         let script_pubkey = Self::create_p2sh_script(&redeem_script);
         let vout = vec![TxOutput {
             value,
@@ -125,12 +127,16 @@ impl Transaction {
 
     fn create_multisig_redeem_script(m: u8, pubkeys: &[String]) -> String {
         let n = pubkeys.len() as u8;
+        assert!(m <= n, "m cannot be greater than n");
+        // OP_m is 0x50 + m for small m (OP_1 .. OP_16 when m in 1..16).
         let mut script: Vec<u8> = vec![0x50 + m];
         for pubkey in pubkeys {
             let pub_bytes = hex::decode(pubkey).expect("Invalid pubkey hex");
+            // push length then pubkey bytes
             script.push(pub_bytes.len() as u8);
             script.extend(pub_bytes);
         }
+        // OP_n
         script.push(0x50 + n);
         script.push(0xae); // OP_CHECKMULTISIG
         hex::encode(script)
@@ -141,11 +147,12 @@ impl Transaction {
         version: u32,
         vin: Vec<TxInput>,
         cltv_lock_time: u32,
-        recipient_pubkey: String,
+        recipient_address: String, // address, will be converted internally
         value: u64,
         locktime: u32,
     ) -> Self {
-        let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&recipient_pubkey);
+        let pubkey_hash = ChainUtil::pubkey_hash_from_address(&recipient_address)
+            .expect("Invalid recipient address in create_timelocked_txn");
         let redeem_script = Self::create_cltv_redeem_script(cltv_lock_time, &pubkey_hash);
         let script_pubkey = Self::create_p2sh_script(&redeem_script);
         let vout = vec![TxOutput {
@@ -159,13 +166,16 @@ impl Transaction {
     fn create_cltv_redeem_script(cltv_lock_time: u32, pubkey_hash: &str) -> String {
         let mut script: Vec<u8> = vec![];
         let lock_bytes = cltv_lock_time.to_le_bytes();
+
+        // Push the locktime as a raw byte vector (simple approach; not minimal push encoding)
         script.push(lock_bytes.len() as u8); // Assume <= 75
         script.extend_from_slice(&lock_bytes);
+
         script.push(0xb9); // OP_CHECKLOCKTIMEVERIFY
         script.push(0x75); // OP_DROP
         script.push(0x76); // OP_DUP
         script.push(0xa9); // OP_HASH160
-        script.push(0x14); // 20 bytes
+        script.push(0x14); // 20 bytes push
         let hash_bytes = hex::decode(pubkey_hash).expect("Invalid pubkey hash hex");
         script.extend(hash_bytes);
         script.push(0x88); // OP_EQUALVERIFY
@@ -177,7 +187,7 @@ impl Transaction {
         version: u32,
         vin: Vec<TxInput>,
         csv_lock_blocks: u32, // Relative lock time in blocks
-        recipient_pubkey: String,
+        recipient_address: String,
         value: u64,
         locktime: u32,
     ) -> Self {
@@ -189,7 +199,8 @@ impl Transaction {
                 input
             })
             .collect();
-        let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&recipient_pubkey);
+        let pubkey_hash = ChainUtil::pubkey_hash_from_address(&recipient_address)
+            .expect("Invalid recipient address in create_timelocked_csv_txn");
         let redeem_script = Self::create_csv_redeem_script(csv_lock_blocks, &pubkey_hash);
         let script_pubkey = Self::create_p2sh_script(&redeem_script);
         let vout = vec![TxOutput {

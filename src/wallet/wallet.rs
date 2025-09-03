@@ -7,6 +7,7 @@ use std::fmt;
 pub struct Wallet {
     pub key_pair: SigningKey,
     pub public_key: String,
+    pub public_key_hash: String,
     pub address: String,
 }
 
@@ -22,6 +23,7 @@ impl Wallet {
         Self {
             key_pair,
             public_key: public_key_hex,
+            public_key_hash: public_key_hash,
             address: address,
         }
     }

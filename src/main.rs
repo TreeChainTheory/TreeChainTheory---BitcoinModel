@@ -1,8 +1,12 @@
 mod miner;
-mod treechain;
+
+pub mod chain_util;
+pub mod config;
+pub mod treechain;
+pub mod wallet;
+
 use treechain::block::Block;
 use treechain::treechain::{PQP, TreeChain};
-mod config;
 
 use actix_web::{App, HttpServer, web};
 use dotenv::dotenv;

@@ -5,7 +5,6 @@
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
-use TreeChainTheorey::treechain;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
