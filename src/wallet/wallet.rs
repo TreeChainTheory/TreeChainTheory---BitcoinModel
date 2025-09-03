@@ -1,5 +1,4 @@
 use crate::chain_util::ChainUtil;
-use crate::config::INITIAL_BALANCE;
 use k256::EncodedPoint;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
@@ -8,6 +7,7 @@ use std::fmt;
 pub struct Wallet {
     pub key_pair: SigningKey,
     pub public_key: String,
+    pub address: String,
 }
 
 impl Wallet {
@@ -15,10 +15,14 @@ impl Wallet {
         let (key_pair, verifying_key) = ChainUtil::gen_key_pair();
         let public_key_point: EncodedPoint = verifying_key.to_encoded_point(false);
         let public_key_hex = hex::encode(public_key_point.as_bytes());
+        let public_key_hash = ChainUtil::pubkey_hash_from_pubkey(&public_key_hex);
+        let address = ChainUtil::address_from_pubkey_hash(&public_key_hash)
+            .expect("failed to get the addresss");
 
         Self {
             key_pair,
             public_key: public_key_hex,
+            address: address,
         }
     }
 }

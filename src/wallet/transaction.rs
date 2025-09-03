@@ -1,3 +1,4 @@
+use crate::chain_util::ChainUtil;
 use hex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -17,8 +18,6 @@ pub struct TxInput {
 pub struct TxOutput {
     pub value: u64,            // Amount in satoshis
     pub script_pubkey: String, // Hex-encoded P2PKH script
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub address: Option<String>, // Derived address (e.g., Base58)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -45,7 +44,7 @@ impl Transaction {
 
     pub fn new_coinbase(
         version: u32,
-        miner_pubkey: String, //it is raw pubkey hex not the address
+        miner_address: String, //it is miner_address not the pub key hex
         queue_index: u32,
         subsidy: u64,
         fees: u64,
@@ -59,14 +58,11 @@ impl Transaction {
             sequence: 0xffffffff,
         };
 
-        let pubkey_hash = Self::pubkey_hash_from_pubkey(&miner_pubkey);
-        let miner_address =
-            Self::address_from_pubkey_hash(&pubkey_hash).expect("Failed to derive address");
+        let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&miner_address);
 
         let miner_output = TxOutput {
             value: subsidy + fees,
-            script_pubkey: Self::create_p2pkh_script(pubkey_hash),
-            address: Some(miner_address),
+            script_pubkey: Self::create_p2pkh_script(&pubkey_hash),
         };
 
         let mut tx = Transaction {
@@ -85,13 +81,148 @@ impl Transaction {
         format!("76a914{}88ac", pubkey_hash)
     }
 
+    fn create_p2sh_script(redeem_script: &str) -> String {
+        let redeem_bytes = hex::decode(redeem_script).expect("Invalid redeem script hex");
+        let script_hash = ChainUtil::hash160(&redeem_bytes);
+        format!("a914{}87", script_hash)
+    }
+
+    pub fn create_normal_txn(
+        version: u32,
+        vin: Vec<TxInput>,
+        recipients: Vec<(u64, String)>, // (value, recipient_pubkey)
+        locktime: u32,
+    ) -> Self {
+        let vout: Vec<TxOutput> = recipients
+            .into_iter()
+            .map(|(value, pubkey)| {
+                let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&pubkey);
+                TxOutput {
+                    value,
+                    script_pubkey: Self::create_p2pkh_script(&pubkey_hash),
+                }
+            })
+            .collect();
+        Self::new(version, locktime, vin, vout)
+    }
+
+    pub fn create_multisig_txn(
+        version: u32,
+        vin: Vec<TxInput>,
+        m: u8,
+        pubkeys: Vec<String>,
+        value: u64,
+        locktime: u32,
+    ) -> Self {
+        let redeem_script = Self::create_multisig_redeem_script(m, &pubkeys);
+        let script_pubkey = Self::create_p2sh_script(&redeem_script);
+        let vout = vec![TxOutput {
+            value,
+            script_pubkey,
+        }];
+        Self::new(version, locktime, vin, vout)
+    }
+
+    fn create_multisig_redeem_script(m: u8, pubkeys: &[String]) -> String {
+        let n = pubkeys.len() as u8;
+        let mut script: Vec<u8> = vec![0x50 + m];
+        for pubkey in pubkeys {
+            let pub_bytes = hex::decode(pubkey).expect("Invalid pubkey hex");
+            script.push(pub_bytes.len() as u8);
+            script.extend(pub_bytes);
+        }
+        script.push(0x50 + n);
+        script.push(0xae); // OP_CHECKMULTISIG
+        hex::encode(script)
+    }
+
+    //normal timelocked cltv txn
+    pub fn create_timelocked_txn(
+        version: u32,
+        vin: Vec<TxInput>,
+        cltv_lock_time: u32,
+        recipient_pubkey: String,
+        value: u64,
+        locktime: u32,
+    ) -> Self {
+        let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&recipient_pubkey);
+        let redeem_script = Self::create_cltv_redeem_script(cltv_lock_time, &pubkey_hash);
+        let script_pubkey = Self::create_p2sh_script(&redeem_script);
+        let vout = vec![TxOutput {
+            value,
+            script_pubkey,
+        }];
+        Self::new(version, locktime, vin, vout)
+    }
+
+    //normal timelocked txn script
+    fn create_cltv_redeem_script(cltv_lock_time: u32, pubkey_hash: &str) -> String {
+        let mut script: Vec<u8> = vec![];
+        let lock_bytes = cltv_lock_time.to_le_bytes();
+        script.push(lock_bytes.len() as u8); // Assume <= 75
+        script.extend_from_slice(&lock_bytes);
+        script.push(0xb9); // OP_CHECKLOCKTIMEVERIFY
+        script.push(0x75); // OP_DROP
+        script.push(0x76); // OP_DUP
+        script.push(0xa9); // OP_HASH160
+        script.push(0x14); // 20 bytes
+        let hash_bytes = hex::decode(pubkey_hash).expect("Invalid pubkey hash hex");
+        script.extend(hash_bytes);
+        script.push(0x88); // OP_EQUALVERIFY
+        script.push(0xac); // OP_CHECKSIG
+        hex::encode(script)
+    }
+
+    pub fn create_timelocked_csv_txn(
+        version: u32,
+        vin: Vec<TxInput>,
+        csv_lock_blocks: u32, // Relative lock time in blocks
+        recipient_pubkey: String,
+        value: u64,
+        locktime: u32,
+    ) -> Self {
+        // Set sequence in inputs to enable CSV
+        let vin = vin
+            .into_iter()
+            .map(|mut input| {
+                input.sequence = csv_lock_blocks; // Set sequence to relative lock time
+                input
+            })
+            .collect();
+        let pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&recipient_pubkey);
+        let redeem_script = Self::create_csv_redeem_script(csv_lock_blocks, &pubkey_hash);
+        let script_pubkey = Self::create_p2sh_script(&redeem_script);
+        let vout = vec![TxOutput {
+            value,
+            script_pubkey,
+        }];
+        Self::new(version, locktime, vin, vout)
+    }
+
+    fn create_csv_redeem_script(csv_lock_blocks: u32, pubkey_hash: &str) -> String {
+        let mut script: Vec<u8> = vec![];
+        let lock_bytes = csv_lock_blocks.to_le_bytes();
+        script.push(lock_bytes.len() as u8); // Assume <= 75
+        script.extend_from_slice(&lock_bytes);
+        script.push(0xba); // OP_CHECKSEQUENCEVERIFY
+        script.push(0x75); // OP_DROP
+        script.push(0x76); // OP_DUP
+        script.push(0xa9); // OP_HASH160
+        script.push(0x14); // 20 bytes
+        let hash_bytes = hex::decode(pubkey_hash).expect("Invalid pubkey hash hex");
+        script.extend(hash_bytes);
+        script.push(0x88); // OP_EQUALVERIFY
+        script.push(0xac); // OP_CHECKSIG
+        hex::encode(script)
+    }
+
     pub fn compute_txid(&self) -> String {
         let mut hasher = Sha256::new();
 
         hasher.update(self.version.to_le_bytes());
         hasher.update((self.vin.len() as u8).to_le_bytes());
         for input in &self.vin {
-            hasher.update(hex::decode(&input.prev_txid).expect("Invalid txid hex"));
+            hasher.update(hex::decode(&input.txid).expect("Invalid txid hex"));
             hasher.update(input.vout.to_le_bytes());
             let script_bytes = hex::decode(&input.script_sig).expect("Invalid scriptSig hex");
             hasher.update((script_bytes.len() as u8).to_le_bytes());
@@ -114,76 +245,6 @@ impl Transaction {
         hasher.update(hash1);
         let hash2 = hasher.finalize();
         hex::encode(hash2)
-    }
-
-    pub fn pubkey_hash_from_pubkey(pubkey_hex: &str) -> String {
-        let pubkey_bytes = hex::decode(pubkey_hex).expect("Invalid pubkey hex");
-
-        // SHA256
-        let sha256 = Sha256::digest(&pubkey_bytes);
-
-        // RIPEMD160
-        let ripemd = Ripemd160::digest(&sha256);
-
-        hex::encode(ripemd)
-    }
-
-    pub fn pubkey_hash_from_address(address: &str) -> Result<String, String> {
-        // Decode Base58Check address
-        let decoded = bs58::decode(address)
-            .into_vec()
-            .map_err(|e| format!("Base58 decode error: {}", e))?;
-
-        // Check length (25 bytes for P2PKH: 1 version byte + 20 hash bytes + 4 checksum bytes)
-        if decoded.len() != 25 {
-            return Err("Invalid address length".to_string());
-        }
-
-        // Verify version byte (0x00 for P2PKH mainnet)
-        if decoded[0] != 0x00 {
-            return Err("Invalid address version (only P2PKH supported)".to_string());
-        }
-
-        // Verify checksum
-        let payload = &decoded[0..21]; // version + pubkey hash
-        let checksum = &decoded[21..25];
-        let mut hasher = Sha256::new();
-        hasher.update(payload);
-        let hash1 = hasher.finalize();
-        let mut hasher = Sha256::new();
-        hasher.update(hash1);
-        let hash2 = hasher.finalize();
-        if checksum != &hash2[0..4] {
-            return Err("Invalid address checksum".to_string());
-        }
-
-        // Extract 20-byte pubkey hash
-        let pubkey_hash = &decoded[1..21];
-        Ok(hex::encode(pubkey_hash))
-    }
-
-    pub fn address_from_pubkey_hash(pubkey_hash: &str) -> Result<String, String> {
-        let hash_bytes =
-            hex::decode(pubkey_hash).map_err(|e| format!("Invalid pubkey hash hex: {}", e))?;
-        if hash_bytes.len() != 20 {
-            return Err("Pubkey hash must be 20 bytes".to_string());
-        }
-
-        // Create payload: version byte (0x00 for P2PKH) + pubkey hash
-        let mut payload = vec![0x00];
-        payload.extend_from_slice(&hash_bytes);
-
-        // Compute checksum: first 4 bytes of SHA256(SHA256(payload))
-        let mut hasher = Sha256::new();
-        hasher.update(&payload);
-        let hash1 = hasher.finalize();
-        let mut hasher = Sha256::new();
-        hasher.update(hash1);
-        let hash2 = hasher.finalize();
-        payload.extend_from_slice(&hash2[0..4]);
-
-        // Encode to Base58Check
-        Ok(bs58::encode(payload).into_string())
     }
 }
 
