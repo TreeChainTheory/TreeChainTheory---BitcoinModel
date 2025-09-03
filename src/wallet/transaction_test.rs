@@ -704,18 +704,21 @@ fn test_modify_txn_to_add_segwit() {
 
     let recipient_address = ChainUtil::address_from_pubkey_hash(&wallet.public_key_hash)
         .expect("Failed to create recipient address");
-    let tx = Transaction::create_new_transaction(&wallet, &utxo_set, 90000, &recipient_address)
-        .expect("Failed to create transaction");
 
-    let segwit_tx = tx
-        .modify_txn_to_add_segwit(&wallet, &utxo_set)
-        .expect("Failed to modify transaction to SegWit");
+    // Test 1: Regular P2PKH transaction
+    let p2pkh_tx =
+        Transaction::create_new_transaction(&wallet, &utxo_set, 90000, &recipient_address)
+            .expect("Failed to create P2PKH transaction");
+
+    let segwit_tx = p2pkh_tx
+        .modify_txn_to_add_segwit(&wallet, &utxo_set, None)
+        .expect("Failed to modify P2PKH transaction to SegWit");
 
     assert!(segwit_tx.witnesses.is_some(), "Witnesses should be present");
     let witnesses = segwit_tx.witnesses.clone().unwrap();
     assert_eq!(
         witnesses.len(),
-        tx.vin.len(),
+        p2pkh_tx.vin.len(),
         "Witness count should match input count"
     );
     assert!(
@@ -746,12 +749,91 @@ fn test_modify_txn_to_add_segwit() {
         "Hash should differ from TXID for SegWit"
     );
 
-    let result = segwit_tx.modify_txn_to_add_segwit(&wallet, &utxo_set);
+    // Test 2: P2SH Multisig transaction
+    let pubkeys = vec![wallet.public_key.clone(), Wallet::new().public_key];
+    let multisig_tx =
+        Transaction::create_new_multisig_txn(&wallet, &utxo_set, 90000, 2, pubkeys.clone())
+            .expect("Failed to create multisig transaction");
+    let redeem_script = Transaction::create_multisig_redeem_script(2, &pubkeys);
+
+    // Provide redeem script for multisig output and None for change output
+    let redeem_scripts = Some(vec![Some(redeem_script.clone()), None]);
+    let segwit_multisig_tx = multisig_tx
+        .modify_txn_to_add_segwit(&wallet, &utxo_set, redeem_scripts)
+        .expect("Failed to modify multisig transaction to SegWit");
+
+    assert!(
+        segwit_multisig_tx.witnesses.is_some(),
+        "Witnesses should be present"
+    );
+    let multisig_witnesses = segwit_multisig_tx.witnesses.clone().unwrap();
+    assert_eq!(
+        multisig_witnesses.len(),
+        multisig_tx.vin.len(),
+        "Witness count should match input count for multisig"
+    );
+    assert_eq!(
+        segwit_multisig_tx.vout[0].script_pubkey.starts_with("0020"),
+        true,
+        "First output should be P2WSH"
+    );
+    if segwit_multisig_tx.vout.len() > 1 {
+        assert_eq!(
+            segwit_multisig_tx.vout[1].script_pubkey.starts_with("0014"),
+            true,
+            "Change output should be P2WPKH"
+        );
+    }
+
+    // Test 3: P2SH CLTV transaction
+    let cltv_tx = Transaction::create_new_timelocked_cltv_txn(
+        &wallet,
+        &utxo_set,
+        90000,
+        500000,
+        &recipient_address,
+    )
+    .expect("Failed to create CLTV transaction");
+    let cltv_redeem_script =
+        Transaction::create_cltv_redeem_script(500000, &wallet.public_key_hash);
+
+    // Provide redeem script for CLTV output and None for change output
+    let cltv_redeem_scripts = Some(vec![Some(cltv_redeem_script.clone()), None]);
+    let segwit_cltv_tx = cltv_tx
+        .modify_txn_to_add_segwit(&wallet, &utxo_set, cltv_redeem_scripts)
+        .expect("Failed to modify CLTV transaction to SegWit");
+
+    assert!(
+        segwit_cltv_tx.witnesses.is_some(),
+        "Witnesses should be present"
+    );
+    let cltv_witnesses = segwit_cltv_tx.witnesses.clone().unwrap();
+    assert_eq!(
+        cltv_witnesses.len(),
+        cltv_tx.vin.len(),
+        "Witness count should match input count for CLTV"
+    );
+    assert_eq!(
+        segwit_cltv_tx.vout[0].script_pubkey.starts_with("0020"),
+        true,
+        "CLTV output should be P2WSH"
+    );
+    if segwit_cltv_tx.vout.len() > 1 {
+        assert_eq!(
+            segwit_cltv_tx.vout[1].script_pubkey.starts_with("0014"),
+            true,
+            "Change output should be P2WPKH"
+        );
+    }
+
+    // Test 4: Already SegWit transaction
+    let result = segwit_tx.modify_txn_to_add_segwit(&wallet, &utxo_set, None);
     match result {
         Ok(_) => panic!("Should fail for already SegWit transaction"),
         Err(e) => assert_eq!(e, "Transaction already contains witness data"),
     }
 
+    // Test 5: Wrong wallet
     let mut wrong_utxo_set = UtxoSet::new();
     let wrong_wallet = Wallet::new();
     let wrong_utxo = Utxo::new(
@@ -763,20 +845,51 @@ fn test_modify_txn_to_add_segwit() {
         false,
     );
     wrong_utxo_set.add_utxo("1234".repeat(16), 0, wrong_utxo);
-    let result = tx.modify_txn_to_add_segwit(&wallet, &wrong_utxo_set);
+    let result = p2pkh_tx.modify_txn_to_add_segwit(&wallet, &wrong_utxo_set, None);
     match result {
         Ok(_) => panic!("Should fail for unowned input"),
         Err(e) => assert_eq!(e, "Input not owned by wallet"),
     }
 
+    // Test 6: Missing UTXO
     let mut empty_utxo_set = UtxoSet::new();
-    let result = tx.modify_txn_to_add_segwit(&wallet, &empty_utxo_set);
+    let result = p2pkh_tx.modify_txn_to_add_segwit(&wallet, &empty_utxo_set, None);
     match result {
         Ok(_) => panic!("Should fail for missing UTXO"),
         Err(e) => assert!(e.contains("UTXO not found")),
     }
-}
 
+    // Test 7: Invalid redeem script
+    let invalid_redeem_script = "invalid".to_string();
+    let result = multisig_tx.modify_txn_to_add_segwit(
+        &wallet,
+        &utxo_set,
+        Some(vec![Some(invalid_redeem_script), None]),
+    );
+    match result {
+        Ok(_) => panic!("Should fail for invalid redeem script"),
+        Err(e) => assert!(e.contains("Invalid redeem script hex")),
+    }
+
+    // Test 8: Mismatched redeem script
+    let wrong_redeem_script = Transaction::create_multisig_redeem_script(1, &pubkeys);
+    let result = multisig_tx.modify_txn_to_add_segwit(
+        &wallet,
+        &utxo_set,
+        Some(vec![Some(wrong_redeem_script), None]),
+    );
+    match result {
+        Ok(_) => panic!("Should fail for mismatched redeem script"),
+        Err(e) => assert_eq!(e, "Redeem script does not match script hash"),
+    }
+
+    // Test 9: Incorrect redeem scripts length
+    let result = multisig_tx.modify_txn_to_add_segwit(&wallet, &utxo_set, Some(vec![]));
+    match result {
+        Ok(_) => panic!("Should fail for incorrect redeem scripts length"),
+        Err(e) => assert_eq!(e, "Redeem scripts length does not match outputs"),
+    }
+}
 #[test]
 fn test_utxo_set() {
     let mut utxo_set = UtxoSet::new();
