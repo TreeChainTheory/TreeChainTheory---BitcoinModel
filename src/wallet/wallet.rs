@@ -1,5 +1,8 @@
 use crate::chain_util::ChainUtil;
 use k256::EncodedPoint;
+use k256::ecdsa::Signature;
+use k256::ecdsa::signature::Signer;
+use k256::ecdsa::signature::SignerMut;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use std::fmt;
@@ -26,5 +29,10 @@ impl Wallet {
             public_key_hash: public_key_hash,
             address: address,
         }
+    }
+
+    pub fn sign_data(&self, data: &[u8]) -> String {
+        let signature: Signature = self.key_pair.sign(data);
+        hex::encode(signature.to_der().to_bytes())
     }
 }

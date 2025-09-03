@@ -42,7 +42,7 @@ impl Utxo {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UtxoSet {
-    utxos: HashMap<(String, u32), Utxo>, // Key: (txid, output index), Value: Utxo
+    pub utxos: HashMap<(String, u32), Utxo>, // Key: (txid, output index), Value: Utxo
 }
 
 impl UtxoSet {

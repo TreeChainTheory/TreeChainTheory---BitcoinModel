@@ -3,3 +3,4 @@ pub const BITS: &str = "1f0fffff"; // 207fffff Easy  1e0fffff 100xHard 1e7fffff 
 pub const INVMESSAGE_LIMIT: u16 = 40;
 pub const GETDATA_LIMIT: u16 = 20;
 pub const TESTING_WALLET_BALANCE: u64 = 500;
+pub const USER_TXN_FREERATE: u64 = 10;

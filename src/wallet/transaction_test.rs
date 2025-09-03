@@ -4,38 +4,40 @@ use crate::wallet::utxo::{Utxo, UtxoSet};
 use crate::wallet::wallet::Wallet;
 use hex;
 
-// Helper function to create a sample TxInput
-fn sample_input(txid: &str, vout: u32) -> TxInput {
+fn sample_input(txid: &str, vout: u32, script_sig: &str) -> TxInput {
     TxInput {
         txid: txid.to_string(),
         vout,
-        script_sig: hex::encode("signature+pubkey"),
+        script_sig: hex::encode(script_sig),
         sequence: 0xffffffff,
     }
 }
 
-// Helper function to create a sample TxOutput
-fn sample_output(value: u64, pubkey_hash: &str) -> TxOutput {
-    // Directly use the provided public key hash to create a P2PKH script
+fn sample_output(value: u64, pubkey_hash: &str, is_p2wpkh: bool) -> TxOutput {
     TxOutput {
         value,
-        script_pubkey: format!("76a914{}88ac", pubkey_hash),
+        script_pubkey: if is_p2wpkh {
+            format!("0014{}", pubkey_hash)
+        } else {
+            format!("76a914{}88ac", pubkey_hash)
+        },
     }
 }
 
 #[test]
 fn test_new_transaction() {
     let wallet = Wallet::new();
-    let inputs = vec![sample_input(&"1234".repeat(8), 0)];
-    let outputs = vec![sample_output(1000000, &wallet.public_key_hash)];
-    let tx = Transaction::new(1, 0, inputs.clone(), outputs.clone());
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
+    let outputs = vec![sample_output(1000000, &wallet.public_key_hash, false)];
+    let tx = Transaction::new(1, 0, inputs.clone(), outputs.clone(), None);
 
     assert_eq!(tx.version, 1);
     assert_eq!(tx.locktime, 0);
     assert_eq!(tx.vin, inputs);
     assert_eq!(tx.vout, outputs);
     assert!(!tx.txid.is_empty(), "TXID should be computed");
-    // Verify the scriptPubKey uses the public key hash
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
     assert_eq!(
         tx.vout[0].script_pubkey,
         format!("76a914{}88ac", wallet.public_key_hash)
@@ -47,7 +49,7 @@ fn test_new_coinbase() {
     let wallet = Wallet::new();
     let tx = Transaction::new_coinbase(
         1,
-        wallet.address.clone(), // Pass address, function extracts pubkey_hash
+        wallet.address.clone(),
         123,
         5000000000,
         100000,
@@ -62,13 +64,13 @@ fn test_new_coinbase() {
     assert_eq!(tx.vout[0].value, 5000100000);
     assert_eq!(tx.locktime, 0);
     assert!(!tx.txid.is_empty(), "TXID should be computed");
-    // Verify the scriptPubKey uses the public key hash
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
     assert_eq!(
         tx.vout[0].script_pubkey,
         format!("76a914{}88ac", wallet.public_key_hash)
     );
 
-    // Test UTXO extraction from coinbase
     let utxo = Utxo::extract_utxo(&tx, 0, 123456).unwrap();
     assert_eq!(utxo.out.value, 5000100000);
     assert_eq!(utxo.queue_index, 123456);
@@ -79,7 +81,7 @@ fn test_new_coinbase() {
 fn test_create_normal_txn() {
     let wallet1 = Wallet::new();
     let wallet2 = Wallet::new();
-    let inputs = vec![sample_input(&"1234".repeat(8), 0)];
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
     let recipients = vec![
         (1000000, wallet1.address.clone()),
         (2000000, wallet2.address.clone()),
@@ -91,7 +93,8 @@ fn test_create_normal_txn() {
     assert_eq!(tx.vout[0].value, 1000000);
     assert_eq!(tx.vout[1].value, 2000000);
     assert!(!tx.txid.is_empty());
-    // Verify scriptPubKey uses public key hashes
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
     assert_eq!(
         tx.vout[0].script_pubkey,
         format!("76a914{}88ac", wallet1.public_key_hash)
@@ -106,7 +109,7 @@ fn test_create_normal_txn() {
 fn test_create_multisig_txn() {
     let wallet1 = Wallet::new();
     let wallet2 = Wallet::new();
-    let inputs = vec![sample_input(&"1234".repeat(8), 0)];
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
     let pubkeys = vec![wallet1.public_key.clone(), wallet2.public_key.clone()];
     let tx = Transaction::create_multisig_txn(1, inputs.clone(), 2, pubkeys.clone(), 1000000, 0);
 
@@ -115,8 +118,9 @@ fn test_create_multisig_txn() {
     assert_eq!(tx.vout[0].value, 1000000);
     assert!(tx.vout[0].script_pubkey.starts_with("a914"));
     assert!(tx.vout[0].script_pubkey.ends_with("87"));
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
 
-    // Test invalid m > n
     let result = std::panic::catch_unwind(|| {
         Transaction::create_multisig_txn(1, inputs, 3, pubkeys, 1000000, 0)
     });
@@ -126,7 +130,7 @@ fn test_create_multisig_txn() {
 #[test]
 fn test_create_timelocked_txn() {
     let wallet = Wallet::new();
-    let inputs = vec![sample_input(&"1234".repeat(8), 0)];
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
     let tx = Transaction::create_timelocked_txn(
         1,
         inputs.clone(),
@@ -141,12 +145,14 @@ fn test_create_timelocked_txn() {
     assert_eq!(tx.vout[0].value, 1000000);
     assert!(tx.vout[0].script_pubkey.starts_with("a914"));
     assert!(tx.vout[0].script_pubkey.ends_with("87"));
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
 }
 
 #[test]
 fn test_create_timelocked_csv_txn() {
     let wallet = Wallet::new();
-    let inputs = vec![sample_input(&"1234".repeat(8), 0)];
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
     let tx = Transaction::create_timelocked_csv_txn(
         1,
         inputs.clone(),
@@ -165,35 +171,283 @@ fn test_create_timelocked_csv_txn() {
     assert_eq!(tx.vout[0].value, 1000000);
     assert!(tx.vout[0].script_pubkey.starts_with("a914"));
     assert!(tx.vout[0].script_pubkey.ends_with("87"));
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
 }
 
 #[test]
-fn test_compute_txid() {
+fn test_compute_txid_and_hash() {
     let wallet = Wallet::new();
-    let inputs = vec![sample_input(&"1234".repeat(8), 0)];
-    let outputs = vec![sample_output(1000000, &wallet.public_key_hash)];
-    let tx1 = Transaction::new(1, 0, inputs.clone(), outputs.clone());
-    let tx2 = Transaction::new(1, 0, inputs, outputs.clone());
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
+    let outputs = vec![sample_output(1000000, &wallet.public_key_hash, false)];
+    let tx1 = Transaction::new(1, 0, inputs.clone(), outputs.clone(), None);
+    let tx2 = Transaction::new(1, 0, inputs, outputs.clone(), None);
 
     assert_eq!(
         tx1.txid, tx2.txid,
-        "Identical transactions should have same TXID"
+        "Identical non-SegWit transactions should have same TXID"
     );
+    assert_eq!(
+        tx1.hash, tx2.hash,
+        "Identical non-SegWit transactions should have same hash"
+    );
+    assert_eq!(tx1.hash, tx1.txid, "Hash should equal TXID for non-SegWit");
 
-    // Test with different inputs
-    let different_inputs = vec![sample_input(&"5678".repeat(8), 0)];
-    let tx3 = Transaction::new(1, 0, different_inputs, outputs.clone());
+    let different_inputs = vec![sample_input(&"5678".repeat(16), 0, "signature+pubkey")];
+    let tx3 = Transaction::new(1, 0, different_inputs, outputs.clone(), None);
     assert_ne!(
         tx1.txid, tx3.txid,
         "Different inputs should yield different TXID"
     );
+    assert_ne!(
+        tx1.hash, tx3.hash,
+        "Different inputs should yield different hash"
+    );
+}
+
+#[test]
+fn test_get_size_vsize_weight() {
+    let wallet = Wallet::new();
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
+    let outputs = vec![sample_output(1000000, &wallet.public_key_hash, false)];
+    let tx = Transaction::new(1, 0, inputs.clone(), outputs.clone(), None);
+
+    let (size, vsize, weight) = tx.get_size_vsize_weight();
+    assert!(size > 0, "Size should be positive");
+    assert_eq!(vsize, size, "vSize should equal size for non-SegWit");
+    assert_eq!(weight, size * 4, "Weight should be size * 4 for non-SegWit");
+
+    let witnesses = Some(vec![vec![
+        hex::encode("signature"),
+        wallet.public_key.clone(),
+    ]]);
+    let segwit_tx = Transaction::new(1, 0, inputs, outputs, witnesses);
+    let (segwit_size, segwit_vsize, segwit_weight) = segwit_tx.get_size_vsize_weight();
+    assert!(
+        segwit_size > size,
+        "SegWit size should include witness data"
+    );
+    assert!(
+        segwit_vsize < segwit_size,
+        "vSize should be less than size for SegWit"
+    );
+    let expected_weight = segwit_vsize * 4;
+    assert!(
+        (segwit_weight as i32 - expected_weight as i32).abs() <= 1,
+        "Weight calculation for SegWit: expected ~{}, got {}",
+        expected_weight,
+        segwit_weight
+    );
+}
+
+#[test]
+fn test_create_new_transaction() {
+    let wallet = Wallet::new();
+    let sender_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+    let mut utxo_set = UtxoSet::new();
+
+    // UTXOs for the main test case
+    let utxo1 = Utxo::new(
+        TxOutput {
+            value: 150000,
+            script_pubkey: sender_script.clone(),
+        },
+        100,
+        false,
+    );
+    let utxo2 = Utxo::new(
+        TxOutput {
+            value: 25000,
+            script_pubkey: sender_script.clone(),
+        },
+        101,
+        false,
+    );
+    let utxo3 = Utxo::new(
+        TxOutput {
+            value: 12500,
+            script_pubkey: sender_script.clone(),
+        },
+        102,
+        false,
+    );
+
+    utxo_set.add_utxo("1234".repeat(16), 0, utxo1);
+    utxo_set.add_utxo("5678".repeat(16), 0, utxo2);
+    utxo_set.add_utxo("9abc".repeat(16), 0, utxo3);
+
+    let recipient_address = ChainUtil::address_from_pubkey_hash(&wallet.public_key_hash)
+        .expect("Failed to create recipient address");
+
+    // Test case: Successful transaction with value = 100000
+    let result =
+        Transaction::create_new_transaction(&wallet, &utxo_set, 100000, &recipient_address);
+    match result {
+        Ok(tx) => {
+            assert_eq!(tx.version, 1, "Version should be 1");
+            assert_eq!(
+                tx.vout.len(),
+                2,
+                "Should have 2 outputs (recipient + change)"
+            );
+            assert_eq!(
+                tx.vout[0].value, 100000,
+                "Recipient output should be 100000"
+            );
+            assert!(
+                tx.vout[1].value <= 50000,
+                "Change output should account for fee"
+            );
+            assert!(tx.vin.len() >= 1, "Should use at least 1 input");
+            assert!(
+                !tx.vin[0].script_sig.is_empty(),
+                "Input 0 should have script_sig"
+            );
+            assert!(tx.witnesses.is_none(), "Witnesses should be None");
+            assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+        }
+        Err(e) => panic!("Transaction creation failed: {}", e),
+    }
+
+    // Test case: Insufficient funds (200000 + fee > 187500 total)
+    let result =
+        Transaction::create_new_transaction(&wallet, &utxo_set, 200000, &recipient_address);
+    match result {
+        Ok(_) => panic!("Transaction should have failed due to insufficient funds"),
+        Err(e) => assert!(
+            e.contains("Insufficient funds"),
+            "Expected insufficient funds error"
+        ),
+    }
+
+    // Test case: No UTXOs
+    let mut empty_utxo_set = UtxoSet::new();
+    let result =
+        Transaction::create_new_transaction(&wallet, &empty_utxo_set, 1000, &recipient_address);
+    match result {
+        Ok(_) => panic!("Transaction should have failed due to no UTXOs"),
+        Err(e) => assert_eq!(e, "No UTXOs found for wallet", "Expected no UTXOs error"),
+    }
+
+    // Test case: Small transaction with sufficient funds
+    let mut small_utxo_set = UtxoSet::new();
+    let small_utxo = Utxo::new(
+        TxOutput {
+            value: 15000, // Increased from 10000 to cover value (9000) + fee (3400)
+            script_pubkey: sender_script,
+        },
+        100,
+        false,
+    );
+    small_utxo_set.add_utxo("abcd".repeat(16), 0, small_utxo);
+    let result =
+        Transaction::create_new_transaction(&wallet, &small_utxo_set, 9000, &recipient_address);
+    match result {
+        Ok(tx) => {
+            assert_eq!(
+                tx.vout.len(),
+                2,
+                "Should have 1 output (no change due to dust)"
+            );
+            assert_eq!(tx.vout[0].value, 9000, "Recipient output should be 9000");
+            assert!(tx.witnesses.is_none(), "Witnesses should be None");
+        }
+        Err(e) => panic!("Transaction creation failed: {}", e),
+    }
+}
+#[test]
+fn test_modify_txn_to_add_segwit() {
+    let wallet = Wallet::new();
+    let sender_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+    let mut utxo_set = UtxoSet::new();
+    let utxo1 = Utxo::new(
+        TxOutput {
+            value: 150000,
+            script_pubkey: sender_script.clone(),
+        },
+        100,
+        false,
+    );
+    utxo_set.add_utxo("1234".repeat(16), 0, utxo1);
+
+    let recipient_address = ChainUtil::address_from_pubkey_hash(&wallet.public_key_hash)
+        .expect("Failed to create recipient address");
+    let tx = Transaction::create_new_transaction(&wallet, &utxo_set, 90000, &recipient_address)
+        .expect("Failed to create transaction");
+
+    let segwit_tx = tx
+        .modify_txn_to_add_segwit(&wallet, &utxo_set)
+        .expect("Failed to modify transaction to SegWit");
+
+    assert!(segwit_tx.witnesses.is_some(), "Witnesses should be present");
+    let witnesses = segwit_tx.witnesses.clone().unwrap();
+    assert_eq!(
+        witnesses.len(),
+        tx.vin.len(),
+        "Witness count should match input count"
+    );
+    assert!(
+        !witnesses[0].is_empty(),
+        "Witness stack should contain data"
+    );
+    assert_eq!(
+        witnesses[0].len(),
+        2,
+        "Witness stack should contain signature and pubkey"
+    );
+    assert!(
+        segwit_tx
+            .vin
+            .iter()
+            .all(|input| input.script_sig.is_empty()),
+        "script_sig should be empty"
+    );
+    assert!(
+        segwit_tx
+            .vout
+            .iter()
+            .all(|output| output.script_pubkey.starts_with("0014")),
+        "Outputs should be P2WPKH"
+    );
+    assert_ne!(
+        segwit_tx.hash, segwit_tx.txid,
+        "Hash should differ from TXID for SegWit"
+    );
+
+    let result = segwit_tx.modify_txn_to_add_segwit(&wallet, &utxo_set);
+    match result {
+        Ok(_) => panic!("Should fail for already SegWit transaction"),
+        Err(e) => assert_eq!(e, "Transaction already contains witness data"),
+    }
+
+    let mut wrong_utxo_set = UtxoSet::new();
+    let wrong_wallet = Wallet::new();
+    let wrong_utxo = Utxo::new(
+        TxOutput {
+            value: 150000,
+            script_pubkey: Transaction::create_p2pkh_script(&wrong_wallet.public_key_hash),
+        },
+        100,
+        false,
+    );
+    wrong_utxo_set.add_utxo("1234".repeat(16), 0, wrong_utxo);
+    let result = tx.modify_txn_to_add_segwit(&wallet, &wrong_utxo_set);
+    match result {
+        Ok(_) => panic!("Should fail for unowned input"),
+        Err(e) => assert_eq!(e, "Input not owned by wallet"),
+    }
+
+    let mut empty_utxo_set = UtxoSet::new();
+    let result = tx.modify_txn_to_add_segwit(&wallet, &empty_utxo_set);
+    match result {
+        Ok(_) => panic!("Should fail for missing UTXO"),
+        Err(e) => assert!(e.contains("UTXO not found")),
+    }
 }
 
 #[test]
 fn test_utxo_set() {
     let mut utxo_set = UtxoSet::new();
-
-    // Create a sample transaction
     let wallet = Wallet::new();
     let tx = Transaction::new_coinbase(
         1,
@@ -205,13 +459,9 @@ fn test_utxo_set() {
         "tag",
     );
 
-    // Extract UTXO
     let utxo = Utxo::extract_utxo(&tx, 0, 123456).unwrap();
-
-    // Add to UTXO set
     utxo_set.add_utxo(tx.txid.clone(), 0, utxo.clone());
 
-    // Test UTXO set operations
     assert!(utxo_set.has_utxo(&tx.txid, 0));
     assert_eq!(
         utxo_set.get_utxo(&tx.txid, 0).unwrap().out.value,
@@ -219,31 +469,30 @@ fn test_utxo_set() {
     );
     assert_eq!(utxo_set.total_value(), 5000100000);
 
-    // Remove UTXO
     let removed = utxo_set.remove_utxo(&tx.txid, 0).unwrap();
     assert_eq!(removed.out.value, 5000100000);
     assert!(!utxo_set.has_utxo(&tx.txid, 0));
     assert_eq!(utxo_set.total_value(), 0);
 
-    // Test invalid vout
     assert!(Utxo::extract_utxo(&tx, 1, 123456).is_none());
 }
 
 #[test]
 fn test_utxo_extraction_edge_cases() {
-    let tx = Transaction::new(1, 0, vec![], vec![]);
+    let tx = Transaction::new(1, 0, vec![], vec![], None);
     assert!(
         Utxo::extract_utxo(&tx, 0, 123456).is_none(),
         "Should return None for empty outputs"
     );
 
     let wallet = Wallet::new();
-    let inputs = vec![sample_input(&"1234".repeat(8), 0)];
+    let inputs = vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")];
     let tx = Transaction::new(
         1,
         0,
         inputs,
-        vec![sample_output(1000000, &wallet.public_key_hash)],
+        vec![sample_output(1000000, &wallet.public_key_hash, false)],
+        None,
     );
     let utxo = Utxo::extract_utxo(&tx, 0, 123456).unwrap();
     assert!(
@@ -258,13 +507,16 @@ fn test_display_transaction() {
     let tx = Transaction::new(
         1,
         0,
-        vec![sample_input(&"1234".repeat(8), 0)],
-        vec![sample_output(1000000, &wallet.public_key_hash)],
+        vec![sample_input(&"1234".repeat(16), 0, "signature+pubkey")],
+        vec![sample_output(1000000, &wallet.public_key_hash, false)],
+        None,
     );
     let display = format!("{}", tx);
     assert!(display.contains(&tx.txid));
+    assert!(display.contains(&tx.hash));
     assert!(display.contains("version: 1"));
     assert!(display.contains("locktime: 0"));
     assert!(display.contains("inputs: 1"));
     assert!(display.contains("outputs: 1"));
+    assert!(display.contains("witnesses: none"));
 }
