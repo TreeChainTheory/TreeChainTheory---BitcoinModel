@@ -1,5 +1,6 @@
 use crate::chain_util::ChainUtil;
 use crate::config::USER_TXN_FREERATE;
+use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::{Utxo, UtxoSet};
 use crate::wallet::wallet::Wallet;
 use hex;
@@ -554,6 +555,7 @@ impl Transaction {
     pub fn create_new_transaction(
         wallet: &Wallet,
         utxo_set: &UtxoSet,
+        pool: &TransactionPool,
         value: u64,
         to_address: &str,
     ) -> Result<Self, String> {
@@ -561,19 +563,27 @@ impl Transaction {
         let locktime = 0u32;
         let sender_script = Self::create_p2pkh_script(&wallet.public_key_hash);
 
-        let owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
+        // Collect UTXOs from both main UTXO set and mempool UTXO set
+        let mut owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
             .utxos
             .iter()
             .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
             .map(|(k, v)| (k.clone(), v.clone()))
+            .chain(
+                pool.utxo_set
+                    .utxos
+                    .iter()
+                    .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            )
+            .filter(|(k, _)| pool.get_transactions_spending_utxo(&k.0, k.1).is_empty())
             .collect();
 
         if owned_utxos.is_empty() {
-            return Err("No UTXOs found for wallet".to_string());
+            return Err("No unspent UTXOs found for wallet".to_string());
         }
 
-        let mut sorted_utxos = owned_utxos;
-        sorted_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
+        owned_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
 
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
@@ -595,7 +605,7 @@ impl Transaction {
             .collect();
 
         // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = sorted_utxos
+        let temp_vin: Vec<TxInput> = owned_utxos
             .iter()
             .take(1)
             .map(|(key, _)| TxInput {
@@ -623,7 +633,7 @@ impl Transaction {
         let fee = (weight as u64) * fee_rate;
 
         // Select UTXOs to cover value + fee
-        for (key, utxo) in sorted_utxos {
+        for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
             total_input += selected.last().unwrap().2.out.value;
             if total_input >= value + fee {
@@ -729,6 +739,7 @@ impl Transaction {
     pub fn create_new_multisig_txn(
         wallet: &Wallet,
         utxo_set: &UtxoSet,
+        pool: &TransactionPool,
         value: u64,
         m: u8,
         pubkeys_hex: Vec<String>,
@@ -747,19 +758,27 @@ impl Transaction {
             }
         }
 
-        let owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
+        // Collect UTXOs from both main UTXO set and mempool UTXO set
+        let mut owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
             .utxos
             .iter()
             .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
             .map(|(k, v)| (k.clone(), v.clone()))
+            .chain(
+                pool.utxo_set
+                    .utxos
+                    .iter()
+                    .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            )
+            .filter(|(k, _)| pool.get_transactions_spending_utxo(&k.0, k.1).is_empty())
             .collect();
 
         if owned_utxos.is_empty() {
-            return Err("No UTXOs found for wallet".to_string());
+            return Err("No unspent UTXOs found for wallet".to_string());
         }
 
-        let mut sorted_utxos = owned_utxos;
-        sorted_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
+        owned_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
 
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
@@ -780,7 +799,7 @@ impl Transaction {
         }
 
         // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = sorted_utxos
+        let temp_vin: Vec<TxInput> = owned_utxos
             .iter()
             .take(1)
             .map(|(key, _)| TxInput {
@@ -808,7 +827,7 @@ impl Transaction {
         let fee = (weight as u64) * fee_rate;
 
         // Select UTXOs to cover value + fee
-        for (key, utxo) in sorted_utxos {
+        for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
             total_input += selected.last().unwrap().2.out.value;
             if total_input >= value + fee {
@@ -909,6 +928,7 @@ impl Transaction {
     pub fn create_new_timelocked_cltv_txn(
         wallet: &Wallet,
         utxo_set: &UtxoSet,
+        pool: &TransactionPool,
         value: u64,
         cltv_lock_time: u32,
         to_address: &str,
@@ -917,19 +937,27 @@ impl Transaction {
         let locktime = cltv_lock_time; // Set locktime to match CLTV
         let sender_script = Self::create_p2pkh_script(&wallet.public_key_hash);
 
-        let owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
+        // Collect UTXOs from both main UTXO set and mempool UTXO set
+        let mut owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
             .utxos
             .iter()
             .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
             .map(|(k, v)| (k.clone(), v.clone()))
+            .chain(
+                pool.utxo_set
+                    .utxos
+                    .iter()
+                    .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            )
+            .filter(|(k, _)| pool.get_transactions_spending_utxo(&k.0, k.1).is_empty())
             .collect();
 
         if owned_utxos.is_empty() {
-            return Err("No UTXOs found for wallet".to_string());
+            return Err("No unspent UTXOs found for wallet".to_string());
         }
 
-        let mut sorted_utxos = owned_utxos;
-        sorted_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
+        owned_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
 
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
@@ -952,7 +980,7 @@ impl Transaction {
         }
 
         // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = sorted_utxos
+        let temp_vin: Vec<TxInput> = owned_utxos
             .iter()
             .take(1)
             .map(|(key, _)| TxInput {
@@ -980,7 +1008,7 @@ impl Transaction {
         let fee = (weight as u64) * fee_rate;
 
         // Select UTXOs to cover value + fee
-        for (key, utxo) in sorted_utxos {
+        for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
             total_input += selected.last().unwrap().2.out.value;
             if total_input >= value + fee {
@@ -1081,6 +1109,7 @@ impl Transaction {
     pub fn create_new_timelocked_csv_txn(
         wallet: &Wallet,
         utxo_set: &UtxoSet,
+        pool: &TransactionPool,
         value: u64,
         csv_lock_blocks: u32,
         to_address: &str,
@@ -1089,19 +1118,27 @@ impl Transaction {
         let locktime = 0u32;
         let sender_script = Self::create_p2pkh_script(&wallet.public_key_hash);
 
-        let owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
+        // Collect UTXOs from both main UTXO set and mempool UTXO set
+        let mut owned_utxos: Vec<((String, u32), Utxo)> = utxo_set
             .utxos
             .iter()
             .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
             .map(|(k, v)| (k.clone(), v.clone()))
+            .chain(
+                pool.utxo_set
+                    .utxos
+                    .iter()
+                    .filter(|(_, utxo)| utxo.out.script_pubkey == sender_script)
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            )
+            .filter(|(k, _)| pool.get_transactions_spending_utxo(&k.0, k.1).is_empty())
             .collect();
 
         if owned_utxos.is_empty() {
-            return Err("No UTXOs found for wallet".to_string());
+            return Err("No unspent UTXOs found for wallet".to_string());
         }
 
-        let mut sorted_utxos = owned_utxos;
-        sorted_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
+        owned_utxos.sort_by(|a, b| b.1.out.value.cmp(&a.1.out.value));
 
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
@@ -1124,7 +1161,7 @@ impl Transaction {
         }
 
         // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = sorted_utxos
+        let temp_vin: Vec<TxInput> = owned_utxos
             .iter()
             .take(1)
             .map(|(key, _)| TxInput {
@@ -1152,7 +1189,7 @@ impl Transaction {
         let fee = (weight as u64) * fee_rate;
 
         // Select UTXOs to cover value + fee
-        for (key, utxo) in sorted_utxos {
+        for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
             total_input += selected.last().unwrap().2.out.value;
             if total_input >= value + fee {
@@ -1249,7 +1286,6 @@ impl Transaction {
 
         Ok(tx)
     }
-
     pub fn modify_txn_to_add_segwit(
         &self,
         wallet: &Wallet,
