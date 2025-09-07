@@ -285,6 +285,13 @@ impl TreeChain {
         }
     }
 
+    pub fn calculate_length(&self) -> usize {
+        self.blocks
+            .iter()
+            .filter(|(hash, _)| !hash.is_empty())
+            .count()
+    }
+
     pub fn add_block(&mut self, block: Block) {
         let hash = block.hash.clone();
         let parent_hash = block.parent_hash.clone();
@@ -329,7 +336,9 @@ impl TreeChain {
     pub fn get_block(&self, hash: &str) -> Option<&Block> {
         self.blocks.get(hash)
     }
-
+    pub fn get_block_by_queueindex(&self, index: usize) -> Option<&Block> {
+        self.blocks.values().nth(index)
+    }
     pub fn get_children(&self, parent_hash: &str) -> Option<&Vec<String>> {
         self.children_map.get(parent_hash)
     }

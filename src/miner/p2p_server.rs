@@ -3,6 +3,7 @@
 //3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 MINER_ADDRESS=MINER_XYZ cargo run
 
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
+use crate::miner::p2p_server;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, TreeChain};
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,7 @@ pub struct P2PServer {
     sync_state: Arc<Mutex<Option<SyncState>>>,
     pub current_mining_target: Arc<SyncMutex<Option<u32>>>,
     pub abort_mining: Arc<SyncMutex<bool>>,
+    pub ibd_or_online_state: Arc<Mutex<bool>>,
 }
 
 impl P2PServer {
@@ -67,6 +69,7 @@ impl P2PServer {
             sync_state: Arc::new(Mutex::new(None)),
             current_mining_target,
             abort_mining,
+            ibd_or_online_state: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -228,7 +231,7 @@ impl P2PServer {
         // Send initial CONNECTION_INFO
         {
             let treechain = self.treechain.lock().await;
-            let chain_length = treechain.blocks.len();
+            let chain_length = treechain.calculate_length();
             let last_block = treechain
                 .blocks
                 .get_index(chain_length - 1)
@@ -325,6 +328,10 @@ impl P2PServer {
             println!("Inventory exhausted but was full; asking for next batch via GETBLOCKS");
             self.send_getblocks(writer).await;
         } else {
+            {
+                let mut ibd_or_online_state = self.ibd_or_online_state.lock().await;
+                *ibd_or_online_state = false;
+            }
             println!("✅ Finished syncing all available blocks from best peer");
         }
     }
@@ -425,7 +432,7 @@ impl P2PServer {
 
                                             let (chain_length_local, local_last_ts) = {
                                                 let treechain = self.treechain.lock().await;
-                                                let len = treechain.blocks.len();
+                                                let len = treechain.calculate_length();
 
                                                 // walk from the end until we find a non-placeholder (position != "")
                                                 let mut last_ts: Option<u64> = None;
@@ -544,6 +551,13 @@ impl P2PServer {
                                                         println!(
                                                             "🌐 Requesting full sync from genesis via GETBLOCKS"
                                                         );
+                                                        {
+                                                            let mut ibd_or_online_state = self
+                                                                .ibd_or_online_state
+                                                                .lock()
+                                                                .await;
+                                                            *ibd_or_online_state = true;
+                                                        }
                                                         self.send_getblocks(writer.clone()).await;
                                                     } else {
                                                         println!(
@@ -684,13 +698,15 @@ impl P2PServer {
                                         }
                                         MESSAGE_TYPE_BLOCK => {
                                             // Only accept blocks from best peer (prevents double-processing)
-                                            if !self.is_best_peer(&peer_addr).await {
-                                                println!(
-                                                    "Ignoring BLOCK from {}, not best peer",
-                                                    peer_addr
-                                                );
-                                                continue;
-                                            }
+                                            // if !self.is_best_peer(&peer_addr).await {
+                                            //     println!(
+                                            //         "Ignoring BLOCK from {}, not best peer",
+                                            //         peer_addr
+                                            //     );
+                                            //     continue;
+                                            // }
+
+                                            //here if ibd is true then this should execute
 
                                             if let Some(block_val) = data.get("block") {
                                                 let block: Block =
@@ -809,8 +825,7 @@ impl P2PServer {
                                                         TreeChain::parent_queue_entry_from_block(
                                                             &block,
                                                         );
-                                                    pqp.add_entry(pqp_entry.clone());
-                                                    let exist: bool = pqp
+                                                    let already_exist: bool = pqp
                                                         .pool
                                                         .iter()
                                                         .rev()
@@ -818,38 +833,97 @@ impl P2PServer {
                                                         .any(|e| {
                                                             e.block_hash == pqp_entry.block_hash
                                                         });
-                                                    if exist {
-                                                        if treechain
-                                                            .verify_and_add_block(&block.clone())
+                                                    if already_exist {
+                                                        if !block.verify_hash_pqp_commitment() {
+                                                            println!(
+                                                                "Block already exists and ❌ Received Block verification failed for hash: {}",
+                                                                block.hash
+                                                            );
+                                                            return;
+                                                        }
+                                                        // Optionally: verify that parent block exists
+                                                        if block.level != 0
+                                                            && treechain
+                                                                .blocks
+                                                                .contains_key(&block.parent_hash)
                                                         {
                                                             println!(
-                                                                "✅ Block {} added successfully",
+                                                                "Block Already exists and ❌ Parent block missing for block: {}",
                                                                 block.hash
                                                             );
-                                                        } else {
-                                                            println!(
-                                                                "❌ Failed to add block {} (duplicate or invalid)",
-                                                                block.hash
-                                                            );
-                                                            if pqp
-                                                                .remove_pqp_entry(pqp_entry.clone())
-                                                            {
+                                                            return;
+                                                        }
+                                                        println!(
+                                                            "✅ Same valid Block already existing"
+                                                        );
+                                                    } else {
+                                                        pqp.add_entry(pqp_entry.clone());
+                                                        let exist: bool = pqp
+                                                            .pool
+                                                            .iter()
+                                                            .rev()
+                                                            .take(CHILDREN as usize)
+                                                            .any(|e| {
+                                                                e.block_hash == pqp_entry.block_hash
+                                                            });
+                                                        if exist {
+                                                            if treechain.verify_and_add_block(
+                                                                &block.clone(),
+                                                            ) {
                                                                 println!(
-                                                                    "✅ removed the pqp entry "
+                                                                    "✅ Block {} added successfully",
+                                                                    block.hash
                                                                 );
                                                             } else {
                                                                 println!(
-                                                                    "❌ failed to remove the pqp entry "
+                                                                    "❌ Failed to add block {} (duplicate or invalid)",
+                                                                    block.hash
                                                                 );
+                                                                if pqp.remove_pqp_entry(
+                                                                    pqp_entry.clone(),
+                                                                ) {
+                                                                    println!(
+                                                                        "✅ removed the pqp entry "
+                                                                    );
+                                                                } else {
+                                                                    println!(
+                                                                        "❌ failed to remove the pqp entry "
+                                                                    );
+                                                                }
                                                             }
-                                                        }
-                                                    } else {
-                                                        println!(
-                                                            "ParentQueueEntry of the current Block is not added"
-                                                        );
+                                                        } else {
+                                                            println!(
+                                                                "ParentQueueEntry of the current Block is not added"
+                                                            );
 
-                                                        if let Some(latest) = pqp.latest() {
-                                                            if block.pqp_entry.queue_index
+                                                            //this condition is : suppose block 4,5,6 only 6 is received and immediatley 7 is received
+                                                            //now 7 points 4 pqp_commit and here it is actually empty , so now it requrests the blocks
+
+                                                            let expected_prev_pqp_commit =
+                                                                pqp.get_prev_pqp(block.align);
+                                                            let block_at_that_index_empty =
+                                                                treechain
+                                                                    .get_block_by_queueindex(
+                                                                        block.pqp_entry.queue_index
+                                                                            as usize,
+                                                                    )
+                                                                    .map_or(true, |b| {
+                                                                        b.position.is_empty()
+                                                                    });
+                                                            if (block.pqp_entry.prev_pqp_commitment
+                                                                != expected_prev_pqp_commit)
+                                                                && block_at_that_index_empty
+                                                            {
+                                                                //here ibd_or_online_state should be added
+                                                                println!(
+                                                                    "sending the get_blocks message because of missing block"
+                                                                );
+                                                                self.send_getblocks(writer.clone())
+                                                                    .await;
+                                                            }
+
+                                                            if let Some(latest) = pqp.latest() {
+                                                                if block.pqp_entry.queue_index
                                                                 > ((2 * CHILDREN as usize) //donot change CHILDREN into MAX_CHILDREN
                                                                     + (latest.queue_index as usize))
                                                                     .try_into()
@@ -861,6 +935,9 @@ impl P2PServer {
                                                                 self.send_getblocks(writer.clone())
                                                                     .await;
                                                             }
+                                                            }
+                                                            //here longest chain rule race around condition to be added
+                                                            //initially ibd is set to false
                                                         }
                                                     }
 
@@ -952,27 +1029,6 @@ impl P2PServer {
             Self::send_message(writer, &message, "INVMESSAGE").await;
         }
         drop(treechain);
-
-        // if let Some(start) = start_index {
-        //     let mut inventories = Vec::new();
-        //     for (idx, (hash, _)) in treechain.blocks.iter().enumerate().skip(start + 1) {
-        //         inventories.push(InvEntry {
-        //             queue_index: idx as u32,
-        //             block_hash: hash.clone(),
-        //         });
-        //         if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
-        //             break;
-        //         }
-        //     }
-
-        //     let message = serde_json::json!({
-        //         "type": MESSAGE_TYPE_INVMESSAGE,
-        //         "inventories": inventories
-        //     });
-
-        //     drop(treechain);
-        //     Self::send_message(writer, &message, "INVMESSAGE").await;
-        // }
     }
 
     async fn remove_writer(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {

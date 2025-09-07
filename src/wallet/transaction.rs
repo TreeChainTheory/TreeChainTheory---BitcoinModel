@@ -409,7 +409,45 @@ impl Transaction {
         serialized
     }
 
-    fn compute_segwit_sighash(
+    pub fn serialize_with_witness(&self) -> Vec<u8> {
+        let mut serialized = Vec::new();
+        serialized.extend(self.version.to_le_bytes());
+        if self.witnesses.is_some() {
+            serialized.extend([0x00, 0x01]); // marker + flag
+        }
+        serialized.extend((self.vin.len() as u8).to_le_bytes());
+        for input in &self.vin {
+            serialized.extend(hex::decode(&input.txid).expect("Invalid txid hex"));
+            serialized.extend(input.vout.to_le_bytes());
+            let script_bytes = hex::decode(&input.script_sig).expect("Invalid scriptSig hex");
+            serialized.extend((script_bytes.len() as u8).to_le_bytes());
+            serialized.extend(&script_bytes);
+            serialized.extend(input.sequence.to_le_bytes());
+        }
+
+        serialized.extend((self.vout.len() as u8).to_le_bytes());
+        for output in &self.vout {
+            serialized.extend(output.value.to_le_bytes());
+            let script_bytes =
+                hex::decode(&output.script_pubkey).expect("Invalid scriptPubKey hex");
+            serialized.extend((script_bytes.len() as u8).to_le_bytes());
+            serialized.extend(&script_bytes);
+        }
+        if let Some(witnesses) = &self.witnesses {
+            for wit_stack in witnesses {
+                serialized.extend((wit_stack.len() as u8).to_le_bytes());
+                for item in wit_stack {
+                    let item_bytes = hex::decode(item).expect("Invalid witness item hex");
+                    serialized.extend((item_bytes.len() as u8).to_le_bytes());
+                    serialized.extend(&item_bytes);
+                }
+            }
+        }
+        serialized.extend(self.locktime.to_le_bytes());
+        serialized
+    }
+
+    pub fn compute_segwit_sighash(
         &self,
         input_index: usize,
         input_value: u64,
@@ -477,6 +515,40 @@ impl Transaction {
         preimage.extend(sighash_type.to_le_bytes());
 
         Self::double_sha(&preimage)
+    }
+
+    pub fn compute_sighash(
+        &self,
+        input_index: usize,
+        script_pubkey: &str,
+        _input_value: u64, // Not needed for non-SegWit sighash
+        sighash_type: u32,
+    ) -> Vec<u8> {
+        // Create modified vin for sighash
+        let mut sig_vin = self.vin.clone();
+        for j in 0..sig_vin.len() {
+            sig_vin[j].script_sig = if j == input_index {
+                script_pubkey.to_string()
+            } else {
+                "".to_string()
+            };
+        }
+
+        // Create modified transaction for hash
+        let mod_tx = Transaction {
+            txid: "".to_string(),
+            hash: "".to_string(),
+            version: self.version,
+            vin: sig_vin,
+            vout: self.vout.clone(),
+            witnesses: None,
+            locktime: self.locktime,
+        };
+
+        let mut serialized = mod_tx.serialize_non_witness();
+        serialized.extend(sighash_type.to_le_bytes());
+
+        Self::double_sha(&serialized)
     }
 
     pub fn create_new_transaction(
@@ -1291,97 +1363,6 @@ impl Transaction {
 
         Ok(new_tx)
     }
-
-    // pub fn modify_txn_to_add_segwit(
-    //     &self,
-    //     wallet: &Wallet,
-    //     utxo_set: &UtxoSet,
-    // ) -> Result<Self, String> {
-    //     if self.witnesses.is_some() {
-    //         return Err("Transaction already contains witness data".to_string());
-    //     }
-
-    //     // Verify inputs are owned by wallet and get input values
-    //     let sender_p2pkh_script = Self::create_p2pkh_script(&wallet.public_key_hash);
-    //     let sender_p2wpkh_script = Self::create_p2wpkh_script(&wallet.public_key_hash);
-
-    //     let mut input_values = Vec::new();
-    //     for input in &self.vin {
-    //         let utxo = utxo_set.get_utxo(&input.txid, input.vout).ok_or_else(|| {
-    //             format!(
-    //                 "UTXO not found for txid: {}, vout: {}",
-    //                 input.txid, input.vout
-    //             )
-    //         })?;
-    //         if utxo.out.script_pubkey != sender_p2pkh_script
-    //             && utxo.out.script_pubkey != sender_p2wpkh_script
-    //         {
-    //             return Err("Input not owned by wallet".to_string());
-    //         }
-    //         input_values.push(utxo.out.value);
-    //     }
-
-    //     // Convert outputs to P2WPKH
-    //     let mut new_vout = Vec::new();
-    //     for output in &self.vout {
-    //         if output.script_pubkey.starts_with("76a914") {
-    //             let pubkey_hash = &output.script_pubkey[6..46];
-    //             new_vout.push(TxOutput {
-    //                 value: output.value,
-    //                 script_pubkey: Self::create_p2wpkh_script(pubkey_hash),
-    //             });
-    //         } else {
-    //             new_vout.push(output.clone());
-    //         }
-    //     }
-
-    //     // Create new vin with empty script_sig
-    //     let new_vin: Vec<TxInput> = self
-    //         .vin
-    //         .iter()
-    //         .map(|input| TxInput {
-    //             txid: input.txid.clone(),
-    //             vout: input.vout,
-    //             script_sig: "".to_string(),
-    //             sequence: input.sequence,
-    //         })
-    //         .collect();
-
-    //     // Create new transaction
-    //     let mut new_tx = Transaction {
-    //         txid: "".to_string(),
-    //         hash: "".to_string(),
-    //         version: self.version,
-    //         vin: new_vin,
-    //         vout: new_vout,
-    //         witnesses: Some(vec![vec![]; self.vin.len()]),
-    //         locktime: self.locktime,
-    //     };
-
-    //     // Sign each input with SegWit sighash
-    //     let mut witnesses = vec![vec![]; self.vin.len()];
-    //     for i in 0..new_tx.vin.len() {
-    //         let utxo = utxo_set
-    //             .get_utxo(&new_tx.vin[i].txid, new_tx.vin[i].vout)
-    //             .unwrap();
-    //         let sighash_bytes = new_tx.compute_segwit_sighash(
-    //             i,
-    //             input_values[i],
-    //             &utxo.out.script_pubkey,
-    //             SIGHASH_ALL,
-    //         );
-    //         let sig_hex = wallet.sign_data(&sighash_bytes);
-    //         witnesses[i] = vec![sig_hex, wallet.public_key.clone()];
-    //     }
-
-    //     new_tx.witnesses = Some(witnesses);
-
-    //     // Compute final txid and hash
-    //     new_tx.txid = new_tx.compute_non_witness_txid();
-    //     new_tx.hash = new_tx.compute_hash();
-
-    //     Ok(new_tx)
-    // }
 }
 
 impl fmt::Display for Transaction {

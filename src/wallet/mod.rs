@@ -1,4 +1,5 @@
 pub mod transaction;
+pub mod transaction_pool;
 pub mod utxo;
 pub mod wallet;
 
