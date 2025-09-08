@@ -25,11 +25,15 @@
 //     utxo_set: &mut UtxoSet,
 //     pool: &TransactionPool,
 //     value: u64,
+//     fee: u64,
 //     to_address: &str,
-//     fee_rate: u64,
 // ) -> Transaction {
-//     let mut tx = Transaction::create_new_transaction(wallet, utxo_set, pool, value, to_address)
-//         .expect("Failed to create transaction");
+//     let mut tx =
+//         Transaction::create_new_transaction(wallet, utxo_set, pool, value, fee, to_address)
+//             .expect("Failed to create transaction");
+
+//     println!("txn: {}", tx);
+//     println!("utxo_set: {:?}", utxo_set);
 
 //     for i in 0..tx.vin.len() {
 //         // Get fields without holding a mutable borrow
@@ -119,8 +123,8 @@
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
 
 //     let vsize = pool.calculate_vsize(&tx);
@@ -134,9 +138,13 @@
 
 // #[test]
 // fn test_validate_transaction_success() {
-//     let pool = TransactionPool::new();
+//     let mut pool = TransactionPool::new();
 //     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set to simulate availability
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
 //     let tx = create_signed_tx(
@@ -144,25 +152,34 @@
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
 
 //     let min_fee_rate = USER_TXN_FREERATE as f64;
-//     let result = pool.validate_transaction(&tx, &utxo_set, min_fee_rate);
+//     let result = pool.validate_transaction(&tx, min_fee_rate);
 //     assert!(result.is_ok(), "Validation failed: {:?}", result.err());
 //     let (fee, vsize, fee_rate, depends) = result.unwrap();
-//     assert!(fee > 0);
+//     assert_eq!(fee, 3000, "Fee should match provided fee");
 //     assert!(vsize > 0);
-//     assert!(fee_rate >= min_fee_rate);
+//     assert!(
+//         fee_rate >= min_fee_rate,
+//         "Fee rate {} should be >= {}",
+//         fee_rate,
+//         min_fee_rate
+//     );
 //     assert!(depends.is_empty());
 // }
 
 // #[test]
 // fn test_validate_transaction_failures() {
-//     let pool = TransactionPool::new();
+//     let mut pool = TransactionPool::new();
 //     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000, 100000, 100000, 100000, 100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
 //     let mut tx = create_signed_tx(
@@ -170,394 +187,117 @@
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
 
 //     // Too large
-//     let large_tx = Transaction::new(
-//         1,
-//         0,
-//         vec![],
-//         vec![TxOutput {
-//             value: 0,
-//             script_pubkey: "0".repeat(MAX_TX_SIZE * 2),
-//         }],
-//         None,
+//     let mut large_tx = create_signed_tx(
+//         &wallet,
+//         &mut utxo_set.clone(),
+//         &pool,
+//         50000,
+//         3000,
+//         &to_address,
 //     );
-//     let result = pool.validate_transaction(&large_tx, &utxo_set, 1.0);
+//     let large_script = "00".repeat(100_001);
+//     large_tx.vin[0].script_sig = large_script;
+//     let result = pool.validate_transaction(&large_tx, USER_TXN_FREERATE as f64);
 //     assert!(result.is_err());
-//     assert!(result.unwrap_err().contains("too large"));
+//     assert!(result.unwrap_err().contains("Transaction too large"));
 
-//     // Locktime not reached
-//     let future_time = (SystemTime::now()
+//     // Invalid locktime
+//     let current_time = SystemTime::now()
 //         .duration_since(UNIX_EPOCH)
 //         .unwrap()
-//         .as_secs()
-//         + 3600) as u32;
-//     tx.locktime = future_time;
-//     let result = pool.validate_transaction(&tx, &utxo_set, 1.0);
-//     assert!(result.is_err());
-//     let err = result.unwrap_err();
-//     assert!(err.contains("not yet reached"), "Error: {}", err);
-
-//     // UTXO not found
-//     let invalid_tx = Transaction::new(
-//         1,
-//         0,
-//         vec![TxInput {
-//             txid: generate_valid_txid("invalid"),
-//             vout: 0,
-//             script_sig: "".to_string(),
-//             sequence: 0,
-//         }],
-//         vec![],
-//         None,
+//         .as_secs() as u32;
+//     tx.locktime = current_time + 3600; // 1 hour in future
+//     let result = pool.validate_transaction(&tx, USER_TXN_FREERATE as f64);
+//     assert!(result.is_err(), "Expected locktime error, got {:?}", result);
+//     assert!(
+//         result.clone().unwrap_err().contains("locktime"),
+//         "Error message: {}",
+//         result.unwrap_err()
 //     );
-//     let result = pool.validate_transaction(&invalid_tx, &utxo_set, 1.0);
+
+//     // Missing UTXO
+//     let mut empty_pool = TransactionPool::new();
+//     let result = empty_pool.validate_transaction(&tx, USER_TXN_FREERATE as f64);
 //     assert!(result.is_err());
 //     assert!(result.unwrap_err().contains("UTXO not found"));
 
 //     // Invalid signature
-//     let mut utxo_set_clone2 = utxo_set.clone();
-//     let mut invalid_sig_tx = create_signed_tx(
+//     let mut invalid_tx = create_signed_tx(
 //         &wallet,
-//         &mut utxo_set_clone2,
+//         &mut utxo_set.clone(),
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
-//     invalid_sig_tx.vin[0].script_sig = "invalid".to_string();
-//     let result = pool.validate_transaction(&invalid_sig_tx, &utxo_set, 1.0);
+//     invalid_tx.vin[0].script_sig = "invalid".to_string();
+//     let result = pool.validate_transaction(&invalid_tx, USER_TXN_FREERATE as f64);
 //     assert!(result.is_err());
-//     assert!(result.unwrap_err().contains("Invalid signature"));
+//     assert!(result.unwrap_err().contains("Script_sig"));
 
-//     // Output > input
-//     let mut utxo_set_clone3 = utxo_set.clone();
-//     let invalid_value_tx = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone3,
-//         &pool,
-//         600000, // Increased to ensure output > input
-//         &to_address,
-//         USER_TXN_FREERATE,
-//     );
-//     let result = pool.validate_transaction(&invalid_value_tx, &utxo_set, 1.0);
+//     // Insufficient fee
+//     let low_fee_tx = create_signed_tx(&wallet, &mut utxo_set.clone(), &pool, 99999, 1, &to_address);
+//     let result = pool.validate_transaction(&low_fee_tx, (USER_TXN_FREERATE * 2) as f64);
 //     assert!(result.is_err());
-//     assert!(result.unwrap_err().contains("exceeds input"));
-
-//     // Low fee rate
-//     let mut utxo_set_clone4 = utxo_set.clone();
-//     let low_fee_tx = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone4,
-//         &pool,
-//         99999,
-//         &to_address,
-//         USER_TXN_FREERATE - 1, // Use lower fee rate
-//     );
-//     let result = pool.validate_transaction(&low_fee_tx, &utxo_set, USER_TXN_FREERATE as f64);
-//     assert!(result.is_err());
-//     assert!(result.unwrap_err().contains("below minimum"));
+//     assert!(result.unwrap_err().contains("Fee rate"));
 // }
 
 // #[test]
-// fn test_add_transaction_success() {
+// fn test_add_transaction() {
 //     let mut pool = TransactionPool::new();
 //     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
+//     println!("current_utxo set: {:?}", utxo_set);
+
 //     let tx = create_signed_tx(
 //         &wallet,
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
-
-//     let result = pool.add_transaction(tx.clone(), &utxo_set);
-//     assert!(result.is_ok(), "Add transaction failed: {:?}", result.err());
+//     println!("UTXO set after creating tx: {:?}", utxo_set_clone);
+//     let result = pool.add_transaction(tx.clone());
+//     assert!(result.is_ok());
 //     assert_eq!(pool.len(), 1);
 //     assert!(pool.get_transaction(&tx.txid).is_some());
-//     assert_eq!(pool.utxo_set.utxos.len(), tx.vout.len());
-//     assert!(pool.total_size > 0);
-// }
-
-// #[test]
-// fn test_add_transaction_with_dependency() {
-//     let mut pool = TransactionPool::new();
-//     let wallet1 = Wallet::new();
-//     let wallet2 = Wallet::new();
-//     let utxo_set = sample_utxo_set(&wallet1, vec![100000]);
-//     let mut utxo_set_clone = utxo_set.clone();
-//     let tx1 = create_signed_tx(
-//         &wallet1,
-//         &mut utxo_set_clone,
-//         &pool,
-//         50000,
-//         &wallet2.address,
-//         USER_TXN_FREERATE,
-//     );
-//     pool.add_transaction(tx1.clone(), &utxo_set).unwrap();
-
-//     let mut child_utxo_set = utxo_set.clone();
-//     for (vout, output) in tx1.vout.iter().enumerate() {
-//         let utxo = Utxo::new(output.clone(), 100, false);
-//         child_utxo_set.add_utxo(tx1.txid.clone(), vout as u32, utxo);
-//     }
-//     let mut child_utxo_set_clone = child_utxo_set.clone();
-//     let tx2 = create_signed_tx(
-//         &wallet2,
-//         &mut child_utxo_set_clone,
-//         &pool,
-//         20000,
-//         &Wallet::new().address,
-//         USER_TXN_FREERATE,
-//     );
-//     let result = pool.add_transaction(tx2.clone(), &child_utxo_set);
-//     assert!(result.is_ok());
-//     assert_eq!(pool.len(), 2);
-//     assert!(pool.get_transaction(&tx2.txid).is_some());
-// }
-
-// #[test]
-// fn test_evict_low_fee_transactions() {
-//     let mut pool = TransactionPool::new();
-//     let wallet = Wallet::new();
-//     let utxo_set = sample_utxo_set(&wallet, vec![100000, 100000, 100000]);
-//     let mut utxo_set_clone1 = utxo_set.clone();
-//     let to_address = Wallet::new().address;
-
-//     let tx1 = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone1,
-//         &pool,
-//         50000,
-//         &to_address,
-//         USER_TXN_FREERATE,
-//     );
-//     pool.add_transaction(tx1.clone(), &utxo_set).unwrap();
-
-//     let mut utxo_set_clone2 = utxo_set.clone();
-//     let tx2 = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone2,
-//         &pool,
-//         60000,
-//         &to_address,
-//         USER_TXN_FREERATE + 1,
-//     );
-//     pool.add_transaction(tx2.clone(), &utxo_set).unwrap();
-
-//     let vsize1 = pool.calculate_vsize(&tx1);
-//     let vsize2 = pool.calculate_vsize(&tx2);
-//     let result = pool.evict_low_fee_transactions(vsize1);
-//     assert!(result.is_ok());
-//     assert_eq!(pool.len(), 1);
-//     assert!(pool.get_transaction(&tx2.txid).is_some());
+//     println!("UTXO set after adding tx: {:?}", pool.utxo_set);
+//     assert_eq!(pool.utxo_set.utxos.len(), 2); // Recipient and change outputs
 // }
 
 // #[test]
 // fn test_select_transactions() {
 //     let mut pool = TransactionPool::new();
 //     let wallet = Wallet::new();
-//     let utxo_set = sample_utxo_set(&wallet, vec![100000, 100000, 100000]);
-//     let mut utxo_set_clone1 = utxo_set.clone();
-//     let to_address = Wallet::new().address;
-
-//     let tx1 = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone1,
-//         &pool,
-//         50000,
-//         &to_address,
-//         USER_TXN_FREERATE,
-//     );
-//     pool.add_transaction(tx1.clone(), &utxo_set).unwrap();
-
-//     let mut utxo_set_clone2 = utxo_set.clone();
-//     let tx2 = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone2,
-//         &pool,
-//         60000,
-//         &to_address,
-//         USER_TXN_FREERATE + 1,
-//     );
-//     pool.add_transaction(tx2.clone(), &utxo_set).unwrap();
-
-//     let max_block_size = pool.calculate_vsize(&tx1) + pool.calculate_vsize(&tx2);
-//     let selected = pool.select_transactions(max_block_size, 0);
-//     assert_eq!(selected.len(), 2);
-//     assert!(selected.iter().any(|t| t.txid == tx1.txid));
-//     assert!(selected.iter().any(|t| t.txid == tx2.txid));
-// }
-
-// #[test]
-// fn test_tx_suitable_for_align() {
-//     let pool = TransactionPool::new();
-//     let wallet = Wallet::new();
-//     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
-//     let mut utxo_set_clone = utxo_set.clone();
-//     let to_address = Wallet::new().address;
-//     let tx = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone,
-//         &pool,
-//         50000,
-//         &to_address,
-//         USER_TXN_FREERATE,
-//     );
-
-//     let last_char = tx.txid.chars().last().unwrap();
-//     let last_digit = u32::from_str_radix(&last_char.to_string(), 16).unwrap();
-//     let expected_align = ((last_digit % CHILDREN as u32) + 1) as u8;
-
-//     assert!(pool.tx_suitable_for_align(&tx, expected_align));
-//     assert!(!pool.tx_suitable_for_align(&tx, (expected_align % CHILDREN + 1) as u8));
-// }
-
-// #[test]
-// fn test_replace_transaction() {
-//     let mut pool = TransactionPool::new();
-//     let wallet = Wallet::new();
-//     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
-//     let mut utxo_set_clone = utxo_set.clone();
-//     let to_address = Wallet::new().address;
-//     let tx_old = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone,
-//         &pool,
-//         50000,
-//         &to_address,
-//         USER_TXN_FREERATE,
-//     );
-//     let old_txid = tx_old.vin[0].txid.clone(); // Save the UTXO txid used by tx_old
-//     pool.add_transaction(tx_old.clone(), &utxo_set).unwrap();
-
-//     // Create new transaction using the same UTXO as tx_old
-//     let mut utxo_set_clone2 = utxo_set.clone();
-//     let tx_new = Transaction::create_new_transaction(
-//         &wallet,
-//         &mut utxo_set_clone2,
-//         &pool,
-//         40000,
-//         &to_address,
-//     )
-//     .expect("Failed to create new transaction");
-
-//     let mut tx_new = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone2,
-//         &pool,
-//         40000,
-//         &to_address,
-//         USER_TXN_FREERATE + 1,
-//     );
-//     tx_new.vin[0].txid = old_txid; // Ensure tx_new spends the same UTXO
-//     tx_new.txid = tx_new.compute_non_witness_txid();
-//     tx_new.hash = tx_new.compute_hash();
-
-//     let result = pool.replace_transaction(tx_new.clone(), &utxo_set);
-//     assert!(
-//         result.is_ok(),
-//         "Replace transaction failed: {:?}",
-//         result.err()
-//     );
-//     assert!(!pool.pool.contains_key(&tx_old.txid));
-//     assert!(pool.pool.contains_key(&tx_new.txid));
-// }
-// #[test]
-// fn test_parse_script_sig() {
-//     let wallet = Wallet::new();
-//     let data = b"test data";
-//     let sig_hex = wallet.sign_data(data);
-//     let pubkey_hex = wallet.public_key.clone();
-
-//     let sig_bytes = hex::decode(&sig_hex).expect("Invalid sig hex");
-//     let pubkey_bytes = hex::decode(&pubkey_hex).expect("Invalid pubkey hex");
-//     let mut script_bytes = vec![];
-//     script_bytes.push(sig_bytes.len() as u8);
-//     script_bytes.extend_from_slice(&sig_bytes);
-//     script_bytes.push(pubkey_bytes.len() as u8);
-//     script_bytes.extend_from_slice(&pubkey_bytes);
-//     let script_sig = hex::encode(script_bytes);
-
-//     let result = TransactionPool::parse_script_sig(&script_sig);
-//     assert!(result.is_ok());
-//     let (parsed_sig, parsed_pubkey) = result.unwrap();
-//     assert_eq!(parsed_sig, sig_hex);
-//     assert_eq!(parsed_pubkey, pubkey_hex);
-
-//     let invalid = "invalid".to_string();
-//     let result = TransactionPool::parse_script_sig(&invalid);
-//     assert!(result.is_err());
-// }
-
-// #[test]
-// fn test_verify_signature() {
-//     let wallet = Wallet::new();
-//     let data = b"test data";
-//     let sighash = Sha256::digest(data).to_vec();
-//     let sig_hex = wallet.sign_data(&sighash);
-//     let pubkey_hex = wallet.public_key.clone();
-
-//     assert!(TransactionPool::verify_signature(
-//         &sighash,
-//         &sig_hex,
-//         &pubkey_hex
-//     ));
-
-//     let invalid_sig = "invalid".to_string();
-//     assert!(!TransactionPool::verify_signature(
-//         &sighash,
-//         &invalid_sig,
-//         &pubkey_hex
-//     ));
-// }
-
-// #[test]
-// fn test_clear() {
-//     let mut pool = TransactionPool::new();
-//     let wallet = Wallet::new();
-//     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
-//     let mut utxo_set_clone = utxo_set.clone();
-//     let to_address = Wallet::new().address;
-//     let tx = create_signed_tx(
-//         &wallet,
-//         &mut utxo_set_clone,
-//         &pool,
-//         50000,
-//         &to_address,
-//         USER_TXN_FREERATE,
-//     );
-//     pool.add_transaction(tx, &utxo_set).unwrap();
-
-//     pool.clear();
-//     assert!(pool.is_empty());
-//     assert!(pool.utxo_set.utxos.is_empty());
-//     assert_eq!(pool.total_size, 0);
-// }
-
-// #[test]
-// fn test_remove_confirmed_transactions() {
-//     let mut pool = TransactionPool::new();
-//     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000, 100000]);
-//     let mut utxo_set_clone1 = utxo_set.clone();
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
+//     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
+
 //     let tx1 = create_signed_tx(
 //         &wallet,
-//         &mut utxo_set_clone1,
+//         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000, // Fee rate: ~15 sat/vB
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
-//     pool.add_transaction(tx1.clone(), &utxo_set).unwrap();
+//     pool.add_transaction(tx1.clone()).unwrap();
 
 //     let mut utxo_set_clone2 = utxo_set.clone();
 //     let tx2 = create_signed_tx(
@@ -565,14 +305,23 @@
 //         &mut utxo_set_clone2,
 //         &pool,
 //         50000,
+//         5000, // Higher fee rate: ~25 sat/vB
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
-//     pool.add_transaction(tx2.clone(), &utxo_set).unwrap();
+//     pool.add_transaction(tx2.clone()).unwrap();
 
-//     pool.remove_confirmed_transactions(&[tx1.clone()]);
-//     assert_eq!(pool.len(), 1);
-//     assert!(pool.get_transaction(&tx2.txid).is_some());
+//     let selected = pool.select_transactions(1000, 1);
+//     assert!(
+//         selected.len() <= 2,
+//         "Selected more transactions than expected: {}",
+//         selected.len()
+//     );
+//     if selected.len() == 2 {
+//         assert_eq!(selected[0].txid, tx2.txid); // Higher fee rate selected first
+//         assert_eq!(selected[1].txid, tx1.txid);
+//     } else if selected.len() == 1 {
+//         assert_eq!(selected[0].txid, tx2.txid); // Higher fee rate selected
+//     }
 // }
 
 // #[test]
@@ -580,6 +329,10 @@
 //     let mut pool = TransactionPool::new();
 //     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
 //     let tx = create_signed_tx(
@@ -587,10 +340,10 @@
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
-//     pool.add_transaction(tx.clone(), &utxo_set).unwrap();
+//     pool.add_transaction(tx.clone()).unwrap();
 
 //     let got_tx = pool.get_transaction(&tx.txid).unwrap();
 //     assert_eq!(got_tx.txid, tx.txid);
@@ -608,6 +361,10 @@
 
 //     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
 //     let tx = create_signed_tx(
@@ -615,10 +372,10 @@
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
-//     pool.add_transaction(tx, &utxo_set).unwrap();
+//     pool.add_transaction(tx).unwrap();
 
 //     assert!(!pool.is_empty());
 //     assert_eq!(pool.len(), 1);
@@ -630,21 +387,26 @@
 //     let wallet1 = Wallet::new();
 //     let wallet2 = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet1, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let tx1 = create_signed_tx(
 //         &wallet1,
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &wallet2.address,
-//         USER_TXN_FREERATE,
 //     );
-//     pool.add_transaction(tx1.clone(), &utxo_set).unwrap();
+//     pool.add_transaction(tx1.clone()).unwrap();
 
 //     let mut child_utxo_set = utxo_set.clone();
 //     for (vout, output) in tx1.vout.iter().enumerate() {
 //         let utxo = Utxo::new(output.clone(), 100, false);
-//         child_utxo_set.add_utxo(tx1.txid.clone(), vout as u32, utxo);
+//         child_utxo_set.add_utxo(tx1.txid.clone(), vout as u32, utxo.clone());
+//         pool.utxo_set.add_utxo(tx1.txid.clone(), vout as u32, utxo);
 //     }
 //     let mut child_utxo_set_clone = child_utxo_set.clone();
 //     let tx2 = create_signed_tx(
@@ -652,10 +414,10 @@
 //         &mut child_utxo_set_clone,
 //         &pool,
 //         20000,
+//         3000,
 //         &Wallet::new().address,
-//         USER_TXN_FREERATE,
 //     );
-//     pool.add_transaction(tx2.clone(), &child_utxo_set).unwrap();
+//     pool.add_transaction(tx2.clone()).unwrap();
 
 //     let spending = pool.get_transactions_spending_utxo(&tx1.txid, 0);
 //     assert_eq!(spending.len(), 1);
@@ -667,6 +429,10 @@
 //     let mut pool = TransactionPool::new();
 //     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
 //     let tx = create_signed_tx(
@@ -674,23 +440,26 @@
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
-//     pool.add_transaction(tx.clone(), &utxo_set).unwrap();
+//     pool.add_transaction(tx.clone()).unwrap();
 
-//     let mut utxo_set_reorg = utxo_set.clone();
-//     utxo_set_reorg.remove_utxo(&generate_valid_txid("utxo0"), 0);
-
-//     pool.reorg(&utxo_set_reorg);
+//     // Simulate reorg by clearing pool's UTXO set
+//     pool.utxo_set = UtxoSet::new();
+//     pool.reorg();
 //     assert_eq!(pool.len(), 0);
 // }
 
 // #[test]
 // fn test_segwit_validation() {
-//     let pool = TransactionPool::new();
+//     let mut pool = TransactionPool::new();
 //     let wallet = Wallet::new();
 //     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
 //     let mut utxo_set_clone = utxo_set.clone();
 //     let to_address = Wallet::new().address;
 //     let p2pkh_tx = create_signed_tx(
@@ -698,13 +467,170 @@
 //         &mut utxo_set_clone,
 //         &pool,
 //         50000,
+//         3000,
 //         &to_address,
-//         USER_TXN_FREERATE,
 //     );
 //     let segwit_tx = p2pkh_tx
 //         .modify_txn_to_add_segwit(&wallet, &utxo_set, None)
 //         .unwrap();
 
-//     let result = pool.validate_transaction(&segwit_tx, &utxo_set, USER_TXN_FREERATE as f64);
+//     let result = pool.validate_transaction(&segwit_tx, USER_TXN_FREERATE as f64);
 //     assert!(result.is_ok());
+// }
+
+// #[test]
+// fn test_multisig_transaction() {
+//     let mut pool = TransactionPool::new();
+//     let wallet = Wallet::new();
+//     let wallet2 = Wallet::new();
+//     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
+//     let mut utxo_set_clone = utxo_set.clone();
+//     let pubkeys = vec![wallet.public_key.clone(), wallet2.public_key.clone()];
+//     let tx = Transaction::create_new_multisig_txn(
+//         &wallet,
+//         &utxo_set_clone,
+//         &pool,
+//         50000,
+//         3000,
+//         2,
+//         pubkeys.clone(),
+//     )
+//     .expect("Failed to create multisig transaction");
+
+//     // Sign the transaction
+//     let mut signed_tx = tx.clone();
+//     for i in 0..signed_tx.vin.len() {
+//         let (txid, vout) = {
+//             let input = &signed_tx.vin[i];
+//             (input.txid.clone(), input.vout)
+//         };
+//         let utxo = utxo_set.get_utxo(&txid, vout).expect("UTXO not found");
+//         let sighash =
+//             signed_tx.compute_sighash(i, &utxo.out.script_pubkey, utxo.out.value, SIGHASH_ALL);
+//         let sig = wallet.sign_data(&sighash);
+//         let sig_bytes = hex::decode(&sig).expect("Invalid signature hex");
+//         let pubkey_bytes = hex::decode(&wallet.public_key).expect("Invalid pubkey hex");
+//         let mut script_sig = vec![];
+//         script_sig.push(sig_bytes.len() as u8);
+//         script_sig.extend_from_slice(&sig_bytes);
+//         script_sig.push(pubkey_bytes.len() as u8);
+//         script_sig.extend_from_slice(&pubkey_bytes);
+//         signed_tx.vin[i].script_sig = hex::encode(script_sig);
+//     }
+//     signed_tx.txid = signed_tx.compute_non_witness_txid();
+//     signed_tx.hash = signed_tx.compute_hash();
+
+//     let result = pool.add_transaction(signed_tx.clone());
+//     assert!(result.is_ok());
+//     assert_eq!(pool.len(), 1);
+//     assert!(pool.get_transaction(&signed_tx.txid).is_some());
+//     assert_eq!(pool.utxo_set.utxos.len(), 2); // Multisig and change outputs
+// }
+
+// #[test]
+// fn test_timelocked_cltv_transaction() {
+//     let mut pool = TransactionPool::new();
+//     let wallet = Wallet::new();
+//     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
+//     let mut utxo_set_clone = utxo_set.clone();
+//     let to_address = Wallet::new().address;
+//     let tx = Transaction::create_new_timelocked_cltv_txn(
+//         &wallet,
+//         &utxo_set_clone,
+//         &pool,
+//         50000,
+//         3000,
+//         500000,
+//         &to_address,
+//     )
+//     .expect("Failed to create CLTV transaction");
+
+//     // Sign the transaction
+//     let mut signed_tx = tx.clone();
+//     for i in 0..signed_tx.vin.len() {
+//         let (txid, vout) = {
+//             let input = &signed_tx.vin[i];
+//             (input.txid.clone(), input.vout)
+//         };
+//         let utxo = utxo_set.get_utxo(&txid, vout).expect("UTXO not found");
+//         let sighash =
+//             signed_tx.compute_sighash(i, &utxo.out.script_pubkey, utxo.out.value, SIGHASH_ALL);
+//         let sig = wallet.sign_data(&sighash);
+//         let sig_bytes = hex::decode(&sig).expect("Invalid signature hex");
+//         let pubkey_bytes = hex::decode(&wallet.public_key).expect("Invalid pubkey hex");
+//         let mut script_sig = vec![];
+//         script_sig.push(sig_bytes.len() as u8);
+//         script_sig.extend_from_slice(&sig_bytes);
+//         script_sig.push(pubkey_bytes.len() as u8);
+//         script_sig.extend_from_slice(&pubkey_bytes);
+//         signed_tx.vin[i].script_sig = hex::encode(script_sig);
+//     }
+//     signed_tx.txid = signed_tx.compute_non_witness_txid();
+//     signed_tx.hash = signed_tx.compute_hash();
+
+//     let result = pool.add_transaction(signed_tx.clone());
+//     assert!(result.is_ok());
+//     assert_eq!(pool.len(), 1);
+//     assert!(pool.get_transaction(&signed_tx.txid).is_some());
+//     assert_eq!(pool.utxo_set.utxos.len(), 2); // CLTV and change outputs
+// }
+
+// #[test]
+// fn test_timelocked_csv_transaction() {
+//     let mut pool = TransactionPool::new();
+//     let wallet = Wallet::new();
+//     let utxo_set = sample_utxo_set(&wallet, vec![100000]);
+//     // Add UTXOs to pool's UTXO set
+//     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
+//         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
+//     }
+//     let mut utxo_set_clone = utxo_set.clone();
+//     let to_address = Wallet::new().address;
+//     let tx = Transaction::create_new_timelocked_csv_txn(
+//         &wallet,
+//         &utxo_set_clone,
+//         &pool,
+//         50000,
+//         3000,
+//         100,
+//         &to_address,
+//     )
+//     .expect("Failed to create CSV transaction");
+
+//     // Sign the transaction
+//     let mut signed_tx = tx.clone();
+//     for i in 0..signed_tx.vin.len() {
+//         let (txid, vout) = {
+//             let input = &signed_tx.vin[i];
+//             (input.txid.clone(), input.vout)
+//         };
+//         let utxo = utxo_set.get_utxo(&txid, vout).expect("UTXO not found");
+//         let sighash =
+//             signed_tx.compute_sighash(i, &utxo.out.script_pubkey, utxo.out.value, SIGHASH_ALL);
+//         let sig = wallet.sign_data(&sighash);
+//         let sig_bytes = hex::decode(&sig).expect("Invalid signature hex");
+//         let pubkey_bytes = hex::decode(&wallet.public_key).expect("Invalid pubkey hex");
+//         let mut script_sig = vec![];
+//         script_sig.push(sig_bytes.len() as u8);
+//         script_sig.extend_from_slice(&sig_bytes);
+//         script_sig.push(pubkey_bytes.len() as u8);
+//         script_sig.extend_from_slice(&pubkey_bytes);
+//         signed_tx.vin[i].script_sig = hex::encode(script_sig);
+//     }
+//     signed_tx.txid = signed_tx.compute_non_witness_txid();
+//     signed_tx.hash = signed_tx.compute_hash();
+
+//     let result = pool.add_transaction(signed_tx.clone());
+//     assert!(result.is_ok());
+//     assert_eq!(pool.len(), 1);
+//     assert!(pool.get_transaction(&signed_tx.txid).is_some());
+//     assert_eq!(pool.utxo_set.utxos.len(), 2); // CSV and change outputs
 // }

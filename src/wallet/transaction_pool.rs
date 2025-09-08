@@ -50,7 +50,6 @@ impl TransactionPool {
     pub fn validate_transaction(
         &self,
         tx: &Transaction,
-        utxo_set: &UtxoSet,
         min_fee_rate: f64,
     ) -> Result<(u64, usize, f64, HashSet<String>), String> {
         let vsize = self.calculate_vsize(tx);
@@ -58,15 +57,15 @@ impl TransactionPool {
             return Err(format!("Transaction too large: {} vB", vsize));
         }
 
-        // Check locktime
+        // Check locktime first
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as u32;
         if tx.locktime > current_time && tx.locktime < 500_000_000 {
             return Err(format!(
-                "Transaction locktime {} not yet reached",
-                tx.locktime
+                "Transaction locktime {} not yet reached (current: {})",
+                tx.locktime, current_time
             ));
         }
 
@@ -74,27 +73,28 @@ impl TransactionPool {
         let mut input_value = 0;
         let mut depends = HashSet::new();
         for input in &tx.vin {
-            // Check if input is in main UTXO set or mempool UTXO set
-            let utxo = match utxo_set.get_utxo(&input.txid, input.vout) {
-                Some(u) => u,
-                None => match self.utxo_set.get_utxo(&input.txid, input.vout) {
-                    Some(u) => u,
-                    None => return Err(format!("UTXO not found: {}:{}", input.txid, input.vout)),
-                },
-            };
+            let utxo = self
+                .utxo_set
+                .get_utxo(&input.txid, input.vout)
+                .ok_or(format!("UTXO not found: {}:{}", input.txid, input.vout))?;
             input_value += utxo.out.value;
 
-            // Track dependencies (parent txids in mempool)
             if self.pool.contains_key(&input.txid) {
                 depends.insert(input.txid.clone());
             }
 
-            // Verify script_sig (for non-SegWit) or witness (for SegWit)
             let input_index = tx.vin.iter().position(|x| x == input).unwrap();
             if tx.witnesses.is_none() {
-                let sighash =
-                    tx.compute_sighash(input_index, &utxo.out.script_pubkey, 0, SIGHASH_ALL);
-                let (sig_hex, pubkey_hex) = Self::parse_script_sig(&input.script_sig)?;
+                let sighash = tx.compute_sighash(
+                    input_index,
+                    &utxo.out.script_pubkey,
+                    utxo.out.value,
+                    SIGHASH_ALL,
+                );
+                let (sig_hex, pubkey_hex) =
+                    Self::parse_script_sig(&input.script_sig).map_err(|e| {
+                        format!("Script_sig error for {}:{}: {}", input.txid, input.vout, e)
+                    })?;
                 if !Self::verify_signature(&sighash, &sig_hex, &pubkey_hex) {
                     return Err(format!(
                         "Invalid signature for input {}:{}",
@@ -103,9 +103,15 @@ impl TransactionPool {
                 }
             } else {
                 let witnesses = tx.witnesses.as_ref().unwrap();
-                let witness = witnesses.get(input_index).ok_or("Missing witness data")?;
+                let witness = witnesses.get(input_index).ok_or(format!(
+                    "Missing witness data for {}:{}",
+                    input.txid, input.vout
+                ))?;
                 if witness.len() < 2 {
-                    return Err("Invalid witness format".to_string());
+                    return Err(format!(
+                        "Invalid witness format for {}:{}",
+                        input.txid, input.vout
+                    ));
                 }
                 let sighash = tx.compute_segwit_sighash(
                     input_index,
@@ -122,14 +128,15 @@ impl TransactionPool {
             }
         }
 
-        // Calculate output value and fee
         let output_value: u64 = tx.vout.iter().map(|out| out.value).sum();
         if output_value > input_value {
-            return Err("Output value exceeds input value".to_string());
+            return Err(format!(
+                "Output value {} exceeds input value {}",
+                output_value, input_value
+            ));
         }
         let fee = input_value - output_value;
 
-        // Check fee rate
         let fee_rate = fee as f64 / vsize as f64;
         if fee_rate < min_fee_rate {
             return Err(format!(
@@ -138,7 +145,6 @@ impl TransactionPool {
             ));
         }
 
-        // Check for double-spends
         for input in &tx.vin {
             if self.pool.values().any(|entry| {
                 entry
@@ -157,10 +163,10 @@ impl TransactionPool {
         Ok((fee, vsize, fee_rate, depends))
     }
 
-    pub fn add_transaction(&mut self, tx: Transaction, utxo_set: &UtxoSet) -> Result<(), String> {
+    pub fn add_transaction(&mut self, tx: Transaction) -> Result<(), String> {
         // Validate transaction
         let (fee, vsize, fee_rate, depends) =
-            self.validate_transaction(&tx, utxo_set, DEFAULT_MIN_FEE_RATE as f64)?;
+            self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64)?;
 
         // Check mempool size limit
         if self.total_size + vsize > MAX_MEMPOOL_SIZE {
@@ -169,8 +175,24 @@ impl TransactionPool {
 
         // Check dependencies
         for parent_txid in &depends {
-            if !self.pool.contains_key(parent_txid) && !utxo_set.has_utxo(parent_txid, 0) {
+            if !self.pool.contains_key(parent_txid) && !self.utxo_set.has_utxo(parent_txid, 0) {
                 return Err(format!("Parent transaction {} not found", parent_txid));
+            }
+        }
+
+        // Explicit check for conflicts
+        for input in &tx.vin {
+            if self.pool.values().any(|entry| {
+                entry
+                    .tx
+                    .vin
+                    .iter()
+                    .any(|in_| in_.txid == input.txid && in_.vout == input.vout)
+            }) {
+                return Err(format!(
+                    "Transaction {} conflicts with existing mempool transaction on input {}:{}",
+                    tx.txid, input.txid, input.vout
+                ));
             }
         }
 
@@ -200,47 +222,38 @@ impl TransactionPool {
 
         // Add transaction outputs to mempool UTXO set
         for (vout_idx, out) in tx.vout.iter().enumerate() {
-            let utxo = Utxo::new(out.clone(), 0, false); // queue_index 0 for mempool
+            let utxo = Utxo::new(out.clone(), 0, false);
             self.utxo_set.add_utxo(txid.clone(), vout_idx as u32, utxo);
         }
 
         Ok(())
     }
 
-    pub fn remove_transaction(&mut self, txid: &str) -> Option<Vec<Transaction>> {
-        let entry = self.pool.remove(txid)?;
-        self.total_size -= entry.vsize;
+    pub fn remove_transaction(&mut self, txid: &str) {
+        if let Some(entry) = self.pool.remove(txid) {
+            self.total_size -= entry.vsize;
 
-        // Remove from mempool UTXO set
-        for vout_idx in 0..entry.tx.vout.len() as u32 {
-            self.utxo_set.remove_utxo(txid, vout_idx);
-        }
+            // Remove outputs from mempool UTXO set
+            for vout in 0..entry.tx.vout.len() as u32 {
+                self.utxo_set.remove_utxo(txid, vout);
+            }
 
-        // Collect descendants to remove
-        let mut removed_txs = vec![entry.tx.clone()];
-        let children = entry.children.clone();
-        for child_txid in children {
-            if let Some(child_txs) = self.remove_transaction(&child_txid) {
-                removed_txs.extend(child_txs);
+            // Update parents and children
+            for parent_txid in entry.depends {
+                if let Some(parent_entry) = self.pool.get_mut(&parent_txid) {
+                    parent_entry.children.remove(txid);
+                }
+            }
+            for child_txid in entry.children {
+                if let Some(child_entry) = self.pool.get_mut(&child_txid) {
+                    child_entry.depends.remove(txid);
+                }
             }
         }
-
-        // Update parent transactions
-        for parent_txid in entry.depends {
-            if let Some(parent_entry) = self.pool.get_mut(&parent_txid) {
-                parent_entry.children.remove(txid);
-            }
-        }
-
-        Some(removed_txs)
     }
 
     pub fn evict_low_fee_transactions(&mut self, required_space: usize) -> Result<(), String> {
-        let mut sorted_entries: Vec<(&String, &MempoolEntry)> = self
-            .pool
-            .iter()
-            .filter(|(_, entry)| entry.depends.is_empty())
-            .collect();
+        let mut sorted_entries: Vec<(&String, &MempoolEntry)> = self.pool.iter().collect();
         sorted_entries.sort_by(|a, b| a.1.fee_rate.partial_cmp(&b.1.fee_rate).unwrap());
 
         let mut freed_space = 0;
@@ -251,10 +264,6 @@ impl TransactionPool {
             }
             txids_to_remove.push(txid.clone());
             freed_space += entry.vsize;
-        }
-
-        if freed_space < required_space {
-            return Err("Cannot free enough space in mempool".to_string());
         }
 
         for txid in txids_to_remove {
@@ -307,29 +316,35 @@ impl TransactionPool {
         ((last_digit % CHILDREN as u32) + 1) == align as u32
     }
 
-    pub fn replace_transaction(
-        &mut self,
-        new_tx: Transaction,
-        utxo_set: &UtxoSet,
-    ) -> Result<(), String> {
+    pub fn replace_transaction(&mut self, new_tx: Transaction) -> Result<(), String> {
+        println!("replace_transaction called for txid: {}", new_tx.txid);
         // Validate new transaction
-        let (new_fee, new_vsize, new_fee_rate, new_depends) =
-            self.validate_transaction(&new_tx, utxo_set, DEFAULT_MIN_FEE_RATE as f64)?;
+        let (new_fee, new_vsize, new_fee_rate, new_depends) = self
+            .validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64)
+            .map_err(|e| format!("Validation failed for txid {}: {}", new_tx.txid, e))?;
 
         // Check if it replaces an existing transaction
         let mut replaced_txids = HashSet::new();
+        println!("Checking for replaced transactions");
         for input in &new_tx.vin {
+            println!("Checking input {}:{}", input.txid, input.vout);
             for (txid, entry) in &self.pool {
-                if entry
-                    .tx
-                    .vin
-                    .iter()
-                    .any(|in_| in_.txid == input.txid && in_.vout == input.vout)
-                {
+                if entry.tx.vin.iter().any(|in_| {
+                    let matches = in_.txid == input.txid && in_.vout == input.vout;
+                    if matches {
+                        println!(
+                            "Found matching input in txid {}: {}:{}",
+                            txid, in_.txid, in_.vout
+                        );
+                    }
+                    matches
+                }) {
+                    println!("Adding txid {} to replaced_txids", txid);
                     replaced_txids.insert(txid.clone());
                 }
             }
         }
+        println!("replaced_txids: {:?}", replaced_txids);
 
         // Check RBF conditions (BIP-125)
         if !replaced_txids.is_empty() {
@@ -339,25 +354,39 @@ impl TransactionPool {
                 let entry = self
                     .pool
                     .get(txid)
-                    .ok_or("Replaced transaction not found")?;
+                    .ok_or(format!("Replaced transaction {} not found", txid))?;
                 total_replaced_fee += entry.fee;
                 total_replaced_size += entry.vsize;
                 if entry.fee_rate >= new_fee_rate {
-                    return Err("New transaction fee rate not higher than replaced".to_string());
+                    return Err(format!(
+                        "New transaction fee rate {} not higher than replaced {} for txid {}",
+                        new_fee_rate, entry.fee_rate, txid
+                    ));
                 }
             }
             if new_fee <= total_replaced_fee {
-                return Err("New transaction fee not higher than replaced".to_string());
+                return Err(format!(
+                    "New transaction fee {} not higher than replaced total {} for txids {:?}",
+                    new_fee, total_replaced_fee, replaced_txids
+                ));
             }
 
             // Remove replaced transactions
             for txid in replaced_txids {
+                println!("Removing replaced transaction {}", txid);
                 self.remove_transaction(&txid);
+                println!(
+                    "After removal, is tx {} present: {}",
+                    txid,
+                    self.pool.contains_key(&txid)
+                );
             }
+        } else {
+            println!("No transactions to replace, proceeding to add new transaction");
         }
 
         // Add new transaction
-        self.add_transaction(new_tx, utxo_set)
+        self.add_transaction(new_tx)
     }
 
     pub fn parse_script_sig(script_sig: &str) -> Result<(String, String), String> {
@@ -437,12 +466,10 @@ impl TransactionPool {
             .collect()
     }
 
-    pub fn reorg(&mut self, utxo_set: &UtxoSet) {
+    pub fn reorg(&mut self) {
         let mut invalid_txids = Vec::new();
         for (txid, entry) in &self.pool {
-            if let Err(_) =
-                self.validate_transaction(&entry.tx, utxo_set, DEFAULT_MIN_FEE_RATE as f64)
-            {
+            if let Err(_) = self.validate_transaction(&entry.tx, DEFAULT_MIN_FEE_RATE as f64) {
                 invalid_txids.push(txid.clone());
             }
         }
