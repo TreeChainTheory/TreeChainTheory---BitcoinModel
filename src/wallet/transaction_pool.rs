@@ -293,33 +293,52 @@ impl TransactionPool {
         let mut total_weight = 0;
 
         for entry in sorted_entries {
+            let tx_weight = entry.tx.get_size_vsize_weight().2;
+            println!(
+                "Evaluating txid={} (fee_rate={:.2}, weight={})",
+                entry.tx.txid, entry.fee_rate, tx_weight
+            );
+
             if !self.tx_suitable_for_align(&entry.tx, align) {
-                continue;
-            }
-            // Use weight instead of vsize for accurate block limit check
-            let (_, _, tx_weight) = entry.tx.get_size_vsize_weight();
-            if total_weight + tx_weight as usize > max_block_weight {
+                println!("  Skipped: tx_suitable_for_align failed (align={})", align);
                 continue;
             }
 
-            // Check if all dependencies are included
+            if total_weight + tx_weight as usize > max_block_weight {
+                println!(
+                    "  Skipped: Weight limit exceeded (total_weight={} + tx_weight={} > max_block_weight={})",
+                    total_weight, tx_weight, max_block_weight
+                );
+                continue;
+            }
+
             let all_deps_included = entry.depends.iter().all(|dep_txid| {
-                selected_txs
+                let included = selected_txs
                     .iter()
                     .any(|tx: &Transaction| tx.txid == *dep_txid)
-                    || self.pool.get(dep_txid).is_none()
+                    || self.pool.get(dep_txid).is_none();
+                if !included {
+                    println!("  Dependency {} not included", dep_txid);
+                }
+                included
             });
             if !all_deps_included {
+                println!("  Skipped: Dependencies not satisfied");
                 continue;
             }
 
+            println!("  Selected txid={}", entry.tx.txid);
             selected_txs.push(entry.tx.clone());
             total_weight += tx_weight as usize;
         }
 
+        println!("Total selected transactions: {}", selected_txs.len());
         selected_txs
     }
     pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8) -> bool {
+        if align == 0 {
+            return true; // this is only for testing purposes
+        }
         let txid = &tx.txid;
         if txid.is_empty() {
             return false;

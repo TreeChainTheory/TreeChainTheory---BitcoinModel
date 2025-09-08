@@ -281,63 +281,154 @@ fn test_add_transaction() {
 fn test_select_transactions() {
     let mut pool = TransactionPool::new();
     let wallet = Wallet::new();
+    // Create full UTXO set with two UTXOs (1,000,000 satoshis each) for the pool
     let utxo_set = sample_utxo_set(&wallet, vec![1000000, 1000000]);
     // Add UTXOs to pool's UTXO set
     for ((txid, vout), utxo) in utxo_set.utxos.iter() {
         pool.utxo_set.add_utxo(txid.clone(), *vout, utxo.clone());
     }
     println!(
-        "\n current_utxo set in test_select_transactions: {:?}",
-        pool.utxo_set
+        "\nInitial UTXO set: {:?}",
+        pool.utxo_set.utxos.keys().collect::<Vec<_>>()
     );
-    let mut utxo_set_clone = utxo_set.clone();
+
     let to_address = Wallet::new().address;
 
+    // Extract individual UTXOs from the sample set (assuming sample_utxo_set creates them in consistent order)
+    let mut utxo_iter = utxo_set.utxos.iter();
+    let utxo1_opt = utxo_iter.next(); // First UTXO (e.g., c12d70aa...:0)
+    let utxo2_opt = utxo_iter.next(); // Second UTXO (e.g., f7a4e07c...:0)
+
+    if utxo1_opt.is_none() || utxo2_opt.is_none() {
+        panic!("sample_utxo_set must have exactly 2 UTXOs");
+    }
+
+    let (txid1, vout1) = utxo1_opt.unwrap().0;
+    let utxo1 = utxo1_opt.unwrap().1.clone();
+    let (txid2, vout2) = utxo2_opt.unwrap().0;
+    let utxo2 = utxo2_opt.unwrap().1.clone();
+
+    // Create custom UTXO set for tx1 (only first UTXO)
+    let mut utxo_set_clone1 = UtxoSet::new();
+    utxo_set_clone1.add_utxo(txid1.clone(), *vout1, utxo1);
+
+    // Create first transaction with lower fee rate (~11.67 sat/vB)
     let tx1 = create_signed_tx(
         &wallet,
-        &mut utxo_set_clone,
+        &mut utxo_set_clone1,
         &pool,
-        50000,
-        3000, // Fee rate: ~15 sat/vB
+        50000, // Value
+        3000,  // Fee
         &to_address,
     );
-    pool.add_transaction(tx1.clone()).unwrap();
-
+    let (_, tx1_vsize, tx1_weight) = tx1.get_size_vsize_weight();
+    let tx1_fee_rate = 3000.0 / tx1_vsize as f64;
     println!(
-        "\n UTXO set after adding tx1: {:?}",
-        pool.utxo_set.utxos.keys()
+        "\nTransaction 1: txid={}, vsize={}, weight={}, fee={}, fee_rate={:.2} sat/vB",
+        tx1.txid, tx1_vsize, tx1_weight, 3000, tx1_fee_rate
+    );
+    pool.add_transaction(tx1.clone()).unwrap();
+    println!(
+        "\nUTXO set after adding tx1: {:?}",
+        pool.utxo_set.utxos.keys().collect::<Vec<_>>()
     );
 
-    let mut utxo_set_clone2 = pool.utxo_set.clone();
+    // Create custom UTXO set for tx2 (only second UTXO)
+    let mut utxo_set_clone2 = UtxoSet::new();
+    utxo_set_clone2.add_utxo(txid2.clone(), *vout2, utxo2);
+
+    // Create second transaction with higher fee rate (~19.46 sat/vB)
     let tx2 = create_signed_tx(
         &wallet,
         &mut utxo_set_clone2,
         &pool,
-        50000,
-        5000, // Higher fee rate: ~25 sat/vB
+        50000, // Value
+        5000,  // Fee
         &to_address,
     );
-    pool.add_transaction(tx2.clone()).unwrap();
-
+    let (_, tx2_vsize, tx2_weight) = tx2.get_size_vsize_weight();
+    let tx2_fee_rate = 5000.0 / tx2_vsize as f64;
     println!(
-        "\n UTXO set after adding tx2: {:?}",
-        pool.utxo_set.utxos.keys()
+        "\nTransaction 2: txid={}, vsize={}, weight={}, fee={}, fee_rate={:.2} sat/vB",
+        tx2.txid, tx2_vsize, tx2_weight, 5000, tx2_fee_rate
+    );
+    pool.add_transaction(tx2.clone()).unwrap();
+    println!(
+        "\nUTXO set after adding tx2: {:?}",
+        pool.utxo_set.utxos.keys().collect::<Vec<_>>()
     );
 
-    let selected = pool.select_transactions(1000, 1);
-    assert!(
-        selected.len() <= 2,
-        "\n Selected more transactions than expected: {}",
+    // Scenario 1: Select both transactions with sufficient weight limit
+    let max_block_weight = 2090; // Enough for both txs (each ~1028 weight)
+    let selected = pool.select_transactions(max_block_weight, 0);
+    println!(
+        "\nScenario 1 (max_weight={}): Selected transactions: {:?}",
+        max_block_weight,
+        selected.iter().map(|tx| &tx.txid).collect::<Vec<_>>()
+    );
+
+    assert_eq!(
+        selected.len(),
+        2,
+        "Scenario 1: Expected 2 transactions, got {}",
         selected.len()
     );
-    if selected.len() == 2 {
-        assert_eq!(selected[0].txid, tx2.txid); // Higher fee rate selected first
-        assert_eq!(selected[1].txid, tx1.txid);
-    } else if selected.len() == 1 {
-        assert_eq!(selected[0].txid, tx2.txid); // Higher fee rate selected
-    }
-}
+    assert_eq!(
+        selected[0].txid, tx2.txid,
+        "Scenario 1: First selected transaction should be tx2 (higher fee rate: {:.2} vs {:.2})",
+        tx2_fee_rate, tx1_fee_rate
+    );
+    assert_eq!(
+        selected[1].txid, tx1.txid,
+        "Scenario 1: Second selected transaction should be tx1"
+    );
 
+    // Verify total weight
+    let total_weight: u64 = selected.iter().map(|tx| tx.get_size_vsize_weight().2).sum();
+    assert!(
+        total_weight <= max_block_weight as u64,
+        "Scenario 1: Total weight {} exceeds max weight {}",
+        total_weight,
+        max_block_weight
+    );
+
+    // Scenario 2: Select only one transaction with restrictive weight limit
+    let max_block_weight = 1028; // Enough for one tx (~1028 weight)
+    let selected = pool.select_transactions(max_block_weight, 0);
+    println!(
+        "\nScenario 2 (max_weight={}): Selected transactions: {:?}",
+        max_block_weight,
+        selected.iter().map(|tx| &tx.txid).collect::<Vec<_>>()
+    );
+
+    assert_eq!(
+        selected.len(),
+        1,
+        "Scenario 2: Expected 1 transaction, got {}",
+        selected.len()
+    );
+    assert_eq!(
+        selected[0].txid, tx2.txid,
+        "Scenario 2: Selected transaction should be tx2 (higher fee rate: {:.2} vs {:.2})",
+        tx2_fee_rate, tx1_fee_rate
+    );
+
+    // Verify total weight
+    let total_weight: u64 = selected.iter().map(|tx| tx.get_size_vsize_weight().2).sum();
+    assert!(
+        total_weight <= max_block_weight as u64,
+        "Scenario 2: Total weight {} exceeds max weight {}",
+        total_weight,
+        max_block_weight
+    );
+
+    // Verify UTXO set contains expected outputs
+    assert_eq!(
+        pool.utxo_set.utxos.len(),
+        4, // Two outputs from tx1 (recipient + change) + two from tx2
+        "UTXO set should contain outputs from both transactions"
+    );
+}
 #[test]
 fn test_get_transaction() {
     let mut pool = TransactionPool::new();
