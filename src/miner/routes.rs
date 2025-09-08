@@ -244,8 +244,58 @@ async fn get_blocks(
     }))
 }
 
+#[get("/verify_tree")]
+async fn verify_tree(
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<bool>>,
+        String,
+    )>,
+) -> impl Responder {
+    let (treechain, pqp, _, _, _, _, _) = data.as_ref();
+    let chain = treechain.lock().await;
+    let pqp_guard = pqp.lock().await;
+
+    let is_valid = chain.is_valid_tree(&pqp_guard);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": if is_valid { "success" } else { "error" },
+        "message": if is_valid { "Tree is valid" } else { "Tree is invalid" }
+    }))
+}
+
+#[get("/verify_pqp")]
+async fn verify_pqp(
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<bool>>,
+        String,
+    )>,
+) -> impl Responder {
+    let (treechain, pqp, _, _, _, _, _) = data.as_ref();
+    let chain = treechain.lock().await;
+    let pqp_guard = pqp.lock().await;
+
+    let is_valid = chain.is_valid_pqp(&pqp_guard);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": if is_valid { "success" } else { "error" },
+        "message": if is_valid { "PQP is valid" } else { "PQP is invalid" }
+    }))
+}
+
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
     cfg.service(get_blocks);
+    cfg.service(verify_tree);
+    cfg.service(verify_pqp);
 }
