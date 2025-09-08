@@ -1,17 +1,4 @@
+errors in the test_valid_transaction_failures
 
-hey now lets write a function called
- add_received_blocks(array of blocks )
-which should do verify_and_add_block():bool for each block , if false is returned then stop at that point , 
-also give verify_and_add_block(&Block) function , which verifies the hash and pqp of the block 
-and then call the add_block function 
-then the function
-get_missing_blocks_from(&Block)
-here this function is being implemented for the case , when 1 miner goes offline and comes online ,and asks for blocks from his last block
-here in the parameter pass the last non empty block of his indexmap 
-if genesis is passed then pass the blocks from the first 
-here simply send the index map pairs from the block , 
-return the array of blocks , 
-also give me another function called add_received_blocks(array of blocks )
-which should do verify_and_add_block():bool for each block , if false is returned then stop at that point , 
+flow 
 
-and overall give me test functons as well 

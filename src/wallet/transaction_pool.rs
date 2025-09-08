@@ -164,6 +164,7 @@ impl TransactionPool {
     }
 
     pub fn add_transaction(&mut self, tx: Transaction) -> Result<(), String> {
+        println!("Adding transaction to mempool: {}", tx.txid);
         // Validate transaction
         let (fee, vsize, fee_rate, depends) =
             self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64)?;
@@ -196,6 +197,13 @@ impl TransactionPool {
             }
         }
 
+        // Remove input UTXOs from the UTXO set
+        for input in &tx.vin {
+            if self.utxo_set.has_utxo(&input.txid, input.vout) {
+                self.utxo_set.remove_utxo(&input.txid, input.vout);
+            }
+        }
+
         // Add to mempool
         let txid = tx.txid.clone();
         let entry = MempoolEntry {
@@ -223,12 +231,16 @@ impl TransactionPool {
         // Add transaction outputs to mempool UTXO set
         for (vout_idx, out) in tx.vout.iter().enumerate() {
             let utxo = Utxo::new(out.clone(), 0, false);
+            println!(
+                "Adding UTXO to set: for txn :{} ,  {:?}",
+                txid.clone(),
+                utxo.out
+            );
             self.utxo_set.add_utxo(txid.clone(), vout_idx as u32, utxo);
         }
 
         Ok(())
     }
-
     pub fn remove_transaction(&mut self, txid: &str) {
         if let Some(entry) = self.pool.remove(txid) {
             self.total_size -= entry.vsize;
@@ -273,18 +285,20 @@ impl TransactionPool {
         Ok(())
     }
 
-    pub fn select_transactions(&self, max_block_size: usize, align: u8) -> Vec<Transaction> {
+    pub fn select_transactions(&self, max_block_weight: usize, align: u8) -> Vec<Transaction> {
         let mut sorted_entries: Vec<&MempoolEntry> = self.pool.values().collect();
         sorted_entries.sort_by(|a, b| b.fee_rate.partial_cmp(&a.fee_rate).unwrap());
 
         let mut selected_txs = Vec::new();
-        let mut total_size = 0;
+        let mut total_weight = 0;
 
         for entry in sorted_entries {
             if !self.tx_suitable_for_align(&entry.tx, align) {
                 continue;
             }
-            if total_size + entry.vsize > max_block_size {
+            // Use weight instead of vsize for accurate block limit check
+            let (_, _, tx_weight) = entry.tx.get_size_vsize_weight();
+            if total_weight + tx_weight as usize > max_block_weight {
                 continue;
             }
 
@@ -300,12 +314,11 @@ impl TransactionPool {
             }
 
             selected_txs.push(entry.tx.clone());
-            total_size += entry.vsize;
+            total_weight += tx_weight as usize;
         }
 
         selected_txs
     }
-
     pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8) -> bool {
         let txid = &tx.txid;
         if txid.is_empty() {
