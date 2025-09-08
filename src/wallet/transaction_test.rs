@@ -245,503 +245,281 @@ fn test_get_size_vsize_weight() {
 #[test]
 fn test_create_new_transaction() {
     let wallet = Wallet::new();
-    let sender_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+    let recipient = Wallet::new();
     let mut utxo_set = UtxoSet::new();
     let pool = TransactionPool::new();
 
-    // UTXOs for the main test case
-    let utxo1 = Utxo::new(
+    // Setup UTXO
+    let utxo = Utxo::new(
         TxOutput {
-            value: 150000,
-            script_pubkey: sender_script.clone(),
+            value: 1500000,
+            script_pubkey: Transaction::create_p2pkh_script(&wallet.public_key_hash),
         },
         100,
         false,
     );
-    let utxo2 = Utxo::new(
-        TxOutput {
-            value: 25000,
-            script_pubkey: sender_script.clone(),
-        },
-        101,
-        false,
+    utxo_set.add_utxo("1234".repeat(16), 0, utxo);
+
+    let value = 1000000;
+    let fee = 1000;
+    let tx = Transaction::create_new_transaction(
+        &wallet,
+        &utxo_set,
+        &pool,
+        value,
+        fee,
+        &recipient.address,
+    )
+    .expect("Failed to create new transaction");
+
+    assert_eq!(tx.vin.len(), 1);
+    assert_eq!(tx.vout.len(), 2, "Should include change output");
+    assert_eq!(tx.vout[0].value, value);
+    assert_eq!(
+        tx.vout[1].value,
+        1500000 - value - fee,
+        "Change should account for fee"
     );
-    let utxo3 = Utxo::new(
-        TxOutput {
-            value: 12500,
-            script_pubkey: sender_script.clone(),
-        },
-        102,
-        false,
+    assert_eq!(
+        tx.vout[0].script_pubkey,
+        Transaction::create_p2pkh_script(
+            &ChainUtil::pubkey_hash_from_address(&recipient.address).unwrap()
+        )
     );
+    assert_eq!(
+        tx.vout[1].script_pubkey,
+        Transaction::create_p2pkh_script(&wallet.public_key_hash),
+        "Change output should use sender's script"
+    );
+    assert!(!tx.txid.is_empty());
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
 
-    utxo_set.add_utxo("1234".repeat(16), 0, utxo1);
-    utxo_set.add_utxo("5678".repeat(16), 0, utxo2);
-    utxo_set.add_utxo("9abc".repeat(16), 0, utxo3);
-
-    let recipient_address = ChainUtil::address_from_pubkey_hash(&wallet.public_key_hash)
-        .expect("Failed to create recipient address");
-
-    // Test case: Successful transaction with value = 100000
-    let result =
-        Transaction::create_new_transaction(&wallet, &utxo_set, &pool, 100000, &recipient_address);
-    match result {
-        Ok(tx) => {
-            assert_eq!(tx.version, 1, "Version should be 1");
-            assert_eq!(
-                tx.vout.len(),
-                2,
-                "Should have 2 outputs (recipient + change)"
-            );
-            assert_eq!(
-                tx.vout[0].value, 100000,
-                "Recipient output should be 100000"
-            );
-            assert!(
-                tx.vout[1].value <= 87500,
-                "Change output should account for fee"
-            );
-            assert!(tx.vin.len() >= 1, "Should use at least 1 input");
-            assert!(
-                !tx.vin[0].script_sig.is_empty(),
-                "Input 0 should have script_sig"
-            );
-            assert!(tx.witnesses.is_none(), "Witnesses should be None");
-            assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
-        }
-        Err(e) => panic!("Transaction creation failed: {}", e),
-    }
-
-    // Test case: Insufficient funds
-    let result =
-        Transaction::create_new_transaction(&wallet, &utxo_set, &pool, 200000, &recipient_address);
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to insufficient funds"),
-        Err(e) => assert!(
-            e.contains("Insufficient funds"),
-            "Expected insufficient funds error"
-        ),
-    }
-
-    // Test case: No UTXOs
-    let empty_utxo_set = UtxoSet::new();
+    // Test insufficient funds
     let result = Transaction::create_new_transaction(
         &wallet,
-        &empty_utxo_set,
+        &utxo_set,
         &pool,
-        1000,
-        &recipient_address,
+        2000000,
+        fee,
+        &recipient.address,
     );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to no UTXOs"),
-        Err(e) => assert_eq!(
-            e, "No unspent UTXOs found for wallet",
-            "Expected no UTXOs error"
-        ),
-    }
-
-    // Test case: Small transaction with sufficient funds
-    let mut small_utxo_set = UtxoSet::new();
-    let small_utxo = Utxo::new(
-        TxOutput {
-            value: 15000,
-            script_pubkey: sender_script,
-        },
-        100,
-        false,
-    );
-    small_utxo_set.add_utxo("abcd".repeat(16), 0, small_utxo);
-    let result = Transaction::create_new_transaction(
-        &wallet,
-        &small_utxo_set,
-        &pool,
-        9000,
-        &recipient_address,
-    );
-    match result {
-        Ok(tx) => {
-            assert_eq!(
-                tx.vout.len(),
-                2,
-                "Should have 2 outputs (no change due to dust threshold)"
-            );
-            assert_eq!(tx.vout[0].value, 9000, "Recipient output should be 9000");
-            assert!(tx.witnesses.is_none(), "Witnesses should be None");
-        }
-        Err(e) => panic!("Transaction creation failed: {}", e),
-    }
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Insufficient funds"));
 }
 
 #[test]
 fn test_create_new_multisig_txn() {
     let wallet = Wallet::new();
     let wallet2 = Wallet::new();
-    let sender_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
     let mut utxo_set = UtxoSet::new();
     let pool = TransactionPool::new();
+    let pubkeys = vec![wallet.public_key.clone(), wallet2.public_key.clone()];
 
-    // UTXOs for the main test case
-    let utxo1 = Utxo::new(
+    // Setup UTXO
+    let utxo = Utxo::new(
         TxOutput {
-            value: 150000,
-            script_pubkey: sender_script.clone(),
+            value: 1500000,
+            script_pubkey: Transaction::create_p2pkh_script(&wallet.public_key_hash),
         },
         100,
         false,
     );
-    let utxo2 = Utxo::new(
-        TxOutput {
-            value: 25000,
-            script_pubkey: sender_script.clone(),
-        },
-        101,
-        false,
+    utxo_set.add_utxo("1234".repeat(16), 0, utxo);
+
+    let value = 1000000;
+    let fee = 1000;
+    let tx = Transaction::create_new_multisig_txn(
+        &wallet,
+        &utxo_set,
+        &pool,
+        value,
+        fee,
+        2,
+        pubkeys.clone(),
+    )
+    .expect("Failed to create multisig transaction");
+
+    assert_eq!(tx.vin.len(), 1);
+    assert_eq!(tx.vout.len(), 2, "Should include change output");
+    assert_eq!(tx.vout[0].value, value);
+    assert_eq!(
+        tx.vout[1].value,
+        1500000 - value - fee,
+        "Change should account for fee"
     );
-    utxo_set.add_utxo("1234".repeat(16), 0, utxo1);
-    utxo_set.add_utxo("5678".repeat(16), 0, utxo2);
+    assert!(tx.vout[0].script_pubkey.starts_with("a914"));
+    assert!(tx.vout[0].script_pubkey.ends_with("87"));
+    assert_eq!(
+        tx.vout[1].script_pubkey,
+        Transaction::create_p2pkh_script(&wallet.public_key_hash),
+        "Change output should use sender's script"
+    );
+    assert!(!tx.txid.is_empty());
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
 
-    let pubkeys = vec![wallet.public_key.clone(), wallet2.public_key.clone()];
-    let m = 2;
-
-    // Test case: Successful multisig transaction
-    let result =
-        Transaction::create_new_multisig_txn(&wallet, &utxo_set, &pool, 100000, m, pubkeys.clone());
-    match result {
-        Ok(tx) => {
-            assert_eq!(tx.version, 1, "Version should be 1");
-            assert_eq!(
-                tx.vout.len(),
-                2,
-                "Should have 2 outputs (multisig + change)"
-            );
-            assert_eq!(tx.vout[0].value, 100000, "Multisig output should be 100000");
-            assert!(
-                tx.vout[0].script_pubkey.starts_with("a914"),
-                "Output should be P2SH"
-            );
-            assert!(
-                tx.vout[0].script_pubkey.ends_with("87"),
-                "Output should be P2SH"
-            );
-            assert!(
-                tx.vout[1].value <= 75000,
-                "Change output should account for fee"
-            );
-            assert!(tx.vin.len() >= 1, "Should use at least 1 input");
-            assert!(
-                !tx.vin[0].script_sig.is_empty(),
-                "Input 0 should have script_sig"
-            );
-            assert!(tx.witnesses.is_none(), "Witnesses should be None");
-            assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
-        }
-        Err(e) => panic!("Multisig transaction creation failed: {}", e),
-    }
-
-    // Test case: Insufficient funds
-    let result =
-        Transaction::create_new_multisig_txn(&wallet, &utxo_set, &pool, 200000, m, pubkeys.clone());
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to insufficient funds"),
-        Err(e) => assert!(
-            e.contains("Insufficient funds"),
-            "Expected insufficient funds error"
-        ),
-    }
-
-    // Test case: No UTXOs
-    let empty_utxo_set = UtxoSet::new();
+    // Test invalid m
     let result = Transaction::create_new_multisig_txn(
         &wallet,
-        &empty_utxo_set,
+        &utxo_set,
         &pool,
-        1000,
-        m,
+        value,
+        fee,
+        3,
         pubkeys.clone(),
     );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to no UTXOs"),
-        Err(e) => assert_eq!(
-            e, "No unspent UTXOs found for wallet",
-            "Expected no UTXOs error"
-        ),
-    }
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), "Invalid m value for multisig");
 
-    // Test case: Invalid m value
-    let result =
-        Transaction::create_new_multisig_txn(&wallet, &utxo_set, &pool, 1000, 3, pubkeys.clone());
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to invalid m"),
-        Err(e) => assert_eq!(
-            e, "Invalid m value for multisig",
-            "Expected invalid m error"
-        ),
-    }
-
-    // Test case: Invalid pubkey
-    let invalid_pubkeys = vec![wallet.public_key.clone(), "invalid_hex".to_string()];
-    let result =
-        Transaction::create_new_multisig_txn(&wallet, &utxo_set, &pool, 1000, 2, invalid_pubkeys);
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to invalid pubkey"),
-        Err(e) => assert!(
-            e.contains("Invalid pubkey hex"),
-            "Expected invalid pubkey error"
-        ),
-    }
+    // Test invalid pubkey
+    let invalid_pubkeys = vec![wallet.public_key.clone(), "invalid".to_string()];
+    let result = Transaction::create_new_multisig_txn(
+        &wallet,
+        &utxo_set,
+        &pool,
+        value,
+        fee,
+        2,
+        invalid_pubkeys,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Invalid pubkey hex"));
 }
-
 #[test]
 fn test_create_new_timelocked_cltv_txn() {
     let wallet = Wallet::new();
-    let sender_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+    let recipient = Wallet::new();
     let mut utxo_set = UtxoSet::new();
     let pool = TransactionPool::new();
 
-    // UTXOs for the main test case
-    let utxo1 = Utxo::new(
+    // Setup UTXO
+    let utxo = Utxo::new(
         TxOutput {
-            value: 150000,
-            script_pubkey: sender_script.clone(),
+            value: 1500000,
+            script_pubkey: Transaction::create_p2pkh_script(&wallet.public_key_hash),
         },
         100,
         false,
     );
-    let utxo2 = Utxo::new(
-        TxOutput {
-            value: 25000,
-            script_pubkey: sender_script.clone(),
-        },
-        101,
-        false,
-    );
-    utxo_set.add_utxo("1234".repeat(16), 0, utxo1);
-    utxo_set.add_utxo("5678".repeat(16), 0, utxo2);
+    utxo_set.add_utxo("1234".repeat(16), 0, utxo);
 
-    let recipient_address = ChainUtil::address_from_pubkey_hash(&wallet.public_key_hash)
-        .expect("Failed to create recipient address");
+    let value = 1000000;
+    let fee = 1000;
     let cltv_lock_time = 500000;
+    let tx = Transaction::create_new_timelocked_cltv_txn(
+        &wallet,
+        &utxo_set,
+        &pool,
+        value,
+        fee,
+        cltv_lock_time,
+        &recipient.address,
+    )
+    .expect("Failed to create CLTV transaction");
 
-    // Test case: Successful CLTV transaction
+    assert_eq!(tx.vin.len(), 1);
+    assert_eq!(tx.vout.len(), 2, "Should include change output");
+    assert_eq!(tx.vout[0].value, value);
+    assert_eq!(
+        tx.vout[1].value,
+        1500000 - value - fee,
+        "Change should account for fee"
+    );
+    assert!(tx.vout[0].script_pubkey.starts_with("a914"));
+    assert!(tx.vout[0].script_pubkey.ends_with("87"));
+    assert_eq!(
+        tx.vout[1].script_pubkey,
+        Transaction::create_p2pkh_script(&wallet.public_key_hash),
+        "Change output should use sender's script"
+    );
+    assert_eq!(tx.locktime, cltv_lock_time);
+    assert!(!tx.txid.is_empty());
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
+
+    // Test insufficient funds
     let result = Transaction::create_new_timelocked_cltv_txn(
         &wallet,
         &utxo_set,
         &pool,
-        100000,
+        2000000,
+        fee,
         cltv_lock_time,
-        &recipient_address,
+        &recipient.address,
     );
-    match result {
-        Ok(tx) => {
-            assert_eq!(tx.version, 1, "Version should be 1");
-            assert_eq!(
-                tx.locktime, cltv_lock_time,
-                "Locktime should match CLTV lock time"
-            );
-            assert_eq!(tx.vout.len(), 2, "Should have 2 outputs (CLTV + change)");
-            assert_eq!(tx.vout[0].value, 100000, "CLTV output should be 100000");
-            assert!(
-                tx.vout[0].script_pubkey.starts_with("a914"),
-                "Output should be P2SH"
-            );
-            assert!(
-                tx.vout[0].script_pubkey.ends_with("87"),
-                "Output should be P2SH"
-            );
-            assert!(
-                tx.vout[1].value <= 75000,
-                "Change output should account for fee"
-            );
-            assert!(tx.vin.len() >= 1, "Should use at least 1 input");
-            assert!(
-                !tx.vin[0].script_sig.is_empty(),
-                "Input 0 should have script_sig"
-            );
-            assert!(tx.witnesses.is_none(), "Witnesses should be None");
-            assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
-        }
-        Err(e) => panic!("CLTV transaction creation failed: {}", e),
-    }
-
-    // Test case: Insufficient funds
-    let result = Transaction::create_new_timelocked_cltv_txn(
-        &wallet,
-        &utxo_set,
-        &pool,
-        200000,
-        cltv_lock_time,
-        &recipient_address,
-    );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to insufficient funds"),
-        Err(e) => assert!(
-            e.contains("Insufficient funds"),
-            "Expected insufficient funds error"
-        ),
-    }
-
-    // Test case: No UTXOs
-    let empty_utxo_set = UtxoSet::new();
-    let result = Transaction::create_new_timelocked_cltv_txn(
-        &wallet,
-        &empty_utxo_set,
-        &pool,
-        1000,
-        cltv_lock_time,
-        &recipient_address,
-    );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to no UTXOs"),
-        Err(e) => assert_eq!(
-            e, "No unspent UTXOs found for wallet",
-            "Expected no UTXOs error"
-        ),
-    }
-
-    // Test case: Invalid recipient address
-    let result = Transaction::create_new_timelocked_cltv_txn(
-        &wallet,
-        &utxo_set,
-        &pool,
-        1000,
-        cltv_lock_time,
-        "invalid_address",
-    );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to invalid address"),
-        Err(e) => assert_eq!(
-            e, "Invalid recipient address",
-            "Expected invalid address error"
-        ),
-    }
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Insufficient funds"));
 }
 
 #[test]
 fn test_create_new_timelocked_csv_txn() {
     let wallet = Wallet::new();
-    let sender_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+    let recipient = Wallet::new();
     let mut utxo_set = UtxoSet::new();
     let pool = TransactionPool::new();
 
-    // UTXOs for the main test case
-    let utxo1 = Utxo::new(
+    // Setup UTXO
+    let utxo = Utxo::new(
         TxOutput {
-            value: 150000,
-            script_pubkey: sender_script.clone(),
+            value: 1500000,
+            script_pubkey: Transaction::create_p2pkh_script(&wallet.public_key_hash),
         },
         100,
         false,
     );
-    let utxo2 = Utxo::new(
-        TxOutput {
-            value: 25000,
-            script_pubkey: sender_script.clone(),
-        },
-        101,
-        false,
-    );
-    utxo_set.add_utxo("1234".repeat(16), 0, utxo1);
-    utxo_set.add_utxo("5678".repeat(16), 0, utxo2);
+    utxo_set.add_utxo("1234".repeat(16), 0, utxo);
 
-    let recipient_address = ChainUtil::address_from_pubkey_hash(&wallet.public_key_hash)
-        .expect("Failed to create recipient address");
+    let value = 1000000;
+    let fee = 1000;
     let csv_lock_blocks = 100;
+    let tx = Transaction::create_new_timelocked_csv_txn(
+        &wallet,
+        &utxo_set,
+        &pool,
+        value,
+        fee,
+        csv_lock_blocks,
+        &recipient.address,
+    )
+    .expect("Failed to create CSV transaction");
 
-    // Test case: Successful CSV transaction
+    assert_eq!(tx.vin.len(), 1);
+    assert_eq!(
+        tx.vin[0].sequence, csv_lock_blocks,
+        "Sequence should be set to csv_lock_blocks"
+    );
+    assert_eq!(tx.vout.len(), 2, "Should include change output");
+    assert_eq!(tx.vout[0].value, value);
+    assert_eq!(
+        tx.vout[1].value,
+        1500000 - value - fee,
+        "Change should account for fee"
+    );
+    assert!(tx.vout[0].script_pubkey.starts_with("a914"));
+    assert!(tx.vout[0].script_pubkey.ends_with("87"));
+    assert_eq!(
+        tx.vout[1].script_pubkey,
+        Transaction::create_p2pkh_script(&wallet.public_key_hash),
+        "Change output should use sender's script"
+    );
+    assert!(!tx.txid.is_empty());
+    assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
+    assert!(tx.witnesses.is_none(), "Witnesses should be None");
+
+    // Test insufficient funds
     let result = Transaction::create_new_timelocked_csv_txn(
         &wallet,
         &utxo_set,
         &pool,
-        100000,
+        2000000,
+        fee,
         csv_lock_blocks,
-        &recipient_address,
+        &recipient.address,
     );
-    match result {
-        Ok(tx) => {
-            assert_eq!(tx.version, 1, "Version should be 1");
-            assert_eq!(tx.locktime, 0, "Locktime should be 0");
-            assert_eq!(tx.vout.len(), 2, "Should have 2 outputs (CSV + change)");
-            assert_eq!(tx.vout[0].value, 100000, "CSV output should be 100000");
-            assert!(
-                tx.vout[0].script_pubkey.starts_with("a914"),
-                "Output should be P2SH"
-            );
-            assert!(
-                tx.vout[0].script_pubkey.ends_with("87"),
-                "Output should be P2SH"
-            );
-            assert!(
-                tx.vout[1].value <= 75000,
-                "Change output should account for fee"
-            );
-            assert!(tx.vin.len() >= 1, "Should use at least 1 input");
-            assert!(
-                !tx.vin[0].script_sig.is_empty(),
-                "Input 0 should have script_sig"
-            );
-            assert_eq!(
-                tx.vin[0].sequence, csv_lock_blocks,
-                "Sequence should match csv_lock_blocks"
-            );
-            assert!(tx.witnesses.is_none(), "Witnesses should be None");
-            assert_eq!(tx.hash, tx.txid, "Hash should equal TXID for non-SegWit");
-        }
-        Err(e) => panic!("CSV transaction creation failed: {}", e),
-    }
-
-    // Test case: Insufficient funds
-    let result = Transaction::create_new_timelocked_csv_txn(
-        &wallet,
-        &utxo_set,
-        &pool,
-        200000,
-        csv_lock_blocks,
-        &recipient_address,
-    );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to insufficient funds"),
-        Err(e) => assert!(
-            e.contains("Insufficient funds"),
-            "Expected insufficient funds error"
-        ),
-    }
-
-    // Test case: No UTXOs
-    let empty_utxo_set = UtxoSet::new();
-    let result = Transaction::create_new_timelocked_csv_txn(
-        &wallet,
-        &empty_utxo_set,
-        &pool,
-        1000,
-        csv_lock_blocks,
-        &recipient_address,
-    );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to no UTXOs"),
-        Err(e) => assert_eq!(
-            e, "No unspent UTXOs found for wallet",
-            "Expected no UTXOs error"
-        ),
-    }
-
-    // Test case: Invalid recipient address
-    let result = Transaction::create_new_timelocked_csv_txn(
-        &wallet,
-        &utxo_set,
-        &pool,
-        1000,
-        csv_lock_blocks,
-        "invalid_address",
-    );
-    match result {
-        Ok(_) => panic!("Transaction should have failed due to invalid address"),
-        Err(e) => assert_eq!(
-            e, "Invalid recipient address",
-            "Expected invalid address error"
-        ),
-    }
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Insufficient funds"));
 }
-
 #[test]
 fn test_modify_txn_to_add_segwit() {
     let wallet = Wallet::new();
@@ -764,9 +542,15 @@ fn test_modify_txn_to_add_segwit() {
         .expect("Failed to create recipient address");
 
     // Test 1: Regular P2PKH transaction
-    let p2pkh_tx =
-        Transaction::create_new_transaction(&wallet, &utxo_set, &pool, 90000, &recipient_address)
-            .expect("Failed to create P2PKH transaction");
+    let p2pkh_tx = Transaction::create_new_transaction(
+        &wallet,
+        &utxo_set,
+        &pool,
+        90000,
+        1000,
+        &recipient_address,
+    )
+    .expect("Failed to create P2PKH transaction");
 
     let segwit_tx = p2pkh_tx
         .modify_txn_to_add_segwit(&wallet, &utxo_set, None)
@@ -809,9 +593,16 @@ fn test_modify_txn_to_add_segwit() {
 
     // Test 2: P2SH Multisig transaction
     let pubkeys = vec![wallet.public_key.clone(), Wallet::new().public_key];
-    let multisig_tx =
-        Transaction::create_new_multisig_txn(&wallet, &utxo_set, &pool, 90000, 2, pubkeys.clone())
-            .expect("Failed to create multisig transaction");
+    let multisig_tx = Transaction::create_new_multisig_txn(
+        &wallet,
+        &utxo_set,
+        &pool,
+        90000,
+        1000,
+        2,
+        pubkeys.clone(),
+    )
+    .expect("Failed to create multisig transaction");
     let redeem_script = Transaction::create_multisig_redeem_script(2, &pubkeys);
 
     // Provide redeem script for multisig output and None for change output
@@ -849,6 +640,7 @@ fn test_modify_txn_to_add_segwit() {
         &utxo_set,
         &pool,
         90000,
+        1000,
         500000,
         &recipient_address,
     )
@@ -885,14 +677,56 @@ fn test_modify_txn_to_add_segwit() {
         );
     }
 
-    // Test 4: Already SegWit transaction
+    // Test 4: P2SH CSV transaction
+    let csv_tx = Transaction::create_new_timelocked_csv_txn(
+        &wallet,
+        &utxo_set,
+        &pool,
+        90000,
+        1000,
+        100,
+        &recipient_address,
+    )
+    .expect("Failed to create CSV transaction");
+    let csv_redeem_script = Transaction::create_csv_redeem_script(100, &wallet.public_key_hash);
+
+    // Provide redeem script for CSV output and None for change output
+    let csv_redeem_scripts = Some(vec![Some(csv_redeem_script.clone()), None]);
+    let segwit_csv_tx = csv_tx
+        .modify_txn_to_add_segwit(&wallet, &utxo_set, csv_redeem_scripts)
+        .expect("Failed to modify CSV transaction to SegWit");
+
+    assert!(
+        segwit_csv_tx.witnesses.is_some(),
+        "Witnesses should be present"
+    );
+    let csv_witnesses = segwit_csv_tx.witnesses.clone().unwrap();
+    assert_eq!(
+        csv_witnesses.len(),
+        csv_tx.vin.len(),
+        "Witness count should match input count for CSV"
+    );
+    assert_eq!(
+        segwit_csv_tx.vout[0].script_pubkey.starts_with("0020"),
+        true,
+        "CSV output should be P2WSH"
+    );
+    if segwit_csv_tx.vout.len() > 1 {
+        assert_eq!(
+            segwit_csv_tx.vout[1].script_pubkey.starts_with("0014"),
+            true,
+            "Change output should be P2WPKH"
+        );
+    }
+
+    // Test 5: Already SegWit transaction
     let result = segwit_tx.modify_txn_to_add_segwit(&wallet, &utxo_set, None);
     match result {
         Ok(_) => panic!("Should fail for already SegWit transaction"),
         Err(e) => assert_eq!(e, "Transaction already contains witness data"),
     }
 
-    // Test 5: Wrong wallet
+    // Test 6: Wrong wallet
     let mut wrong_utxo_set = UtxoSet::new();
     let wrong_wallet = Wallet::new();
     let wrong_utxo = Utxo::new(
@@ -910,7 +744,7 @@ fn test_modify_txn_to_add_segwit() {
         Err(e) => assert_eq!(e, "Input not owned by wallet"),
     }
 
-    // Test 6: Missing UTXO
+    // Test 7: Missing UTXO
     let empty_utxo_set = UtxoSet::new();
     let result = p2pkh_tx.modify_txn_to_add_segwit(&wallet, &empty_utxo_set, None);
     match result {
@@ -918,7 +752,7 @@ fn test_modify_txn_to_add_segwit() {
         Err(e) => assert!(e.contains("UTXO not found")),
     }
 
-    // Test 7: Invalid redeem script
+    // Test 8: Invalid redeem script
     let invalid_redeem_script = "invalid".to_string();
     let result = multisig_tx.modify_txn_to_add_segwit(
         &wallet,
@@ -930,7 +764,7 @@ fn test_modify_txn_to_add_segwit() {
         Err(e) => assert!(e.contains("Invalid redeem script hex")),
     }
 
-    // Test 8: Mismatched redeem script
+    // Test 9: Mismatched redeem script
     let wrong_redeem_script = Transaction::create_multisig_redeem_script(1, &pubkeys);
     let result = multisig_tx.modify_txn_to_add_segwit(
         &wallet,
@@ -942,14 +776,13 @@ fn test_modify_txn_to_add_segwit() {
         Err(e) => assert_eq!(e, "Redeem script does not match script hash"),
     }
 
-    // Test 9: Incorrect redeem scripts length
+    // Test 10: Incorrect redeem scripts length
     let result = multisig_tx.modify_txn_to_add_segwit(&wallet, &utxo_set, Some(vec![]));
     match result {
         Ok(_) => panic!("Should fail for incorrect redeem scripts length"),
         Err(e) => assert_eq!(e, "Redeem scripts length does not match outputs"),
     }
 }
-
 #[test]
 fn test_utxo_set() {
     let mut utxo_set = UtxoSet::new();

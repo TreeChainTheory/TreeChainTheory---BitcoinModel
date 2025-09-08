@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const SIGHASH_ALL: u32 = 0x01;
-const MAX_MEMPOOL_SIZE: usize = 100 * 1024 * 1024; // 100 MB in bytes
-const DEFAULT_MIN_FEE_RATE: u64 = USER_TXN_FREERATE; // satoshis per vB
-const MAX_TX_SIZE: usize = 100_000; // Bitcoin's max tx size (vB)
+pub const SIGHASH_ALL: u32 = 0x01;
+pub const MAX_MEMPOOL_SIZE: usize = 100 * 1024 * 1024; // 100 MB in bytes
+pub const DEFAULT_MIN_FEE_RATE: u64 = USER_TXN_FREERATE; // satoshis per vB
+pub const MAX_TX_SIZE: usize = 100_000; // Bitcoin's max tx size (vB)
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MempoolEntry {
@@ -92,12 +92,8 @@ impl TransactionPool {
             // Verify script_sig (for non-SegWit) or witness (for SegWit)
             let input_index = tx.vin.iter().position(|x| x == input).unwrap();
             if tx.witnesses.is_none() {
-                let sighash = tx.compute_sighash(
-                    input_index,
-                    &utxo.out.script_pubkey,
-                    utxo.out.value,
-                    SIGHASH_ALL,
-                );
+                let sighash =
+                    tx.compute_sighash(input_index, &utxo.out.script_pubkey, 0, SIGHASH_ALL);
                 let (sig_hex, pubkey_hex) = Self::parse_script_sig(&input.script_sig)?;
                 if !Self::verify_signature(&sighash, &sig_hex, &pubkey_hex) {
                     return Err(format!(
@@ -239,7 +235,7 @@ impl TransactionPool {
         Some(removed_txs)
     }
 
-    fn evict_low_fee_transactions(&mut self, required_space: usize) -> Result<(), String> {
+    pub fn evict_low_fee_transactions(&mut self, required_space: usize) -> Result<(), String> {
         let mut sorted_entries: Vec<(&String, &MempoolEntry)> = self
             .pool
             .iter()
@@ -301,7 +297,7 @@ impl TransactionPool {
         selected_txs
     }
 
-    fn tx_suitable_for_align(&self, tx: &Transaction, align: u8) -> bool {
+    pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8) -> bool {
         let txid = &tx.txid;
         if txid.is_empty() {
             return false;
@@ -364,7 +360,7 @@ impl TransactionPool {
         self.add_transaction(new_tx, utxo_set)
     }
 
-    fn parse_script_sig(script_sig: &str) -> Result<(String, String), String> {
+    pub fn parse_script_sig(script_sig: &str) -> Result<(String, String), String> {
         let bytes =
             hex::decode(script_sig).map_err(|e| format!("Invalid script_sig hex: {}", e))?;
         if bytes.len() < 2 {
@@ -383,7 +379,7 @@ impl TransactionPool {
         Ok((sig, pubkey))
     }
 
-    fn verify_signature(sighash: &[u8], sig_hex: &str, pubkey_hex: &str) -> bool {
+    pub fn verify_signature(sighash: &[u8], sig_hex: &str, pubkey_hex: &str) -> bool {
         let sig_bytes = match hex::decode(sig_hex) {
             Ok(bytes) => bytes,
             Err(_) => return false,

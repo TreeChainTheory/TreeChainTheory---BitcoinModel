@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-const SIGHASH_ALL: u32 = 0x01;
+pub const SIGHASH_ALL: u32 = 0x01;
 
 // Represents a transaction input (vin)
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -59,7 +59,7 @@ impl Transaction {
         tx
     }
 
-    fn double_sha(data: &[u8]) -> Vec<u8> {
+    pub fn double_sha(data: &[u8]) -> Vec<u8> {
         let mut hasher = Sha256::new();
         hasher.update(data);
         let hash1 = hasher.finalize();
@@ -283,7 +283,7 @@ impl Transaction {
         Self::new(version, locktime, vin, vout, None)
     }
 
-    fn create_csv_redeem_script(csv_lock_blocks: u32, pubkey_hash: &str) -> String {
+    pub fn create_csv_redeem_script(csv_lock_blocks: u32, pubkey_hash: &str) -> String {
         let mut script: Vec<u8> = vec![];
         let lock_bytes = csv_lock_blocks.to_le_bytes();
         script.push(lock_bytes.len() as u8);
@@ -385,7 +385,7 @@ impl Transaction {
         }
     }
 
-    fn serialize_non_witness(&self) -> Vec<u8> {
+    pub fn serialize_non_witness(&self) -> Vec<u8> {
         let mut serialized = Vec::new();
         serialized.extend(self.version.to_le_bytes());
         serialized.extend((self.vin.len() as u8).to_le_bytes());
@@ -557,6 +557,7 @@ impl Transaction {
         utxo_set: &UtxoSet,
         pool: &TransactionPool,
         value: u64,
+        fee: u64,
         to_address: &str,
     ) -> Result<Self, String> {
         let version = 1u32;
@@ -588,50 +589,6 @@ impl Transaction {
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
 
-        // Create temporary vout to estimate size
-        let mut recipients = vec![(value, to_address.to_string())];
-        if total_input > value {
-            recipients.push((total_input - value, wallet.address.clone()));
-        }
-        let temp_vout: Vec<TxOutput> = recipients
-            .into_iter()
-            .map(|(val, addr)| {
-                let pkh = ChainUtil::pubkey_hash_from_address(&addr).expect("Invalid address");
-                TxOutput {
-                    value: val,
-                    script_pubkey: Self::create_p2pkh_script(&pkh),
-                }
-            })
-            .collect();
-
-        // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = owned_utxos
-            .iter()
-            .take(1)
-            .map(|(key, _)| TxInput {
-                txid: key.0.clone(),
-                vout: key.1,
-                script_sig: "".to_string(),
-                sequence: 0xffffffff,
-            })
-            .collect();
-
-        // Create temporary transaction to estimate size
-        let temp_tx = Transaction {
-            txid: "".to_string(),
-            hash: "".to_string(),
-            version,
-            vin: temp_vin,
-            vout: temp_vout,
-            witnesses: None,
-            locktime,
-        };
-
-        // Estimate size and weight
-        let (_, _, weight) = temp_tx.get_size_vsize_weight();
-        let fee_rate = USER_TXN_FREERATE;
-        let fee = (weight as u64) * fee_rate;
-
         // Select UTXOs to cover value + fee
         for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
@@ -643,44 +600,42 @@ impl Transaction {
 
         if total_input < value + fee {
             return Err(format!(
-                "Insufficient funds for value and fee: need {}, have {}",
+                "Insufficient funds: need {}, have {}",
                 value + fee,
                 total_input
             ));
         }
 
-        // Create final vin
-        let mut vin: Vec<TxInput> = selected
-            .iter()
+        // Create vin
+        let vin: Vec<TxInput> = selected
+            .clone()
+            .into_iter()
             .map(|(txid, vout, _)| TxInput {
                 txid: txid.clone(),
-                vout: *vout,
+                vout: vout,
                 script_sig: "".to_string(),
                 sequence: 0xffffffff,
             })
             .collect();
 
-        // Adjust change based on fee
-        let change = total_input - value - fee;
-        let mut final_recipients = vec![(value, to_address.to_string())];
+        // Create vout
+        let pubkey_hash = ChainUtil::pubkey_hash_from_address(to_address)
+            .map_err(|_| "Invalid recipient address".to_string())?;
+        let script_pubkey = Self::create_p2pkh_script(&pubkey_hash);
+        let mut final_vout = vec![TxOutput {
+            value,
+            script_pubkey: script_pubkey.clone(),
+        }];
 
-        // Bitcoin dust threshold (546 satoshis for P2PKH at 3 sat/vB)
+        // Calculate change
+        let change = total_input - value - fee;
         const DUST_THRESHOLD: u64 = 546;
         if change > DUST_THRESHOLD {
-            final_recipients.push((change, wallet.address.clone()));
+            final_vout.push(TxOutput {
+                value: change,
+                script_pubkey: sender_script.clone(),
+            });
         }
-
-        // Create final vout
-        let vout: Vec<TxOutput> = final_recipients
-            .into_iter()
-            .map(|(val, addr)| {
-                let pkh = ChainUtil::pubkey_hash_from_address(&addr).expect("Invalid address");
-                TxOutput {
-                    value: val,
-                    script_pubkey: Self::create_p2pkh_script(&pkh),
-                }
-            })
-            .collect();
 
         // Create unsigned tx template
         let mut tx = Transaction {
@@ -688,14 +643,13 @@ impl Transaction {
             hash: "".to_string(),
             version,
             vin,
-            vout,
+            vout: final_vout,
             witnesses: None,
             locktime,
         };
 
         // Sign each input
         for i in 0..tx.vin.len() {
-            // Create modified vin for sighash
             let mut sig_vin = tx.vin.clone();
             for j in 0..sig_vin.len() {
                 sig_vin[j].script_sig = if j == i {
@@ -705,7 +659,6 @@ impl Transaction {
                 };
             }
 
-            // Modified tx for hash
             let mod_tx = Transaction {
                 txid: "".to_string(),
                 hash: "".to_string(),
@@ -718,18 +671,12 @@ impl Transaction {
 
             let mut serialized = mod_tx.serialize_non_witness();
             serialized.extend(SIGHASH_ALL.to_le_bytes());
-
             let sighash_bytes = Self::double_sha(&serialized);
-
-            // Sign
             let sig_hex = wallet.sign_data(&sighash_bytes);
-
-            // Set script_sig: signature + pubkey
             let script_sig = format!("{}{}", sig_hex, wallet.public_key);
             tx.vin[i].script_sig = script_sig;
         }
 
-        // Compute final txid and hash
         tx.txid = tx.compute_non_witness_txid();
         tx.hash = tx.compute_hash();
 
@@ -741,6 +688,7 @@ impl Transaction {
         utxo_set: &UtxoSet,
         pool: &TransactionPool,
         value: u64,
+        fee: u64,
         m: u8,
         pubkeys_hex: Vec<String>,
     ) -> Result<Self, String> {
@@ -783,49 +731,6 @@ impl Transaction {
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
 
-        // Create temporary vout to estimate size
-        let redeem_script = Self::create_multisig_redeem_script(m, &pubkeys_hex);
-        let script_pubkey = Self::create_p2sh_script(&redeem_script);
-        let mut temp_vout = vec![TxOutput {
-            value,
-            script_pubkey: script_pubkey.clone(),
-        }];
-
-        if total_input > value {
-            temp_vout.push(TxOutput {
-                value: total_input - value,
-                script_pubkey: sender_script.clone(),
-            });
-        }
-
-        // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = owned_utxos
-            .iter()
-            .take(1)
-            .map(|(key, _)| TxInput {
-                txid: key.0.clone(),
-                vout: key.1,
-                script_sig: "".to_string(),
-                sequence: 0xffffffff,
-            })
-            .collect();
-
-        // Create temporary transaction to estimate size
-        let temp_tx = Transaction {
-            txid: "".to_string(),
-            hash: "".to_string(),
-            version,
-            vin: temp_vin,
-            vout: temp_vout,
-            witnesses: None,
-            locktime,
-        };
-
-        // Estimate size and weight
-        let (_, _, weight) = temp_tx.get_size_vsize_weight();
-        let fee_rate = USER_TXN_FREERATE;
-        let fee = (weight as u64) * fee_rate;
-
         // Select UTXOs to cover value + fee
         for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
@@ -855,14 +760,16 @@ impl Transaction {
             })
             .collect();
 
-        // Adjust change based on fee
-        let change = total_input - value - fee;
+        // Create vout
+        let redeem_script = Self::create_multisig_redeem_script(m, &pubkeys_hex);
+        let script_pubkey = Self::create_p2sh_script(&redeem_script);
         let mut final_vout = vec![TxOutput {
             value,
             script_pubkey: script_pubkey.clone(),
         }];
 
-        // Bitcoin dust threshold (546 satoshis for P2PKH at 3 sat/vB)
+        // Adjust change based on fee
+        let change = total_input - value - fee;
         const DUST_THRESHOLD: u64 = 546;
         if change > DUST_THRESHOLD {
             final_vout.push(TxOutput {
@@ -884,7 +791,6 @@ impl Transaction {
 
         // Sign each input
         for i in 0..tx.vin.len() {
-            // Create modified vin for sighash
             let mut sig_vin = tx.vin.clone();
             for j in 0..sig_vin.len() {
                 sig_vin[j].script_sig = if j == i {
@@ -894,7 +800,6 @@ impl Transaction {
                 };
             }
 
-            // Modified tx for hash
             let mod_tx = Transaction {
                 txid: "".to_string(),
                 hash: "".to_string(),
@@ -907,18 +812,12 @@ impl Transaction {
 
             let mut serialized = mod_tx.serialize_non_witness();
             serialized.extend(SIGHASH_ALL.to_le_bytes());
-
             let sighash_bytes = Self::double_sha(&serialized);
-
-            // Sign
             let sig_hex = wallet.sign_data(&sighash_bytes);
-
-            // Set script_sig: signature + pubkey
             let script_sig = format!("{}{}", sig_hex, wallet.public_key);
             tx.vin[i].script_sig = script_sig;
         }
 
-        // Compute final txid and hash
         tx.txid = tx.compute_non_witness_txid();
         tx.hash = tx.compute_hash();
 
@@ -930,11 +829,12 @@ impl Transaction {
         utxo_set: &UtxoSet,
         pool: &TransactionPool,
         value: u64,
+        fee: u64,
         cltv_lock_time: u32,
         to_address: &str,
     ) -> Result<Self, String> {
         let version = 1u32;
-        let locktime = cltv_lock_time; // Set locktime to match CLTV
+        let locktime = cltv_lock_time;
         let sender_script = Self::create_p2pkh_script(&wallet.public_key_hash);
 
         // Collect UTXOs from both main UTXO set and mempool UTXO set
@@ -962,51 +862,6 @@ impl Transaction {
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
 
-        // Create temporary vout to estimate size
-        let pubkey_hash = ChainUtil::pubkey_hash_from_address(to_address)
-            .map_err(|_| "Invalid recipient address".to_string())?;
-        let redeem_script = Self::create_cltv_redeem_script(cltv_lock_time, &pubkey_hash);
-        let script_pubkey = Self::create_p2sh_script(&redeem_script);
-        let mut temp_vout = vec![TxOutput {
-            value,
-            script_pubkey: script_pubkey.clone(),
-        }];
-
-        if total_input > value {
-            temp_vout.push(TxOutput {
-                value: total_input - value,
-                script_pubkey: sender_script.clone(),
-            });
-        }
-
-        // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = owned_utxos
-            .iter()
-            .take(1)
-            .map(|(key, _)| TxInput {
-                txid: key.0.clone(),
-                vout: key.1,
-                script_sig: "".to_string(),
-                sequence: 0xffffffff,
-            })
-            .collect();
-
-        // Create temporary transaction to estimate size
-        let temp_tx = Transaction {
-            txid: "".to_string(),
-            hash: "".to_string(),
-            version,
-            vin: temp_vin,
-            vout: temp_vout,
-            witnesses: None,
-            locktime,
-        };
-
-        // Estimate size and weight
-        let (_, _, weight) = temp_tx.get_size_vsize_weight();
-        let fee_rate = USER_TXN_FREERATE;
-        let fee = (weight as u64) * fee_rate;
-
         // Select UTXOs to cover value + fee
         for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
@@ -1036,14 +891,18 @@ impl Transaction {
             })
             .collect();
 
-        // Adjust change based on fee
-        let change = total_input - value - fee;
+        // Create vout
+        let pubkey_hash = ChainUtil::pubkey_hash_from_address(to_address)
+            .map_err(|_| "Invalid recipient address".to_string())?;
+        let redeem_script = Self::create_cltv_redeem_script(cltv_lock_time, &pubkey_hash);
+        let script_pubkey = Self::create_p2sh_script(&redeem_script);
         let mut final_vout = vec![TxOutput {
             value,
             script_pubkey: script_pubkey.clone(),
         }];
 
-        // Bitcoin dust threshold (546 satoshis for P2PKH at 3 sat/vB)
+        // Adjust change based on fee
+        let change = total_input - value - fee;
         const DUST_THRESHOLD: u64 = 546;
         if change > DUST_THRESHOLD {
             final_vout.push(TxOutput {
@@ -1065,7 +924,6 @@ impl Transaction {
 
         // Sign each input
         for i in 0..tx.vin.len() {
-            // Create modified vin for sighash
             let mut sig_vin = tx.vin.clone();
             for j in 0..sig_vin.len() {
                 sig_vin[j].script_sig = if j == i {
@@ -1075,7 +933,6 @@ impl Transaction {
                 };
             }
 
-            // Modified tx for hash
             let mod_tx = Transaction {
                 txid: "".to_string(),
                 hash: "".to_string(),
@@ -1088,18 +945,12 @@ impl Transaction {
 
             let mut serialized = mod_tx.serialize_non_witness();
             serialized.extend(SIGHASH_ALL.to_le_bytes());
-
             let sighash_bytes = Self::double_sha(&serialized);
-
-            // Sign
             let sig_hex = wallet.sign_data(&sighash_bytes);
-
-            // Set script_sig: signature + pubkey
             let script_sig = format!("{}{}", sig_hex, wallet.public_key);
             tx.vin[i].script_sig = script_sig;
         }
 
-        // Compute final txid and hash
         tx.txid = tx.compute_non_witness_txid();
         tx.hash = tx.compute_hash();
 
@@ -1111,6 +962,7 @@ impl Transaction {
         utxo_set: &UtxoSet,
         pool: &TransactionPool,
         value: u64,
+        fee: u64,
         csv_lock_blocks: u32,
         to_address: &str,
     ) -> Result<Self, String> {
@@ -1143,51 +995,6 @@ impl Transaction {
         let mut selected: Vec<(String, u32, Utxo)> = Vec::new();
         let mut total_input = 0u64;
 
-        // Create temporary vout to estimate size
-        let pubkey_hash = ChainUtil::pubkey_hash_from_address(to_address)
-            .map_err(|_| "Invalid recipient address".to_string())?;
-        let redeem_script = Self::create_csv_redeem_script(csv_lock_blocks, &pubkey_hash);
-        let script_pubkey = Self::create_p2sh_script(&redeem_script);
-        let mut temp_vout = vec![TxOutput {
-            value,
-            script_pubkey: script_pubkey.clone(),
-        }];
-
-        if total_input > value {
-            temp_vout.push(TxOutput {
-                value: total_input - value,
-                script_pubkey: sender_script.clone(),
-            });
-        }
-
-        // Create temporary vin to estimate size
-        let temp_vin: Vec<TxInput> = owned_utxos
-            .iter()
-            .take(1)
-            .map(|(key, _)| TxInput {
-                txid: key.0.clone(),
-                vout: key.1,
-                script_sig: "".to_string(),
-                sequence: csv_lock_blocks,
-            })
-            .collect();
-
-        // Create temporary transaction to estimate size
-        let temp_tx = Transaction {
-            txid: "".to_string(),
-            hash: "".to_string(),
-            version,
-            vin: temp_vin,
-            vout: temp_vout,
-            witnesses: None,
-            locktime,
-        };
-
-        // Estimate size and weight
-        let (_, _, weight) = temp_tx.get_size_vsize_weight();
-        let fee_rate = USER_TXN_FREERATE;
-        let fee = (weight as u64) * fee_rate;
-
         // Select UTXOs to cover value + fee
         for (key, utxo) in owned_utxos {
             selected.push((key.0, key.1, utxo));
@@ -1217,14 +1024,18 @@ impl Transaction {
             })
             .collect();
 
-        // Adjust change based on fee
-        let change = total_input - value - fee;
+        // Create vout
+        let pubkey_hash = ChainUtil::pubkey_hash_from_address(to_address)
+            .map_err(|_| "Invalid recipient address".to_string())?;
+        let redeem_script = Self::create_csv_redeem_script(csv_lock_blocks, &pubkey_hash);
+        let script_pubkey = Self::create_p2sh_script(&redeem_script);
         let mut final_vout = vec![TxOutput {
             value,
             script_pubkey: script_pubkey.clone(),
         }];
 
-        // Bitcoin dust threshold (546 satoshis for P2PKH at 3 sat/vB)
+        // Adjust change based on fee
+        let change = total_input - value - fee;
         const DUST_THRESHOLD: u64 = 546;
         if change > DUST_THRESHOLD {
             final_vout.push(TxOutput {
@@ -1246,7 +1057,6 @@ impl Transaction {
 
         // Sign each input
         for i in 0..tx.vin.len() {
-            // Create modified vin for sighash
             let mut sig_vin = tx.vin.clone();
             for j in 0..sig_vin.len() {
                 sig_vin[j].script_sig = if j == i {
@@ -1256,7 +1066,6 @@ impl Transaction {
                 };
             }
 
-            // Modified tx for hash
             let mod_tx = Transaction {
                 txid: "".to_string(),
                 hash: "".to_string(),
@@ -1269,18 +1078,12 @@ impl Transaction {
 
             let mut serialized = mod_tx.serialize_non_witness();
             serialized.extend(SIGHASH_ALL.to_le_bytes());
-
             let sighash_bytes = Self::double_sha(&serialized);
-
-            // Sign
             let sig_hex = wallet.sign_data(&sighash_bytes);
-
-            // Set script_sig: signature + pubkey
             let script_sig = format!("{}{}", sig_hex, wallet.public_key);
             tx.vin[i].script_sig = script_sig;
         }
 
-        // Compute final txid and hash
         tx.txid = tx.compute_non_witness_txid();
         tx.hash = tx.compute_hash();
 
