@@ -5,6 +5,7 @@ pub mod config;
 pub mod treechain;
 pub mod wallet;
 
+use config::CHILDREN;
 use treechain::block::Block;
 use treechain::treechain::{PQP, TreeChain};
 
@@ -26,10 +27,27 @@ async fn main() {
 
     dotenv().ok();
 
+    fn get_align() -> u8 {
+        let val: u8 = env::var("ALIGN")
+            .unwrap_or_else(|_| "1".into()) // default to "1"
+            .parse()
+            .unwrap_or(1); // fallback to 1 if parsing fails
+
+        if val == 0 || val > CHILDREN {
+            panic!(
+                "Invalid ALIGN value: {} (must be between 1 and {})",
+                val, CHILDREN
+            );
+        }
+
+        val
+    }
+
     let http_port = env::var("HTTP_PORT").unwrap_or_else(|_| "3001".into());
     let p2p_port = env::var("P2P_PORT").unwrap_or_else(|_| "5001".into());
     let peers = env::var("PEERS").unwrap_or_else(|_| "".into());
     let miner_address = env::var("MINER_ADDRESS").unwrap_or_else(|_| "Miner 123".to_string());
+    let align = get_align();
 
     println!("Starting HTTP server on http://localhost:{}", http_port);
     println!("Starting P2P server on http://localhost:{}", p2p_port);
@@ -37,7 +55,7 @@ async fn main() {
     let treechain = Arc::new(Mutex::new(TreeChain::new()));
     let pqp = Arc::new(Mutex::new(PQP::new()));
     let mining_flag = Arc::new(Mutex::new(false));
-    let current_mining_target = Arc::new(SyncMutex::new(None::<u32>));
+    let current_mining_position = Arc::new(SyncMutex::new(None::<String>));
     let abort_mining = Arc::new(SyncMutex::new(false));
 
     let p2p_port_clone = p2p_port.clone();
@@ -48,7 +66,7 @@ async fn main() {
         peers_clone,
         Arc::clone(&treechain),
         Arc::clone(&pqp),
-        Arc::clone(&current_mining_target),
+        Arc::clone(&current_mining_position),
         Arc::clone(&abort_mining),
     );
 
@@ -59,9 +77,10 @@ async fn main() {
                 Arc::clone(&pqp),
                 Arc::clone(&mining_flag),
                 Arc::clone(&p2p_server),
-                Arc::clone(&current_mining_target),
+                Arc::clone(&current_mining_position),
                 Arc::clone(&abort_mining),
                 miner_address.clone(),
+                align,
             )))
             .configure(miner::routes::init_routes)
     })

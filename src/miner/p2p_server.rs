@@ -1,6 +1,6 @@
 //1st terminal cargo run
-//2nd terminal HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 MINER_ADDRESS=MINER_ABC cargo run
-//3rd terminal HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 MINER_ADDRESS=MINER_XYZ cargo run
+//2nd terminal ALIGN=2 HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 MINER_ADDRESS=MINER_ABC cargo run
+//3rd terminal ALIGN=3 HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 MINER_ADDRESS=MINER_XYZ cargo run
 
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::miner::p2p_server;
@@ -47,7 +47,7 @@ pub struct P2PServer {
     pub writers: Arc<Mutex<Vec<Arc<Mutex<OwnedWriteHalf>>>>>,
     pub best_peer: Arc<Mutex<Option<(String, u64)>>>, // (peer_addr, chain_length)
     sync_state: Arc<Mutex<Option<SyncState>>>,
-    pub current_mining_target: Arc<SyncMutex<Option<u32>>>,
+    pub current_mining_position: Arc<SyncMutex<Option<String>>>,
     pub abort_mining: Arc<SyncMutex<bool>>,
     pub ibd_or_online_state: Arc<Mutex<bool>>,
 }
@@ -57,7 +57,7 @@ impl P2PServer {
         treechain: Arc<Mutex<TreeChain>>,
         pqp: Arc<Mutex<PQP>>,
         peers: Vec<String>,
-        current_mining_target: Arc<SyncMutex<Option<u32>>>,
+        current_mining_position: Arc<SyncMutex<Option<String>>>,
         abort_mining: Arc<SyncMutex<bool>>,
     ) -> Self {
         P2PServer {
@@ -67,7 +67,7 @@ impl P2PServer {
             writers: Arc::new(Mutex::new(Vec::new())),
             best_peer: Arc::new(Mutex::new(None)), // communicate only with the peer that has the longer tree
             sync_state: Arc::new(Mutex::new(None)),
-            current_mining_target,
+            current_mining_position,
             abort_mining,
             ibd_or_online_state: Arc::new(Mutex::new(false)),
         }
@@ -81,7 +81,12 @@ impl P2PServer {
             Ok(treechain) => {
                 println!("Locked treechain (fast path) for building block locator");
                 // Collect recent hashes (reverse order, truncate to 10 like before)
-                let mut hashes: Vec<String> = treechain.blocks.keys().cloned().collect();
+                let mut hashes: Vec<String> = treechain
+                    .blocks
+                    .keys()
+                    .filter(|h| !h.starts_with("placeholder"))
+                    .cloned()
+                    .collect();
                 hashes.reverse();
                 hashes.truncate(10);
                 println!("Built block locator (from local treechain): {:?}", hashes);
@@ -727,7 +732,10 @@ impl P2PServer {
                                                         TreeChain::parent_queue_entry_from_block(
                                                             &block,
                                                         );
-                                                    pqp.add_entry(pqp_entry.clone());
+                                                    pqp.add_entry_to_pqp(
+                                                        pqp_entry.clone(),
+                                                        &treechain,
+                                                    );
                                                     let exist: bool = pqp
                                                         .pool
                                                         .iter()
@@ -805,12 +813,42 @@ impl P2PServer {
                                                         }
                                                     };
                                                 {
-                                                    let target_guard =
-                                                        self.current_mining_target.lock().unwrap();
-                                                    if let Some(target) = *target_guard {
-                                                        if block.pqp_entry.queue_index == target {
+                                                    let target_guard = self
+                                                        .current_mining_position
+                                                        .lock()
+                                                        .unwrap();
+                                                    if let Some(target) = target_guard.as_ref() {
+                                                        if block.position == *target || {
+                                                            let target_parts: Vec<&str> =
+                                                                target.split('.').collect();
+                                                            let block_parts: Vec<&str> =
+                                                                block.position.split('.').collect();
+
+                                                            if target_parts.len() >= 2
+                                                                && block_parts.len() >= 2
+                                                            {
+                                                                // compare prefix except last two
+                                                                let prefix_target = &target_parts
+                                                                    [..target_parts.len() - 2];
+                                                                let prefix_block = &block_parts
+                                                                    [..block_parts.len() - 2];
+
+                                                                if prefix_target == prefix_block {
+                                                                    let target_first = target_parts
+                                                                        [target_parts.len() - 2];
+                                                                    let block_first = block_parts
+                                                                        [block_parts.len() - 2];
+                                                                    target_first != block_first
+                                                                } else {
+                                                                    false
+                                                                }
+                                                            } else {
+                                                                false
+                                                            }
+                                                        } {
+                                                            //change this to convert into align based mining
                                                             println!(
-                                                                "Received MINEDBLOCK with same queue_index {} as current mining target, aborting current mine",
+                                                                "Received MINEDBLOCK with same position {} as current mining target, aborting current mine",
                                                                 target
                                                             );
                                                             *self.abort_mining.lock().unwrap() =
@@ -857,7 +895,10 @@ impl P2PServer {
                                                             "✅ Same valid Block already existing"
                                                         );
                                                     } else {
-                                                        pqp.add_entry(pqp_entry.clone());
+                                                        pqp.add_entry_to_pqp(
+                                                            pqp_entry.clone(),
+                                                            &treechain,
+                                                        );
                                                         let exist: bool = pqp
                                                             .pool
                                                             .iter()
@@ -1058,7 +1099,7 @@ pub fn start_p2p_server(
     peers: String,
     treechain: Arc<Mutex<TreeChain>>,
     pqp: Arc<Mutex<PQP>>,
-    current_mining_target: Arc<SyncMutex<Option<u32>>>,
+    current_mining_position: Arc<SyncMutex<Option<String>>>,
     abort_mining: Arc<SyncMutex<bool>>,
 ) -> Arc<P2PServer> {
     let peer_list: Vec<String> = peers
@@ -1070,7 +1111,7 @@ pub fn start_p2p_server(
         treechain,
         pqp,
         peer_list,
-        current_mining_target,
+        current_mining_position,
         abort_mining,
     ));
     let server_clone = Arc::clone(&server);

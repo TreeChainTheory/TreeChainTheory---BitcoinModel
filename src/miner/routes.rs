@@ -13,9 +13,10 @@ async fn start_mining(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
-        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
         String,
+        u8,
     )>,
 ) -> impl Responder {
     let (
@@ -23,9 +24,10 @@ async fn start_mining(
         pqp,
         mining_flag,
         p2p_server,
-        current_mining_target,
+        current_mining_position,
         abort_mining,
         miner_address,
+        align,
     ) = {
         let d = data.as_ref();
         (
@@ -36,6 +38,7 @@ async fn start_mining(
             Arc::clone(&d.4),
             Arc::clone(&d.5),
             d.6.clone(),
+            d.7,
         )
     };
 
@@ -57,7 +60,6 @@ async fn start_mining(
     let mining_flag = Arc::clone(&mining_flag);
 
     // Static values for mining parameters
-    let align = 1;
     let tx = vec!["tx1".to_string(), "tx2".to_string()];
     let signature = "DUMMY_SIGNATURE_64_BYTES".to_string().repeat(3);
 
@@ -70,30 +72,44 @@ async fn start_mining(
             }
 
             *abort_mining.lock().unwrap() = false;
-
+            let mut parent_pos: String;
             // Brief lock for queue index calculation
             let calc;
             {
-                let mut chain = treechain.lock().await;
+                let mut tree = treechain.lock().await;
                 let mut pqp_guard = pqp.lock().await;
-                calc = chain.calculate_queue_index(&mut pqp_guard, align);
+                let parent_pos_entry = pqp_guard.current_parent();
+                let parent_pos_block =
+                    tree.get_block(&parent_pos_entry.unwrap().block_hash.clone());
+                parent_pos = if let Some(b) = parent_pos_block {
+                    b.position.clone()
+                } else {
+                    "".to_string()
+                };
+
+                calc = tree.calculate_qi(&mut pqp_guard, align);
+                if calc.is_none() {
+                    // If we can't calculate queue index, wait and retry
+                    println!("Failed to calculate queue index it returned None");
+                }
             } // Release locks
 
-            if let Some((queue_index, calculated_align, prev_pqp)) = calc {
-                *current_mining_target.lock().unwrap() = Some(queue_index);
+            if let Some((queue_index, prev_pqp, parent_hash)) = calc {
+                *current_mining_position.lock().unwrap() = Some(parent_pos.clone());
 
                 // Brief lock for template preparation
                 let block_template_opt;
                 {
-                    let chain = treechain.lock().await;
+                    let tree = treechain.lock().await;
                     let mut pqp_guard = pqp.lock().await;
-                    block_template_opt = chain.prepare_block_template(
+                    block_template_opt = tree.prepare_block_template(
                         &mut pqp_guard,
                         align,
                         tx.clone(),
                         miner_address.clone(),
                         signature.clone(),
                     );
+                    println!("block templete: {:?}", block_template_opt);
                 } // Release locks
 
                 if let Some(mut block_template) = block_template_opt {
@@ -125,17 +141,17 @@ async fn start_mining(
                     })
                     .await
                     .unwrap();
-
-                    *current_mining_target.lock().unwrap() = None;
+                    println!("finished mining block:");
+                    *current_mining_position.lock().unwrap() = None;
 
                     if let Some(mined_block) = mined_result {
                         // Brief lock to add and broadcast
                         {
-                            let mut chain = treechain.lock().await;
+                            let mut tree = treechain.lock().await;
                             let mut pqp_guard = pqp.lock().await;
 
                             let pqp_entry = TreeChain::parent_queue_entry_from_block(&mined_block);
-                            pqp_guard.add_entry(pqp_entry.clone());
+                            pqp_guard.add_entry_to_pqp(pqp_entry.clone(), &tree);
 
                             let exist: bool = pqp_guard
                                 .pool
@@ -143,9 +159,10 @@ async fn start_mining(
                                 .rev()
                                 .take(crate::config::CHILDREN as usize)
                                 .any(|e| e.block_hash == pqp_entry.block_hash);
+                            println!("is exist: {}", exist);
 
                             if exist {
-                                if chain.verify_and_add_block(&mined_block) {
+                                if tree.verify_and_add_block(&mined_block) {
                                     println!("Successfully mined block: {}", mined_block.hash);
                                     let writers = p2p_server.writers.lock().await;
                                     for writer in writers.iter() {
@@ -194,12 +211,13 @@ async fn stop_mining(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
-        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
         String,
+        u8,
     )>,
 ) -> impl Responder {
-    let (_, _, mining_flag, _, _, _, _) = data.as_ref();
+    let (_, _, mining_flag, _, _, _, _, _) = data.as_ref();
     let mut mining = mining_flag.lock().await;
 
     if !*mining {
@@ -223,12 +241,13 @@ async fn get_blocks(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
-        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
         String,
+        u8,
     )>,
 ) -> impl Responder {
-    let (treechain, _, _, _, _, _, _) = data.as_ref();
+    let (treechain, _, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
 
     let blocks: Vec<Block> = chain
@@ -251,12 +270,13 @@ async fn verify_tree(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
-        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
         String,
+        u8,
     )>,
 ) -> impl Responder {
-    let (treechain, pqp, _, _, _, _, _) = data.as_ref();
+    let (treechain, pqp, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
     let pqp_guard = pqp.lock().await;
 
@@ -275,12 +295,13 @@ async fn verify_pqp(
         Arc<Mutex<PQP>>,
         Arc<Mutex<bool>>,
         Arc<P2PServer>,
-        Arc<SyncMutex<Option<u32>>>,
+        Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
         String,
+        u8,
     )>,
 ) -> impl Responder {
-    let (treechain, pqp, _, _, _, _, _) = data.as_ref();
+    let (treechain, pqp, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
     let pqp_guard = pqp.lock().await;
 

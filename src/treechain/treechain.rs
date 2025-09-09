@@ -1,4 +1,5 @@
 use crate::config::{BITS, CHILDREN};
+use crate::treechain;
 use crate::treechain::block::{Block, PQPEntry};
 use indexmap::IndexMap;
 use num_bigint::BigUint;
@@ -68,6 +69,117 @@ impl PQP {
             Some(candidates[1])
         } else {
             None
+        }
+    }
+
+    pub fn add_entry_to_pqp(&mut self, entry: ParentQueueEntry, treechain: &TreeChain) {
+        let current_parent = self.current_parent().cloned();
+        // print!("\n current_parent: {:?}", current_parent);
+        // print!("\n pqp_pool: {:?}", self.pool);
+        let next_parent = self.next_parent().cloned();
+        // print!("\n next_parent: {:?}", next_parent);
+        let latest = self.latest().cloned();
+
+        if let Some(current) = current_parent {
+            if entry.parent_hash == current.block_hash {
+                let expected_prev_commit = self.get_prev_pqp_commitment(entry.align, &treechain);
+                // println!(
+                //     "expected_prev_commit in add_entry(): {}",
+                //     expected_prev_commit
+                // );
+                if entry.prev_pqp_commitment != expected_prev_commit {
+                    // Invalid commit → reject early
+                    println!(
+                        "\n entry:{:?} expected: {:?} ",
+                        entry.prev_pqp_commitment, expected_prev_commit
+                    );
+                    return;
+                }
+                let children_count_current = self
+                    .pool
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .filter(|e| e.parent_hash == current.block_hash)
+                    .count();
+
+                let next_parent_has_children = if let Some(next) = next_parent {
+                    self.pool
+                        .iter()
+                        .rev()
+                        .take(CHILDREN as usize)
+                        .any(|e| e.parent_hash == next.block_hash)
+                } else {
+                    false
+                };
+
+                if !next_parent_has_children && children_count_current < CHILDREN as usize {
+                    let mut insert_pos = self.pool.len();
+
+                    for i in (0..self.pool.len()).rev() {
+                        if self.pool[i].queue_index < entry.queue_index {
+                            // Insert *after* this one
+                            insert_pos = i + 1;
+                            break;
+                        }
+                    }
+
+                    if insert_pos == self.pool.len() {
+                        self.pool.push(entry);
+                    } else {
+                        self.pool.insert(insert_pos, entry);
+                    }
+
+                    // self.pool.push(entry.clone());
+                    let updated_children_count = self
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(10)
+                        .filter(|e| e.parent_hash == current.block_hash)
+                        .count();
+
+                    if updated_children_count >= CHILDREN as usize {
+                        if let Some(pos) = self
+                            .pool
+                            .iter()
+                            .position(|e| e.block_hash == current.block_hash)
+                        {
+                            self.pool.remove(pos);
+                        }
+                    }
+                } else {
+                    if let Some(pos) = self
+                        .pool
+                        .iter()
+                        .position(|e| e.block_hash == current.block_hash)
+                    {
+                        self.pool.remove(pos);
+                    }
+                }
+                // println!("\n pqp at add_entry:{:?}", &self.pool);
+            } else if let Some(next) = next_parent {
+                if entry.parent_hash == next.block_hash {
+                    let Some(latest) = latest else {
+                        panic!("Latest entry should exist");
+                    };
+                    let expected_prev_commit = latest.pqp_commitment.clone();
+
+                    if entry.prev_pqp_commitment != expected_prev_commit {
+                        return; // invalid → reject
+                    }
+                    self.pool.push(entry);
+                    if let Some(pos) = self
+                        .pool
+                        .iter()
+                        .position(|e| e.block_hash == current.block_hash)
+                    {
+                        self.pool.remove(pos);
+                    }
+                }
+            }
+        } else {
+            self.pool.push(entry);
         }
     }
 
@@ -198,6 +310,68 @@ impl PQP {
         }
     }
 
+    pub fn get_prev_pqp_commitment(&self, align: u8, treechain: &TreeChain) -> String {
+        if let Some(last) = self.pool.last() {
+            if let Some(current_parent) = self.current_parent() {
+                let prev_parent = if current_parent.block_hash == last.parent_hash {
+                    // find another parent (not same as current's parent)
+                    self.pool
+                        .iter()
+                        .rev()
+                        .take(CHILDREN as usize)
+                        .find(|e| e.parent_hash != last.parent_hash)
+                } else {
+                    Some(last) // default: use last
+                };
+
+                let sibling_aligns: Vec<u8> = self
+                    .pool
+                    .iter()
+                    .rev()
+                    .take(CHILDREN as usize)
+                    .filter(|e| e.parent_hash == current_parent.block_hash)
+                    .filter_map(|e| treechain.get_block(&e.block_hash))
+                    .map(|block| block.align)
+                    .collect();
+
+                if sibling_aligns.contains(&align) {
+                    // align already taken
+                    let prev_pqp =
+                        self.pool.iter().rev().find(|e| {
+                            e.parent_hash == current_parent.block_hash && e.align == align
+                        });
+                    return prev_pqp
+                        .map(|e| e.pqp_commitment.clone())
+                        .unwrap_or_default();
+                }
+
+                if let Some(prev_parent) = prev_parent {
+                    let siblings: Vec<&ParentQueueEntry> = self
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(10)
+                        .filter(|e| e.parent_hash == prev_parent.parent_hash)
+                        .collect();
+
+                    // exact align match
+                    if let Some(sibling) = siblings.iter().find(|s| s.align == align) {
+                        return sibling.pqp_commitment.clone();
+                    }
+
+                    // fallback: latest sibling
+                    if let Some(last_sibling) = siblings.iter().max_by_key(|e| e.queue_index) {
+                        return last_sibling.pqp_commitment.clone();
+                    }
+                }
+            }
+        }
+        self.pool
+            .last()
+            .map(|e| e.pqp_commitment.clone())
+            .unwrap_or_default()
+    }
+
     pub fn get_prev_pqp(&self, align: u8) -> String {
         if let Some(last) = self.pool.last() {
             if let Some(current_parent) = self.current_parent() {
@@ -293,18 +467,29 @@ impl TreeChain {
     }
 
     pub fn add_block(&mut self, block: Block) {
+        println!("add block called");
         let hash = block.hash.clone();
         let parent_hash = block.parent_hash.clone();
         let queue_index = block.pqp_entry.queue_index as usize;
+        println!(
+            "blocks len: {} and queue_index: {}",
+            self.blocks.len(),
+            queue_index
+        );
 
         // Insert placeholders for indices up to queue_index - 1
         while self.blocks.len() < queue_index {
+            // println!(
+            //     "blocks len: {} and queue_index: {}",
+            //     self.blocks.len(),
+            //     queue_index
+            // );
             let placeholder_index = self.blocks.len() as u32;
             let placeholder_block = Block::empty_placeholder(placeholder_index);
-            let placeholder_hash = placeholder_block.hash.clone();
+            let placeholder_hash = format!("placeholder_{}", placeholder_index);
             self.blocks.insert(placeholder_hash, placeholder_block);
         }
-
+        println!("finished while lop");
         // Check if there's a block at queue_index
         if let Some((existing_hash, existing_block)) = self.blocks.get_index(queue_index) {
             if !(existing_block.position.is_empty()) {
@@ -322,6 +507,7 @@ impl TreeChain {
             self.blocks.insert(hash.clone(), block); // insert our new block at correct spot
             self.blocks.extend(tail); // restore the rest
         } else {
+            println!("calling block insert");
             self.blocks.insert(hash.clone(), block);
         }
 
@@ -434,7 +620,7 @@ impl TreeChain {
                         candidate.pqp_entry.signature.clone(),
                         candidate.pqp_commitment.clone(),
                     );
-                    pqp.add_entry(new_pqp_entry.clone());
+                    pqp.add_entry_to_pqp(new_pqp_entry.clone(), &self);
                     let exist: bool = pqp
                         .pool
                         .iter()
@@ -547,7 +733,7 @@ impl TreeChain {
                         candidate.pqp_entry.signature.clone(),
                         candidate.pqp_commitment.clone(),
                     );
-                    pqp.add_entry(new_pqp_entry.clone());
+                    pqp.add_entry_to_pqp(new_pqp_entry.clone(), &self);
                     let exist: bool = pqp
                         .pool
                         .iter()
@@ -571,6 +757,63 @@ impl TreeChain {
                 return None;
             }
         }
+    }
+
+    pub fn calculate_qi(&self, pqp: &PQP, mut align: u8) -> Option<(u32, String, String)> {
+        // println!("calculate_qi called with align: {}", align);
+        if align == 0 || align > CHILDREN {
+            return None;
+        }
+        let current_parent = pqp
+            .current_parent()
+            .expect("No current parent PQP entry found");
+        let latest_pqp = pqp.latest()?;
+        println!("\n current_parent hash: {:?}", current_parent.block_hash);
+
+        let sibling_aligns: Vec<u8> = pqp
+            .pool
+            .iter()
+            .rev()
+            .take(CHILDREN as usize)
+            .filter(|e| e.parent_hash == current_parent.block_hash)
+            .filter_map(|e| self.get_block(&e.block_hash))
+            .map(|block| block.align)
+            .collect();
+
+        if sibling_aligns.contains(&align) {
+            //this should be changed to be changed to next parent thing
+            let next_parent = pqp.next_parent();
+            if next_parent.is_none() {
+                return None;
+            }
+            let prev_pqp = pqp.get_prev_pqp_commitment(align, &self);
+            let mut max_queue_index = latest_pqp.queue_index;
+            if max_queue_index % CHILDREN as u32 != 0 {
+                max_queue_index += ((CHILDREN as u32) - (max_queue_index % CHILDREN as u32));
+            }
+            let base_index = max_queue_index;
+            let queue_index = base_index + align as u32;
+            println!("returned {},{}", queue_index, prev_pqp);
+            return Some((
+                queue_index,
+                prev_pqp,
+                next_parent.unwrap().block_hash.clone(),
+            ));
+        }
+
+        let prev_pqp = pqp.get_prev_pqp_commitment(align, &self);
+        let mut max_queue_index = latest_pqp.queue_index;
+        if max_queue_index % CHILDREN as u32 != 0 {
+            max_queue_index += ((CHILDREN as u32) - (max_queue_index % CHILDREN as u32));
+        }
+        let base_index = if latest_pqp.parent_hash == current_parent.block_hash {
+            max_queue_index - CHILDREN as u32
+        } else {
+            max_queue_index
+        };
+
+        let queue_index = base_index + align as u32;
+        Some((queue_index, prev_pqp, current_parent.block_hash.clone()))
     }
 
     pub fn calculate_queue_index(&self, pqp: &PQP, mut align: u8) -> Option<(u32, u8, String)> {
@@ -609,7 +852,10 @@ impl TreeChain {
         }
 
         let prev_pqp = pqp.get_prev_pqp(align);
-        let max_queue_index = latest_pqp.queue_index;
+        let mut max_queue_index = latest_pqp.queue_index;
+        if max_queue_index % CHILDREN as u32 != 0 {
+            max_queue_index += ((CHILDREN as u32) - (max_queue_index % CHILDREN as u32));
+        }
 
         // Determine base index depending on parent relationship
         let base_index = if latest_pqp.parent_hash == current_parent.block_hash {
@@ -635,10 +881,8 @@ impl TreeChain {
 
     pub fn is_valid_tree(&self, pqp: &PQP) -> bool {
         println!("is valid tree started with length: {}", self.blocks.len());
-        // println!("pqp: {:?}", pqp.pool);
         for entry in &pqp.pool {
             let mut current_hash = entry.block_hash.clone();
-            // println!("current pqp entry: {:?}", entry);
             loop {
                 let block_opt = self.get_block(&current_hash);
                 let block = match block_opt {
@@ -653,43 +897,83 @@ impl TreeChain {
                     break;
                 }
 
-                let base_index = if block.pqp_entry.queue_index >= block.align as u32 {
-                    (block.pqp_entry.queue_index - block.align as u32) as usize
+                let mut base_index = if block.pqp_entry.queue_index >= CHILDREN as u32 {
+                    (block.pqp_entry.queue_index - CHILDREN as u32) as usize
                 } else {
                     0
                 };
-                // println!("base index: {}", base_index);
+                println!("base_index: {}", base_index);
 
                 let mut prev_pqp_block = None;
                 let mut prev_pqp_block_hash = String::new();
 
-                // Start from base_index and go backward
-                if block.pqp_entry.queue_index >= block.align as u32 {
+                // Check if block at (queue_index - CHILDREN) exists
+                if block.pqp_entry.queue_index >= CHILDREN as u32 {
                     if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
-                        prev_pqp_block = Some(base_block);
-                        prev_pqp_block_hash = hash.clone();
-
-                        // Traverse backward to find a block with matching align and same parent_hash
-                        for idx in (0..base_index + 1).rev() {
-                            if let Some((hash, candidate_block)) = self.blocks.get_index(idx) {
-                                if candidate_block.align == block.align
-                                    && candidate_block.parent_hash
-                                        == prev_pqp_block.unwrap().parent_hash
+                        if !hash.starts_with("placeholder_") {
+                            prev_pqp_block = Some(base_block);
+                            prev_pqp_block_hash = hash.clone();
+                        } else {
+                            // If block at base_index is a placeholder, adjust base_index
+                            let mut num = block.pqp_entry.queue_index - CHILDREN as u32;
+                            // Increase num to the next multiple of CHILDREN if not already
+                            if num % CHILDREN as u32 != 0 {
+                                num += (CHILDREN as u32) - (num % CHILDREN as u32);
+                            }
+                            base_index = num as usize;
+                            let mut attempts = 0;
+                            // Decrease index up to CHILDREN times until a non-placeholder block is found
+                            while attempts < CHILDREN as usize {
+                                if let Some((hash, base_block)) = self.blocks.get_index(base_index)
                                 {
-                                    prev_pqp_block = Some(candidate_block);
-                                    prev_pqp_block_hash = hash.clone();
-                                    break;
-                                } else if candidate_block.parent_hash
-                                    != prev_pqp_block.unwrap().parent_hash
-                                {
+                                    if !hash.starts_with("placeholder_") {
+                                        prev_pqp_block = Some(base_block);
+                                        prev_pqp_block_hash = hash.clone();
+                                        break;
+                                    }
+                                }
+                                if base_index == 0 {
                                     break;
                                 }
+                                base_index = base_index.saturating_sub(1);
+                                attempts += 1;
                             }
                         }
                     }
                 }
 
-                // If no matching block is found, use the base_index block
+                // Set base_index to the queue_index of the found non-placeholder block
+                base_index = prev_pqp_block
+                    .map(|b| b.pqp_entry.queue_index as usize)
+                    .unwrap_or(0);
+                println!(
+                    "base_index adjusted to: {} for block with queue_index: {}",
+                    base_index, block.pqp_entry.queue_index
+                );
+
+                if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
+                    prev_pqp_block = Some(base_block);
+                    prev_pqp_block_hash = hash.clone();
+
+                    // Traverse backward to find a block with matching align and same parent_hash
+                    for idx in (0..base_index + 1).rev() {
+                        if let Some((hash, candidate_block)) = self.blocks.get_index(idx) {
+                            if candidate_block.align == block.align
+                                && candidate_block.parent_hash
+                                    == prev_pqp_block.unwrap().parent_hash
+                            {
+                                prev_pqp_block = Some(candidate_block);
+                                prev_pqp_block_hash = hash.clone();
+                                break;
+                            } else if candidate_block.parent_hash
+                                != prev_pqp_block.unwrap().parent_hash
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 let (prev_pqp_block_hash, prev_pqp_block) = match prev_pqp_block {
                     Some(block) => (prev_pqp_block_hash, block),
                     None => {
@@ -697,7 +981,7 @@ impl TreeChain {
                         return false;
                     }
                 };
-                // println!("prev_pqp_block: {:?}", prev_pqp_block);
+
                 if prev_pqp_block.pqp_commitment != block.pqp_entry.prev_pqp_commitment {
                     println!(
                         "❌ Previous PQP commitment mismatch for block {} \nExpected: {} \nFound: {}",
@@ -727,13 +1011,127 @@ impl TreeChain {
                     return false;
                 }
 
-                // Move one step up
                 current_hash = block.parent_hash.clone();
             }
         }
         println!("✅ Tree and PQP validated successfully");
         true
     }
+
+    // pub fn is_valid_tree(&self, pqp: &PQP) -> bool {
+    //     println!("is valid tree started with length: {}", self.blocks.len());
+    //     for entry in &pqp.pool {
+    //         let mut current_hash = entry.block_hash.clone();
+    //         loop {
+    //             let block_opt = self.get_block(&current_hash);
+    //             let block = match block_opt {
+    //                 Some(b) => b.clone(),
+    //                 None => {
+    //                     println!("❌ Block not found for hash: {}", current_hash);
+    //                     return false;
+    //                 }
+    //             };
+    //             let genesis = Block::genesis();
+    //             if block.hash == genesis.hash {
+    //                 break;
+    //             }
+
+    //             let mut base_index = if block.pqp_entry.queue_index >= CHILDREN as u32 {
+    //                 (block.pqp_entry.queue_index - CHILDREN as u32) as usize
+    //             } else {
+    //                 0
+    //             };
+
+    //             let mut prev_pqp_block = None;
+    //             let mut prev_pqp_block_hash = String::new();
+    //             let mut attempts = 0;
+
+    //             while attempts < CHILDREN as usize {
+    //                 if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
+    //                     if !hash.starts_with("placeholder_") {
+    //                         prev_pqp_block = Some(base_block);
+    //                         prev_pqp_block_hash = hash.clone();
+    //                         break;
+    //                     }
+    //                     if base_index == 0 {
+    //                         break;
+    //                     }
+    //                     base_index = base_index.saturating_sub(1);
+    //                     attempts += 1;
+    //                 } else {
+    //                     break;
+    //                 }
+    //             }
+
+    //             base_index = prev_pqp_block
+    //                 .map(|b| b.pqp_entry.queue_index as usize)
+    //                 .unwrap_or(0);
+
+    //             if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
+    //                 prev_pqp_block = Some(base_block);
+    //                 prev_pqp_block_hash = hash.clone();
+
+    //                 for idx in (0..base_index + 1).rev() {
+    //                     if let Some((hash, candidate_block)) = self.blocks.get_index(idx) {
+    //                         if candidate_block.align == block.align
+    //                             && candidate_block.parent_hash
+    //                                 == prev_pqp_block.unwrap().parent_hash
+    //                         {
+    //                             prev_pqp_block = Some(candidate_block);
+    //                             prev_pqp_block_hash = hash.clone();
+    //                             break;
+    //                         } else if candidate_block.parent_hash
+    //                             != prev_pqp_block.unwrap().parent_hash
+    //                         {
+    //                             break;
+    //                         }
+    //                     }
+    //                 }
+    //             }
+
+    //             let (prev_pqp_block_hash, prev_pqp_block) = match prev_pqp_block {
+    //                 Some(block) => (prev_pqp_block_hash, block),
+    //                 None => {
+    //                     println!("❌ Failed to get base block at index {}", base_index);
+    //                     return false;
+    //                 }
+    //             };
+
+    //             if prev_pqp_block.pqp_commitment != block.pqp_entry.prev_pqp_commitment {
+    //                 println!(
+    //                     "❌ Previous PQP commitment mismatch for block {} \nExpected: {} \nFound: {}",
+    //                     block.hash,
+    //                     prev_pqp_block.pqp_commitment,
+    //                     block.pqp_entry.prev_pqp_commitment
+    //                 );
+    //                 return false;
+    //             }
+
+    //             let mut candidate = block.clone();
+    //             Block::calculate_hash_and_pqp_commitment(&mut candidate);
+
+    //             if candidate.hash != block.hash {
+    //                 println!(
+    //                     "❌ Hash mismatch for block {} \nExpected: {} \nFound:    {}",
+    //                     current_hash, block.hash, candidate.hash
+    //                 );
+    //                 return false;
+    //             }
+
+    //             if candidate.pqp_commitment != block.pqp_commitment {
+    //                 println!(
+    //                     "❌ PQP commitment mismatch for block {} \nExpected: {} \nFound:    {}",
+    //                     current_hash, block.pqp_commitment, candidate.pqp_commitment
+    //                 );
+    //                 return false;
+    //             }
+
+    //             current_hash = block.parent_hash.clone();
+    //         }
+    //     }
+    //     println!("✅ Tree and PQP validated successfully");
+    //     true
+    // }
 
     pub fn is_valid_pqp(&self, pqp: &PQP) -> bool {
         let pool = &pqp.pool;
@@ -1055,17 +1453,17 @@ impl TreeChain {
         miner_address: String,
         signature: String,
     ) -> Option<Block> {
-        let calc = self.calculate_queue_index(pqp, align);
-        if let Some((queue_index, calculated_align, prev_pqp)) = calc {
+        let calc = self.calculate_qi(pqp, align);
+        if let Some((queue_index, prev_pqp, parent_hash)) = calc {
             // Assuming this is how you get parent (from current PQP)
-            let parent_entry = match pqp.current_parent() {
-                Some(entry) => entry.clone(),
-                None => return None,
-            };
-            let parent_hash = parent_entry.block_hash;
+            // let parent_entry = match pqp.current_parent() {
+            //     Some(entry) => entry.clone(),
+            //     None => return None,
+            // };
+            // let parent_hash = parent_entry.block_hash;
 
             // Get parent block to calculate level/position (adjust if your logic differs)
-            let parent_block = match self.blocks.get(&parent_hash) {
+            let parent_block = match self.blocks.get(&parent_hash.clone()) {
                 Some(block) => block.clone(),
                 None => return None,
             };
@@ -1073,7 +1471,7 @@ impl TreeChain {
             let level = parent_block.level + 1;
 
             // Assume a method to calculate position; replace with your actual logic (e.g., based on align/parent.position)
-            let position = format!("{}.{}", parent_block.position, calculated_align); // Placeholder; adjust
+            let position = format!("{}.{}", parent_block.position, align); // Placeholder; adjust
 
             let merkle_root = Block::merkle_root(tx.clone());
 
@@ -1102,7 +1500,7 @@ impl TreeChain {
                 timestamp,
                 bits,
                 0, // nonce starts at 0
-                calculated_align,
+                align,
                 pqp_entry,
                 tx.len() as u32,
                 tx,
