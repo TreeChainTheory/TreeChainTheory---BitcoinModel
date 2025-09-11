@@ -1,5 +1,5 @@
 use crate::chain_util::ChainUtil;
-use crate::config::{CHILDREN, USER_TXN_FREERATE};
+use crate::config::{CHILDREN, SIGHASH_ALL, USER_TXN_FREERATE};
 use crate::wallet::transaction::{Transaction, TxInput, TxOutput};
 use crate::wallet::utxo::{Utxo, UtxoSet};
 use crate::wallet::wallet::Wallet;
@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const SIGHASH_ALL: u32 = 0x01;
 pub const MAX_MEMPOOL_SIZE: usize = 100 * 1024 * 1024; // 100 MB in bytes
 pub const DEFAULT_MIN_FEE_RATE: u64 = USER_TXN_FREERATE; // satoshis per vB
 pub const MAX_TX_SIZE: usize = 100_000; // Bitcoin's max tx size (vB)

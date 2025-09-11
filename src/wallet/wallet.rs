@@ -17,7 +17,7 @@ pub struct Wallet {
 impl Wallet {
     pub fn new() -> Self {
         let (key_pair, verifying_key) = ChainUtil::gen_key_pair();
-        let public_key_point: EncodedPoint = verifying_key.to_encoded_point(false);
+        let public_key_point: EncodedPoint = verifying_key.to_encoded_point(true);
         let public_key_hex = hex::encode(public_key_point.as_bytes());
         let public_key_hash = ChainUtil::pubkey_hash_from_pubkey(&public_key_hex);
         let address = ChainUtil::address_from_pubkey_hash(&public_key_hash)

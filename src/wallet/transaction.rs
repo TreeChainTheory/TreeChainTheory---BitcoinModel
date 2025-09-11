@@ -274,6 +274,50 @@ impl Transaction {
         hex::encode(script)
     }
 
+    pub fn sign_transaction(
+        self,
+        wallet: &Wallet,
+        tx: &mut Transaction,
+        utxo_set: &UtxoSet,
+    ) -> Transaction {
+        for i in 0..tx.vin.len() {
+            let (txid, vout) = {
+                let input = &tx.vin[i];
+                (input.txid.clone(), input.vout)
+            };
+            let utxo = utxo_set.get_utxo(&txid, vout).expect("UTXO not found");
+            if tx.witnesses.is_some() {
+                // SegWit signing path
+                let sighash = tx.compute_segwit_sighash(
+                    i,
+                    utxo.out.value,
+                    &utxo.out.script_pubkey,
+                    SIGHASH_ALL,
+                );
+                let sig = wallet.sign_data(&sighash);
+                tx.witnesses.as_mut().unwrap()[i] = vec![sig, wallet.public_key.clone()];
+                tx.vin[i].script_sig = "".to_string(); // MUST stay empty for native segwit
+            } else {
+                // Legacy signing path
+                let sighash =
+                    tx.compute_sighash(i, &utxo.out.script_pubkey, utxo.out.value, SIGHASH_ALL);
+                let sig = wallet.sign_data(&sighash);
+                let sig_bytes = hex::decode(&sig).expect("Invalid signature hex");
+                let pubkey_bytes = hex::decode(&wallet.public_key).expect("Invalid pubkey hex");
+                let mut script_sig = vec![];
+                script_sig.push(sig_bytes.len() as u8);
+                script_sig.extend_from_slice(&sig_bytes);
+                script_sig.push(pubkey_bytes.len() as u8);
+                script_sig.extend_from_slice(&pubkey_bytes);
+                tx.vin[i].script_sig = hex::encode(script_sig);
+            }
+        }
+        tx.txid = tx.compute_non_witness_txid();
+        tx.hash = tx.compute_hash();
+
+        return tx.clone();
+    }
+
     pub fn create_new_transaction(
         wallet: &Wallet,
         utxo_set: &UtxoSet,
@@ -283,32 +327,22 @@ impl Transaction {
     ) -> Result<Self, String> {
         let version = 1;
         let locktime = 0;
-
         let sender_script = Self::create_p2pkh_script(&wallet.public_key_hash);
 
         // Select UTXOs
         let mut selected = vec![];
         let mut total_input = 0;
-
         for ((txid, vout), utxo) in utxo_set.utxos.iter() {
             if utxo.out.script_pubkey == sender_script {
-                selected.push((txid.clone(), *vout, utxo));
+                selected.push((txid.clone(), *vout, utxo.out.value));
                 total_input += utxo.out.value;
-                if total_input >= value + fee {
-                    break;
-                }
             }
         }
 
         if total_input < value + fee {
-            return Err(format!(
-                "Insufficient funds: need {}, have {}",
-                value + fee,
-                total_input
-            ));
+            return Err("Insufficient funds".to_string());
         }
 
-        // Create final vin
         let vin: Vec<TxInput> = selected
             .into_iter()
             .map(|(txid, vout, _)| TxInput {
@@ -318,26 +352,21 @@ impl Transaction {
                 sequence: 0xffffffff,
             })
             .collect();
-
-        // Create vout
-        let pubkey_hash = ChainUtil::pubkey_hash_from_address(to_address)
-            .map_err(|_| "Invalid recipient address".to_string())?;
-        let mut vout = vec![TxOutput {
-            value,
-            script_pubkey: Self::create_p2pkh_script(&pubkey_hash),
-        }];
-
-        // Add change output if necessary
-        let change = total_input - value - fee;
-        const DUST_THRESHOLD: u64 = 546;
-        if change > DUST_THRESHOLD {
-            vout.push(TxOutput {
-                value: change,
+        let vout = vec![
+            TxOutput {
+                value,
+                script_pubkey: Self::create_p2pkh_script(&ChainUtil::pubkey_hash_from_address(
+                    to_address,
+                )?),
+            },
+            TxOutput {
+                value: total_input - value - fee,
                 script_pubkey: sender_script,
-            });
-        }
+            },
+        ];
 
-        Ok(Self::new(version, locktime, vin, vout, None))
+        let tx = Self::new(version, locktime, vin, vout, None);
+        Ok(tx)
     }
 
     pub fn create_new_multisig_txn(
