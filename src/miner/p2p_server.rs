@@ -626,14 +626,6 @@ impl P2PServer {
                                         }
                                         MESSAGE_TYPE_INVMESSAGE => {
                                             println!("received inv message");
-                                            // Only handle INVMESSAGE from the best peer
-                                            if !self.is_best_peer(&peer_addr).await {
-                                                println!(
-                                                    "Ignoring INVMESSAGE from {}, not best peer",
-                                                    peer_addr
-                                                );
-                                                continue;
-                                            }
 
                                             let inventories: Vec<InvEntry> =
                                                 serde_json::from_value(
