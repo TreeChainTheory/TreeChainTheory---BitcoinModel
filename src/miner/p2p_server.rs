@@ -1,10 +1,13 @@
 //1st terminal cargo run
-//2nd terminal ALIGN=2 HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 MINER_ADDRESS=MINER_ABC cargo run
-//3rd terminal ALIGN=3 HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 MINER_ADDRESS=MINER_XYZ cargo run
+//2nd terminal ALIGN=2 HTTP_PORT=3002 P2P_PORT=5002 PEERS=127.0.0.1:5001 MINER_ADDRESS=MINER_2nd cargo run
+//3rd terminal ALIGN=3 HTTP_PORT=3003 P2P_PORT=5003 PEERS=127.0.0.1:5001,127.0.0.1:5002 MINER_ADDRESS=MINER_3rd cargo run
+//4th terminal ALIGN=1 HTTP_PORT=3004 P2P_PORT=5004 PEERS=127.0.0.1:5001,127.0.0.1:5002,127.0.0.1:5003 MINER_ADDRESS=MINER_4th cargo run
+//5th terminal ALIGN=2 HTTP_PORT=3005 P2P_PORT=5005 PEERS=127.0.0.1:5001,127.0.0.1:5002,127.0.0.1:5003,127.0.0.1:5004 MINER_ADDRESS=MINER_5th cargo run
+//6th terminal ALIGN=3 HTTP_PORT=3006 P2P_PORT=5006 PEERS=127.0.0.1:5001,127.0.0.1:5002,127.0.0.1:5003,127.0.0.1:5004,127.0.0.1:5005 MINER_ADDRESS=MINER_6th cargo run
 
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
-use crate::miner::p2p_server;
 use crate::treechain::block::Block;
+use crate::treechain::treechain::ParentQueueEntry;
 use crate::treechain::treechain::{PQP, TreeChain};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,6 +25,8 @@ const MESSAGE_TYPE_INVMESSAGE: &str = "INVMESSAGE";
 const MESSAGE_TYPE_GETDATA: &str = "GETDATA";
 const MESSAGE_TYPE_BLOCK: &str = "BLOCK";
 const MESSAGE_TYPE_MINEDBLOCK: &str = "MINED_BLOCK";
+const MESSAGE_TYPE_GET_PQP: &str = "GET_PQP"; // New: Request for PQP.pool
+const MESSAGE_TYPE_PQP_RESPONSE: &str = "PQP_RESPONSE"; // New: Response with PQP.pool
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvEntry {
@@ -89,20 +94,10 @@ impl P2PServer {
                     .collect();
                 hashes.reverse();
                 hashes.truncate(10);
-                println!("Built block locator (from local treechain): {:?}", hashes);
+                // println!("Built block locator (from local treechain): {:?}", hashes);
                 hashes
             }
             Err(_) => {
-                // Could not obtain lock immediately.
-                // Fallback behavior: return a lightweight locator that causes the peer
-                // to send inventories from the beginning (or you can try a cached tip).
-                //
-                // Two sensible fallback options:
-                // 1) return an empty Vec<String> -> the peer will treat this as "no locator" and
-                //    send inventory starting from genesis.
-                // 2) return a vec with the last-known-tip hash if you cache it elsewhere.
-                //
-                // Here we return an empty locator (safe & simple).
                 println!(
                     "Could not immediately lock treechain -- returning empty block locator fallback"
                 );
@@ -154,6 +149,26 @@ impl P2PServer {
         });
 
         Self::send_message(writer, &message, "BLOCK").await;
+    }
+
+    async fn send_get_pqp(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+        println!("send_get_pqp called");
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_GET_PQP,
+        });
+        Self::send_message(writer, &message, "GET_PQP").await;
+    }
+
+    async fn send_pqp_response(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+        let pqp = self.pqp.lock().await;
+        let pool = pqp.pool.clone();
+        drop(pqp);
+
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_PQP_RESPONSE,
+            "pool": pool,
+        });
+        Self::send_message(writer, &message, "PQP_RESPONSE").await;
     }
 
     async fn send_message(writer: Arc<Mutex<OwnedWriteHalf>>, message: &Value, tag: &str) {
@@ -338,6 +353,7 @@ impl P2PServer {
                 *ibd_or_online_state = false;
             }
             println!("✅ Finished syncing all available blocks from best peer");
+            self.send_get_pqp(writer).await;
         }
     }
 
@@ -702,17 +718,6 @@ impl P2PServer {
                                             }
                                         }
                                         MESSAGE_TYPE_BLOCK => {
-                                            // Only accept blocks from best peer (prevents double-processing)
-                                            // if !self.is_best_peer(&peer_addr).await {
-                                            //     println!(
-                                            //         "Ignoring BLOCK from {}, not best peer",
-                                            //         peer_addr
-                                            //     );
-                                            //     continue;
-                                            // }
-
-                                            //here if ibd is true then this should execute
-
                                             if let Some(block_val) = data.get("block") {
                                                 let block: Block =
                                                     match serde_json::from_value(block_val.clone())
@@ -728,6 +733,7 @@ impl P2PServer {
                                                 {
                                                     let mut treechain = self.treechain.lock().await;
                                                     let mut pqp = self.pqp.lock().await;
+                                                    let pqp_len = pqp.pool.len();
                                                     let pqp_entry =
                                                         TreeChain::parent_queue_entry_from_block(
                                                             &block,
@@ -736,14 +742,12 @@ impl P2PServer {
                                                         pqp_entry.clone(),
                                                         &treechain,
                                                     );
-                                                    let exist: bool = pqp
-                                                        .pool
-                                                        .iter()
-                                                        .rev()
-                                                        .take(CHILDREN as usize)
-                                                        .any(|e| {
-                                                            e.block_hash == pqp_entry.block_hash
-                                                        });
+                                                    let exist: bool =
+                                                        pqp.pool.iter().rev().take(pqp_len).any(
+                                                            |e| {
+                                                                e.block_hash == pqp_entry.block_hash
+                                                            },
+                                                        );
                                                     if exist {
                                                         if treechain
                                                             .verify_and_add_block(&block.clone())
@@ -839,6 +843,10 @@ impl P2PServer {
                                                                     let block_first = block_parts
                                                                         [block_parts.len() - 2];
                                                                     target_first != block_first
+                                                                } else if target_parts.len()
+                                                                    < block_parts.len()
+                                                                {
+                                                                    true
                                                                 } else {
                                                                     false
                                                                 }
@@ -859,18 +867,17 @@ impl P2PServer {
                                                 {
                                                     let mut treechain = self.treechain.lock().await;
                                                     let mut pqp = self.pqp.lock().await;
+                                                    let pqp_len = pqp.pool.len();
                                                     let pqp_entry =
                                                         TreeChain::parent_queue_entry_from_block(
                                                             &block,
                                                         );
-                                                    let already_exist: bool = pqp
-                                                        .pool
-                                                        .iter()
-                                                        .rev()
-                                                        .take(CHILDREN as usize)
-                                                        .any(|e| {
-                                                            e.block_hash == pqp_entry.block_hash
-                                                        });
+                                                    let already_exist: bool =
+                                                        pqp.pool.iter().rev().take(pqp_len).any(
+                                                            |e| {
+                                                                e.block_hash == pqp_entry.block_hash
+                                                            },
+                                                        );
                                                     if already_exist {
                                                         if !block.verify_hash_pqp_commitment() {
                                                             println!(
@@ -903,7 +910,7 @@ impl P2PServer {
                                                             .pool
                                                             .iter()
                                                             .rev()
-                                                            .take(CHILDREN as usize)
+                                                            .take(pqp_len)
                                                             .any(|e| {
                                                                 e.block_hash == pqp_entry.block_hash
                                                             });
@@ -987,6 +994,67 @@ impl P2PServer {
                                                 }
                                             }
                                         }
+                                        MESSAGE_TYPE_GET_PQP => {
+                                            println!("Received GET_PQP from {}", peer_addr);
+                                            self.send_pqp_response(writer.clone()).await;
+                                        }
+                                        MESSAGE_TYPE_PQP_RESPONSE => {
+                                            if !self.is_best_peer(&peer_addr).await {
+                                                println!(
+                                                    "Ignoring PQP_RESPONSE from {}, not best peer",
+                                                    peer_addr
+                                                );
+                                                continue;
+                                            }
+
+                                            let remote_pool: Vec<ParentQueueEntry> =
+                                                serde_json::from_value(
+                                                    data.get("pool").cloned().unwrap_or_default(),
+                                                )
+                                                .unwrap_or_default();
+
+                                            println!(
+                                                "Received PQP_RESPONSE from {} with {} entries",
+                                                peer_addr,
+                                                remote_pool.len()
+                                            );
+
+                                            let local_pqp = self.pqp.lock().await;
+                                            let local_pool = local_pqp.pool.clone();
+                                            drop(local_pqp);
+
+                                            // Compare local and remote PQP pools
+                                            let pools_match = local_pool.len() == remote_pool.len()
+                                                && local_pool.iter().zip(remote_pool.iter()).all(
+                                                    |(local, remote)| {
+                                                        local.queue_index == remote.queue_index
+                                                            && local.block_hash == remote.block_hash
+                                                            && local.prev_pqp_commitment
+                                                                == remote.prev_pqp_commitment
+                                                        // Add comparisons for other fields if necessary
+                                                    },
+                                                );
+
+                                            if pools_match {
+                                                println!("✅ Local and remote PQP pools match");
+                                            } else {
+                                                println!(
+                                                    "❌ Local and remote PQP pools do not match"
+                                                );
+                                                // Optional: Handle mismatch, e.g., reset sync or log error
+                                                // For now, proceed to validation anyway, as per user instruction
+                                            }
+
+                                            let treechain = self.treechain.lock().await;
+                                            let pqp = self.pqp.lock().await;
+                                            let is_valid = treechain.is_valid_pqp(&pqp);
+                                            if is_valid {
+                                                println!("✅ Own PQP is valid after full sync");
+                                            } else {
+                                                println!("❌ Own PQP is invalid after full sync");
+                                                // Optional: Handle invalid PQP, e.g., reset
+                                            }
+                                        }
                                         _ => {
                                             println!("Other type from {}: {:?}", peer_addr, data);
                                         }
@@ -1039,22 +1107,42 @@ impl P2PServer {
             }
         }
 
-        let mut inventories = Vec::new();
-        // If no match found, start from the beginning (genesis block)
+        // let mut inventories = Vec::new();
+        // // If no match found, start from the beginning (genesis block)
+        // let start = start_index.unwrap_or(0);
+        // for (idx, (hash, block)) in treechain.blocks.iter().enumerate().skip(start) {
+        //     // Skip placeholder blocks
+        //     if block.position.is_empty() {
+        //         continue;
+        //     }
+        //     inventories.push(InvEntry {
+        //         queue_index: block.pqp_entry.queue_index,
+        //         block_hash: hash.clone(),
+        //     });
+        //     if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
+        //         break;
+        //     }
+        // }
+
         let start = start_index.unwrap_or(0);
-        for (idx, (hash, block)) in treechain.blocks.iter().enumerate().skip(start) {
-            // Skip placeholder blocks
-            if block.position.is_empty() {
-                continue;
-            }
-            inventories.push(InvEntry {
+
+        let mut inventories: Vec<InvEntry> = treechain
+            .blocks
+            .iter()
+            .skip(start)
+            .filter(|(_, block)| !block.position.is_empty())
+            .map(|(hash, block)| InvEntry {
                 queue_index: block.pqp_entry.queue_index,
                 block_hash: hash.clone(),
-            });
-            if inventories.len() >= (INVMESSAGE_LIMIT as usize) {
-                break;
-            }
-        }
+            })
+            .take(INVMESSAGE_LIMIT as usize)
+            .collect();
+
+        inventories.sort_by_key(|inv| {
+            // directly access block by its queue_index
+            let idx = inv.queue_index as usize;
+            treechain.blocks.get_index(idx).unwrap().1.timestamp
+        });
 
         if inventories.is_empty() {
             println!(

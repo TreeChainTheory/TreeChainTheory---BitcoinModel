@@ -109,7 +109,7 @@ async fn start_mining(
                         miner_address.clone(),
                         signature.clone(),
                     );
-                    println!("block templete: {:?}", block_template_opt);
+                    // println!("block templete: {:?}", block_template_opt);
                 } // Release locks
 
                 if let Some(mut block_template) = block_template_opt {

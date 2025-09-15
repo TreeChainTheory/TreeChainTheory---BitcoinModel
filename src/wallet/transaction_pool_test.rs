@@ -30,41 +30,7 @@ fn create_signed_tx(
 ) -> Transaction {
     let mut tx = Transaction::create_new_transaction(wallet, utxo_set, value, fee, to_address)
         .expect("Failed to create transaction");
-
-    // println!("txn: {}", tx);
-    // println!("utxo_set: {:?}", utxo_set);
-
-    for i in 0..tx.vin.len() {
-        // Get fields without holding a mutable borrow
-        let (txid, vout) = {
-            let input = &tx.vin[i];
-            (input.txid.clone(), input.vout)
-        };
-
-        // Look up UTXO
-        let utxo = utxo_set.get_utxo(&txid, vout).expect("UTXO not found");
-
-        // Compute sighash with correct prevout value
-        let sighash = tx.compute_sighash(i, &utxo.out.script_pubkey, utxo.out.value, SIGHASH_ALL);
-
-        // Sign the sighash
-        let sig = wallet.sign_data(&sighash);
-        let sig_bytes = hex::decode(&sig).expect("Invalid signature hex");
-        let pubkey_bytes = hex::decode(&wallet.public_key).expect("Invalid pubkey hex");
-
-        let mut script_sig = vec![];
-        script_sig.push(sig_bytes.len() as u8);
-        script_sig.extend_from_slice(&sig_bytes);
-        script_sig.push(pubkey_bytes.len() as u8);
-        script_sig.extend_from_slice(&pubkey_bytes);
-
-        // Update script_sig
-        tx.vin[i].script_sig = hex::encode(script_sig);
-    }
-
-    // Recalculate txid and hash after signing
-    tx.txid = tx.compute_non_witness_txid();
-    tx.hash = tx.compute_hash();
+    tx = tx.clone().sign_transaction(wallet, &mut tx, utxo_set);
 
     tx
 }
@@ -85,22 +51,6 @@ fn sample_utxo_set(wallet: &Wallet, values: Vec<u64>) -> UtxoSet {
         utxo_set.add_utxo(txid, 0, utxo);
     }
     utxo_set
-}
-
-fn add_utxos_for_wallet(utxo_set: &mut UtxoSet, wallet: &Wallet, value: u64, count: usize) {
-    let sender_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
-    for i in 0..count {
-        let utxo = Utxo::new(
-            TxOutput {
-                value,
-                script_pubkey: sender_script.clone(),
-            },
-            100 + i as u32,
-            false,
-        );
-        let txid = generate_valid_txid(&format!("utxotxid{}", i));
-        utxo_set.add_utxo(txid, 0, utxo);
-    }
 }
 
 #[test]
