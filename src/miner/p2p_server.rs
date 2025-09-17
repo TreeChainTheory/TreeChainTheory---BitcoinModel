@@ -576,6 +576,24 @@ impl P2PServer {
         best_peer.map(|(addr, (len, ts))| (addr.clone(), *len, Some(*ts)))
     }
 
+    pub async fn get_best_peer(
+        &self,
+        writer: Arc<Mutex<OwnedWriteHalf>>,
+    ) -> Option<(String, u64, Option<u64>)> {
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_GET_PEER_LIST,
+        });
+        Self::send_message(writer.clone(), &message, "GET_PEER_LIST").await;
+
+        let peer_lengths = self.peer_lengths.lock().await;
+        let connected_peers = self.connected_peers.lock().await;
+        let best_peer = peer_lengths
+            .iter()
+            .filter(|(addr, _)| connected_peers.contains(*addr))
+            .max_by_key(|(_, (len, _))| *len);
+        best_peer.map(|(addr, (len, ts))| (addr.clone(), *len, Some(*ts)))
+    }
+
     async fn message_handler(
         self: Arc<Self>,
         mut reader: OwnedReadHalf,
@@ -882,6 +900,24 @@ impl P2PServer {
                                                 "Received MINED_BLOCK {} from {}",
                                                 block.hash, peer_addr
                                             );
+                                            {
+                                                let treechain = self.treechain.lock().await;
+                                                if let Some((_, existing_block)) = treechain
+                                                    .blocks
+                                                    .get_index(block.pqp_entry.queue_index as usize)
+                                                {
+                                                    if existing_block.hash == block.hash {
+                                                        println!(
+                                                            "Block {} already exists, ignoring",
+                                                            block.hash
+                                                        );
+                                                        drop(treechain);
+                                                        continue;
+                                                    }
+                                                }
+                                                drop(treechain);
+                                            }
+
                                             // Update peer_lengths
                                             let mut peer_lengths = self.peer_lengths.lock().await;
                                             if let Some((_, ts)) = peer_lengths.get_mut(&peer_addr)
@@ -951,6 +987,25 @@ impl P2PServer {
                                                         "✅ MINED_BLOCK {} added successfully",
                                                         block.hash
                                                     );
+                                                    // Broadcast the mined block to all connected peers
+                                                    let message = serde_json::json!({
+                                                        "type": MESSAGE_TYPE_MINEDBLOCK,
+                                                        "block": block.clone(),
+                                                    });
+                                                    let writers = self.peer_writers.lock().await;
+                                                    for (addr, w) in writers.iter() {
+                                                        println!(
+                                                            "Broadcasting MINED_BLOCK to {}",
+                                                            addr
+                                                        );
+                                                        Self::send_message(
+                                                            w.clone(),
+                                                            &message,
+                                                            "MINED_BLOCK",
+                                                        )
+                                                        .await;
+                                                    }
+                                                    drop(writers);
                                                     drop(treechain);
                                                     drop(pqp);
                                                     self.update_registry_chain_length().await;
@@ -1027,13 +1082,26 @@ impl P2PServer {
                                                     drop(treechain);
                                                     drop(pqp);
                                                     self.send_getblocks(writer.clone()).await;
-                                                } else if let Some(latest) = pqp.latest() {
-                                                    if block.pqp_entry.queue_index as usize
-                                                        > latest.queue_index as usize
-                                                            + 2 * CHILDREN as usize
-                                                    {
+                                                } else {
+                                                    println!(
+                                                        "Queuing MINED_BLOCK {} due to invalid PQP entry",
+                                                        block.hash
+                                                    );
+                                                    let mut pending_blocks =
+                                                        self.pending_blocks.lock().await;
+                                                    pending_blocks
+                                                        .insert(block.hash.clone(), block.clone());
+                                                    drop(pending_blocks);
+                                                }
+
+                                                let (local_len, _) = self.get_chain_info().await;
+                                                if let Some((best_addr, best_len, _)) =
+                                                    self.get_best_peer(writer.clone()).await
+                                                {
+                                                    if best_len > local_len {
                                                         println!(
-                                                            "MINED_BLOCK queue_index too far ahead; reinitializing sync"
+                                                            "MINED_BLOCK queue_index invalid and best peer {} has longer chain ({} vs {}); reinitializing sync",
+                                                            best_addr, best_len, local_len
                                                         );
                                                         let mut tree = self.treechain.lock().await;
                                                         let genesis = tree
@@ -1055,26 +1123,18 @@ impl P2PServer {
                                                             self.chain_length.lock().await;
                                                         *chain_length = 1;
                                                         drop(chain_length);
-                                                        self.update_registry_chain_length().await;
-                                                        self.send_getblocks(writer.clone()).await;
-                                                    } else {
-                                                        println!(
-                                                            "Queuing MINED_BLOCK {} due to invalid PQP entry",
-                                                            block.hash
-                                                        );
                                                         let mut pending_blocks =
                                                             self.pending_blocks.lock().await;
-                                                        pending_blocks.insert(
-                                                            block.hash.clone(),
-                                                            block.clone(),
-                                                        );
+                                                        pending_blocks.clear();
                                                         drop(pending_blocks);
+                                                        self.update_registry_chain_length().await;
                                                         self.send_getblocks(writer.clone()).await;
                                                     }
                                                 }
                                             }
                                         }
                                     }
+
                                     MESSAGE_TYPE_GET_PQP => {
                                         println!("Received GET_PQP from {}", peer_addr);
                                         self.send_pqp_response(writer.clone()).await;
