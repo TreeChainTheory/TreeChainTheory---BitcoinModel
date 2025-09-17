@@ -6,7 +6,6 @@ pub mod treechain;
 pub mod wallet;
 
 use config::CHILDREN;
-use treechain::block::Block;
 use treechain::treechain::{PQP, TreeChain};
 
 use actix_web::{App, HttpServer, web};
@@ -16,22 +15,17 @@ use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
-use crate::miner::p2p_server::{self, start_p2p_server};
+use crate::miner::p2p_server::{self, P2PServer};
 
 #[actix_web::main]
 async fn main() {
-    // let mut genisis_block = Block::genesis();
-    // Block::calculate_hash_and_pqp_commitment(&mut genisis_block);
-    // println!("Genisis Block: {:#?}", genisis_block);
-    // println!("Genisis Block Hash: {}", genisis_block.hash);
-
     dotenv().ok();
 
     fn get_align() -> u8 {
         let val: u8 = env::var("ALIGN")
-            .unwrap_or_else(|_| "1".into()) // default to "1"
+            .unwrap_or_else(|_| "1".into())
             .parse()
-            .unwrap_or(1); // fallback to 1 if parsing fails
+            .unwrap_or(1);
 
         if val == 0 || val > CHILDREN {
             panic!(
@@ -58,12 +52,9 @@ async fn main() {
     let current_mining_position = Arc::new(SyncMutex::new(None::<String>));
     let abort_mining = Arc::new(SyncMutex::new(false));
 
-    let p2p_port_clone = p2p_port.clone();
-    let peers_clone = peers.clone();
-
-    let p2p_server = start_p2p_server(
-        p2p_port_clone,
-        peers_clone,
+    let p2p_server = P2PServer::start_p2p_server(
+        p2p_port.clone(),
+        peers.clone(),
         Arc::clone(&treechain),
         Arc::clone(&pqp),
         Arc::clone(&current_mining_position),

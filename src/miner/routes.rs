@@ -42,7 +42,6 @@ async fn start_mining(
         )
     };
 
-    // Lock the mining flag once to check if already running
     {
         let mut mining = mining_flag.lock().await;
         if *mining {
@@ -54,18 +53,15 @@ async fn start_mining(
         *mining = true;
     }
 
-    // Clone Arcs for background task
     let treechain = Arc::clone(&treechain);
     let pqp = Arc::clone(&pqp);
     let mining_flag = Arc::clone(&mining_flag);
 
-    // Static values for mining parameters
     let tx = vec!["tx1".to_string(), "tx2".to_string()];
     let signature = "DUMMY_SIGNATURE_64_BYTES".to_string().repeat(3);
 
     tokio::spawn(async move {
         loop {
-            // Check if we should continue mining
             if !*mining_flag.lock().await {
                 println!("Mining stopped");
                 break;
@@ -73,7 +69,6 @@ async fn start_mining(
 
             *abort_mining.lock().unwrap() = false;
             let mut parent_pos: String;
-            // Brief lock for queue index calculation
             let calc;
             {
                 let mut tree = treechain.lock().await;
@@ -89,15 +84,13 @@ async fn start_mining(
 
                 calc = tree.calculate_qi(&mut pqp_guard, align);
                 if calc.is_none() {
-                    // If we can't calculate queue index, wait and retry
                     println!("Failed to calculate queue index it returned None");
                 }
-            } // Release locks
+            }
 
             if let Some((queue_index, prev_pqp, parent_hash)) = calc {
                 *current_mining_position.lock().unwrap() = Some(parent_pos.clone());
 
-                // Brief lock for template preparation
                 let block_template_opt;
                 {
                     let tree = treechain.lock().await;
@@ -109,11 +102,9 @@ async fn start_mining(
                         miner_address.clone(),
                         signature.clone(),
                     );
-                    // println!("block templete: {:?}", block_template_opt);
-                } // Release locks
+                }
 
                 if let Some(mut block_template) = block_template_opt {
-                    // Offload nonce search to blocking thread
                     let abort_clone = Arc::clone(&abort_mining);
                     let mined_result = tokio::task::spawn_blocking(move || {
                         let target = Block::calculate_target(block_template.bits.clone())
@@ -141,46 +132,41 @@ async fn start_mining(
                     })
                     .await
                     .unwrap();
-                    println!("finished mining block:");
                     *current_mining_position.lock().unwrap() = None;
 
                     if let Some(mined_block) = mined_result {
-                        // Brief lock to add and broadcast
-                        {
-                            let mut tree = treechain.lock().await;
-                            let mut pqp_guard = pqp.lock().await;
+                        let mut tree = treechain.lock().await;
+                        let mut pqp_guard = pqp.lock().await;
 
-                            let pqp_entry = TreeChain::parent_queue_entry_from_block(&mined_block);
-                            pqp_guard.add_entry_to_pqp(pqp_entry.clone(), &tree);
+                        let pqp_entry = TreeChain::parent_queue_entry_from_block(&mined_block);
+                        pqp_guard.add_entry_to_pqp(pqp_entry.clone(), &tree);
 
-                            let exist: bool = pqp_guard
-                                .pool
-                                .iter()
-                                .rev()
-                                .take(crate::config::CHILDREN as usize)
-                                .any(|e| e.block_hash == pqp_entry.block_hash);
-                            println!("is exist: {}", exist);
+                        let exist: bool = pqp_guard
+                            .pool
+                            .iter()
+                            .rev()
+                            .take(crate::config::CHILDREN as usize)
+                            .any(|e| e.block_hash == pqp_entry.block_hash);
 
-                            if exist {
-                                if tree.verify_and_add_block(&mined_block) {
-                                    println!("Successfully mined block: {}", mined_block.hash);
-                                    let writers = p2p_server.writers.lock().await;
-                                    for writer in writers.iter() {
-                                        p2p_server
-                                            .clone()
-                                            .send_minedblock(writer.clone(), mined_block.clone())
-                                            .await;
-                                    }
-                                } else {
-                                    println!(
-                                        "Failed to add block {} (duplicate or invalid)",
-                                        mined_block.hash
-                                    );
-                                    pqp_guard.remove_pqp_entry(pqp_entry);
-                                }
+                        if exist {
+                            if tree.verify_and_add_block(&mined_block) {
+                                println!("Successfully mined block: {}", mined_block.hash);
+                                drop(tree);
+                                drop(pqp_guard);
+                                p2p_server
+                                    .clone()
+                                    .send_minedblock(mined_block.clone())
+                                    .await;
+                                p2p_server.clone().update_registry_chain_length().await;
                             } else {
-                                println!("Failed to add PQP entry for mined block, retrying...");
+                                println!(
+                                    "Failed to add block {} (duplicate or invalid)",
+                                    mined_block.hash
+                                );
+                                pqp_guard.remove_pqp_entry(pqp_entry);
                             }
+                        } else {
+                            println!("Failed to add PQP entry for mined block, retrying...");
                         }
                     } else {
                         println!("Mining aborted, retrying...");
@@ -203,7 +189,6 @@ async fn start_mining(
     }))
 }
 
-// The rest of the file (stop_mining, get_blocks, init_routes) remains unchanged.
 #[get("/stop_mining")]
 async fn stop_mining(
     data: web::Data<(
@@ -253,7 +238,7 @@ async fn get_blocks(
     let blocks: Vec<Block> = chain
         .blocks
         .values()
-        .filter(|block| !block.position.is_empty()) // Exclude placeholder blocks
+        .filter(|block| !block.position.is_empty())
         .cloned()
         .collect();
 

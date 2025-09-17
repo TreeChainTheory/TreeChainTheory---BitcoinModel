@@ -1,0 +1,231 @@
+Starting HTTP server on http://localhost:3003
+Starting P2P server on http://localhost:5003
+Connected to ports server
+Sent REGISTER message (79 bytes)
+Listening for peer to peer connections on 127.0.0.1:5003
+Parsed message of type Some(String("PEER_LIST"))
+Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5003"), "chain_length": Number(1), "last_timestamp": Number(0)}], "type": String("PEER_LIST")}
+Received PEER_LIST with 3 peers
+Processing peer 127.0.0.1:5001: chain_length=1, last_timestamp=0
+Processing peer 127.0.0.1:5002: chain_length=1, last_timestamp=0
+Processing peer 127.0.0.1:5003: chain_length=1, last_timestamp=0
+Currently connected peers {}
+Peer 127.0.0.1:5002: should_connect=true
+Peer 127.0.0.1:5003: should_connect=false
+Peer 127.0.0.1:5001: should_connect=true
+Connecting to 2 peers: ["127.0.0.1:5002", "127.0.0.1:5001"]
+Data too short for message length: 0 bytes
+Attempting to connect to 2 peers
+Initiating connection to peer 127.0.0.1:5002
+Successfully connected to peer 127.0.0.1:5002
+Initiating connection to peer 127.0.0.1:5001
+Sending CONNECTION_INFO to temp_127.0.0.1:5002: chain_length=1
+Sent CONNECTION_INFO message (682 bytes)
+Starting message handler for peer temp_127.0.0.1:5002
+Read 686 bytes from temp_127.0.0.1:5002
+Successfully connected to peer 127.0.0.1:5001
+Parsed message of type Some(String("CONNECTION_INFO"))
+Processing message from temp_127.0.0.1:5002: Some(String("CONNECTION_INFO"))
+Sending CONNECTION_INFO to temp_127.0.0.1:5001: chain_length=1
+Received CONNECTION_INFO from temp_127.0.0.1:5002 with own_addr: 127.0.0.1:5002
+Updated peer_addr to 127.0.0.1:5002
+CONNECTION_INFO from 127.0.0.1:5002: remote_len=1, local_len=1
+Peer 127.0.0.1:5002 chain not longer; no sync needed
+Sent CONNECTION_INFO message (682 bytes)
+Starting message handler for peer temp_127.0.0.1:5001
+Data too short for message length: 0 bytes
+Read 686 bytes from temp_127.0.0.1:5001
+Parsed message of type Some(String("CONNECTION_INFO"))
+Processing message from temp_127.0.0.1:5001: Some(String("CONNECTION_INFO"))
+Received CONNECTION_INFO from temp_127.0.0.1:5001 with own_addr: 127.0.0.1:5001
+Updated peer_addr to 127.0.0.1:5001
+CONNECTION_INFO from 127.0.0.1:5001: remote_len=1, local_len=1
+Peer 127.0.0.1:5001 chain not longer; no sync needed
+Data too short for message length: 0 bytes
+Read 724 bytes from temp_127.0.0.1:5001
+Parsed message of type Some(String("MINED_BLOCK"))
+Processing message from temp_127.0.0.1:5001: Some(String("MINED_BLOCK"))
+Received MINED_BLOCK 0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9 from temp_127.0.0.1:5001
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd
+
+ Inserting at end
+Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 1
+add block called
+blocks len: 1 and queue_index: 1
+✅ MINED_BLOCK 0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9 added successfully
+Sent UPDATE message (65 bytes)
+
+ current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
+current_children: ["0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+
+ current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
+current_children: ["0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+Read 725 bytes from temp_127.0.0.1:5002
+Parsed message of type Some(String("MINED_BLOCK"))
+Processing message from temp_127.0.0.1:5002: Some(String("MINED_BLOCK"))
+Received MINED_BLOCK 00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474 from temp_127.0.0.1:5002
+current_children: ["0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd
+
+ Inserting at end
+Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 2
+add block called
+blocks len: 2 and queue_index: 2
+✅ MINED_BLOCK 00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474 added successfully
+Sent UPDATE message (65 bytes)
+current_children: ["00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474", "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd
+
+ Inserting at end
+Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 3
+add block called
+blocks len: 3 and queue_index: 3
+Successfully mined block: 000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd
+Broadcasting MINED_BLOCK to 127.0.0.1:5001
+Sent MINED_BLOCK message (721 bytes)
+Broadcasting MINED_BLOCK to 127.0.0.1:5002
+Sent MINED_BLOCK message (721 bytes)
+Sent UPDATE message (65 bytes)
+
+ current_parent hash: "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"
+prev_parent: Some(ParentQueueEntry { queue_index: 3, align: 3, block_hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd", parent_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", miner_address: "MINER_3rd", prev_pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd", signature: "DUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTES", pqp_commitment: "a70ee8ed93e77324bebb13aeb59f0f76644049232d77e414af7490ad9c5ac3f5" })
+sibling_aligns contain: false
+
+ current_parent hash: "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"
+prev_parent: Some(ParentQueueEntry { queue_index: 3, align: 3, block_hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd", parent_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", miner_address: "MINER_3rd", prev_pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd", signature: "DUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTES", pqp_commitment: "a70ee8ed93e77324bebb13aeb59f0f76644049232d77e414af7490ad9c5ac3f5" })
+sibling_aligns contain: false
+prev_parent: Some(ParentQueueEntry { queue_index: 3, align: 3, block_hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd", parent_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", miner_address: "MINER_3rd", prev_pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd", signature: "DUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTES", pqp_commitment: "a70ee8ed93e77324bebb13aeb59f0f76644049232d77e414af7490ad9c5ac3f5" })
+sibling_aligns contain: false
+expected_prev_commit in add_entry(): a70ee8ed93e77324bebb13aeb59f0f76644049232d77e414af7490ad9c5ac3f5
+
+ Inserting at end
+Updated children count for parent 0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9: 1
+add block called
+blocks len: 4 and queue_index: 6
+Successfully mined block: 00002eb9408804b40c8a7886618400d77859a682a0f28be769f636578e72b275
+Broadcasting MINED_BLOCK to 127.0.0.1:5001
+Sent MINED_BLOCK message (721 bytes)
+Broadcasting MINED_BLOCK to 127.0.0.1:5002
+Sent MINED_BLOCK message (721 bytes)
+Sent UPDATE message (65 bytes)
+
+ current_parent hash: "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"
+current_children: ["00002eb9408804b40c8a7886618400d77859a682a0f28be769f636578e72b275"]
+Found matching child and its pqp commitment is: "815ebc4493aa86daf4ca70819cffe1c19733602c0764ee8aac23de0a9624ee1e"
+returned 9,815ebc4493aa86daf4ca70819cffe1c19733602c0764ee8aac23de0a9624ee1e
+
+ current_parent hash: "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"
+current_children: ["00002eb9408804b40c8a7886618400d77859a682a0f28be769f636578e72b275"]
+Found matching child and its pqp commitment is: "815ebc4493aa86daf4ca70819cffe1c19733602c0764ee8aac23de0a9624ee1e"
+returned 9,815ebc4493aa86daf4ca70819cffe1c19733602c0764ee8aac23de0a9624ee1e
+Adding entry to next parent
+current_children: ["00002eb9408804b40c8a7886618400d77859a682a0f28be769f636578e72b275"]
+Found matching child and its pqp commitment is: "815ebc4493aa86daf4ca70819cffe1c19733602c0764ee8aac23de0a9624ee1e"
+pushing entry to pool
+add block called
+blocks len: 7 and queue_index: 9
+Successfully mined block: 0000115eeae0ea93b88189e9dc333cb1f9393519fa832a4f7af30357c53c8df3
+Broadcasting MINED_BLOCK to 127.0.0.1:5001
+Sent MINED_BLOCK message (722 bytes)
+Broadcasting MINED_BLOCK to 127.0.0.1:5002
+Sent MINED_BLOCK message (722 bytes)
+Sent UPDATE message (65 bytes)
+
+ current_parent hash: "00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474"
+current_children: ["0000115eeae0ea93b88189e9dc333cb1f9393519fa832a4f7af30357c53c8df3"]
+Found matching child and its pqp commitment is: "0a90c689ed0eff9d94c1a8bc72d8256b6080fe38e9062caa68be64b7a36dc60a"
+returned 12,0a90c689ed0eff9d94c1a8bc72d8256b6080fe38e9062caa68be64b7a36dc60a
+
+ current_parent hash: "00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474"
+current_children: ["0000115eeae0ea93b88189e9dc333cb1f9393519fa832a4f7af30357c53c8df3"]
+Found matching child and its pqp commitment is: "0a90c689ed0eff9d94c1a8bc72d8256b6080fe38e9062caa68be64b7a36dc60a"
+returned 12,0a90c689ed0eff9d94c1a8bc72d8256b6080fe38e9062caa68be64b7a36dc60a
+Adding entry to next parent
+current_children: ["0000115eeae0ea93b88189e9dc333cb1f9393519fa832a4f7af30357c53c8df3"]
+Found matching child and its pqp commitment is: "0a90c689ed0eff9d94c1a8bc72d8256b6080fe38e9062caa68be64b7a36dc60a"
+pushing entry to pool
+add block called
+blocks len: 10 and queue_index: 12
+Successfully mined block: 000052baa737a752cd2052af0994b3dd17df0c9ffc71e6fc569ed53df759ac02
+Broadcasting MINED_BLOCK to 127.0.0.1:5001
+Sent MINED_BLOCK message (724 bytes)
+Broadcasting MINED_BLOCK to 127.0.0.1:5002
+Sent MINED_BLOCK message (724 bytes)
+Sent UPDATE message (65 bytes)
+
+ current_parent hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd"
+current_children: ["000052baa737a752cd2052af0994b3dd17df0c9ffc71e6fc569ed53df759ac02"]
+Found matching child and its pqp commitment is: "4a400e303f3f16b00c59a57ad92345b524b3d9505720630496bb84d18deff820"
+returned 15,4a400e303f3f16b00c59a57ad92345b524b3d9505720630496bb84d18deff820
+
+ current_parent hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd"
+current_children: ["000052baa737a752cd2052af0994b3dd17df0c9ffc71e6fc569ed53df759ac02"]
+Found matching child and its pqp commitment is: "4a400e303f3f16b00c59a57ad92345b524b3d9505720630496bb84d18deff820"
+returned 15,4a400e303f3f16b00c59a57ad92345b524b3d9505720630496bb84d18deff820
+Adding entry to next parent
+current_children: ["000052baa737a752cd2052af0994b3dd17df0c9ffc71e6fc569ed53df759ac02"]
+Found matching child and its pqp commitment is: "4a400e303f3f16b00c59a57ad92345b524b3d9505720630496bb84d18deff820"
+pushing entry to pool
+add block called
+blocks len: 13 and queue_index: 15
+Successfully mined block: 000014b99a8f1ad80c78438ffcbf2dfeb15df169ae3ffdda3595bc73682ad7d8
+Broadcasting MINED_BLOCK to 127.0.0.1:5001
+Sent MINED_BLOCK message (726 bytes)
+Broadcasting MINED_BLOCK to 127.0.0.1:5002
+Sent MINED_BLOCK message (726 bytes)
+Sent UPDATE message (65 bytes)
+
+ current_parent hash: "00002eb9408804b40c8a7886618400d77859a682a0f28be769f636578e72b275"
+current_children: ["000014b99a8f1ad80c78438ffcbf2dfeb15df169ae3ffdda3595bc73682ad7d8"]
+Found matching child and its pqp commitment is: "00d1f4b8324b2f7341f4a9cbbee0ea69b16be956b6d8ea596d6b8d926f184fd1"
+returned 18,00d1f4b8324b2f7341f4a9cbbee0ea69b16be956b6d8ea596d6b8d926f184fd1
+
+ current_parent hash: "00002eb9408804b40c8a7886618400d77859a682a0f28be769f636578e72b275"
+current_children: ["000014b99a8f1ad80c78438ffcbf2dfeb15df169ae3ffdda3595bc73682ad7d8"]
+Found matching child and its pqp commitment is: "00d1f4b8324b2f7341f4a9cbbee0ea69b16be956b6d8ea596d6b8d926f184fd1"
+returned 18,00d1f4b8324b2f7341f4a9cbbee0ea69b16be956b6d8ea596d6b8d926f184fd1
+Adding entry to next parent
+current_children: ["000014b99a8f1ad80c78438ffcbf2dfeb15df169ae3ffdda3595bc73682ad7d8"]
+Found matching child and its pqp commitment is: "00d1f4b8324b2f7341f4a9cbbee0ea69b16be956b6d8ea596d6b8d926f184fd1"
+pushing entry to pool
+add block called
+blocks len: 16 and queue_index: 18
+Successfully mined block: 00005fdcc7302fc934b273844f4ce645393247f200fa78f668973a3401730ed8
+Broadcasting MINED_BLOCK to 127.0.0.1:5001
+Sent MINED_BLOCK message (724 bytes)
+Broadcasting MINED_BLOCK to 127.0.0.1:5002
+Sent MINED_BLOCK message (724 bytes)
+Sent UPDATE message (65 bytes)
+
+ current_parent hash: "0000115eeae0ea93b88189e9dc333cb1f9393519fa832a4f7af30357c53c8df3"
+current_children: ["00005fdcc7302fc934b273844f4ce645393247f200fa78f668973a3401730ed8"]
+Found matching child and its pqp commitment is: "3033f3be75b170b6679ae73e3d12713344bc14dffe95abb5659a6eeaebd1fbbe"
+returned 21,3033f3be75b170b6679ae73e3d12713344bc14dffe95abb5659a6eeaebd1fbbe
+
+ current_parent hash: "0000115eeae0ea93b88189e9dc333cb1f9393519fa832a4f7af30357c53c8df3"
+current_children: ["00005fdcc7302fc934b273844f4ce645393247f200fa78f668973a3401730ed8"]
+Found matching child and its pqp commitment is: "3033f3be75b170b6679ae73e3d12713344bc14dffe95abb5659a6eeaebd1fbbe"
+returned 21,3033f3be75b170b6679ae73e3d12713344bc14dffe95abb5659a6eeaebd1fbbe
+Adding entry to next parent
+current_children: ["00005fdcc7302fc934b273844f4ce645393247f200fa78f668973a3401730ed8"]
+Found matching child and its pqp commitment is: "3033f3be75b170b6679ae73e3d12713344bc14dffe95abb5659a6eeaebd1fbbe"
+pushing entry to pool
+add block called
+blocks len: 19 and queue_index: 21
+Successfully mined block: 00001618803e0bc04b84686cbbdf41adbd023e76212841080fbf3fcdb4441e71
+Broadcasting MINED_BLOCK to 127.0.0.1:5001
+Sent MINED_BLOCK message (726 bytes)
+Broadcasting MINED_BLOCK to 127.0.0.1:5002
+Sent MINED_BLOCK message (726 bytes)
+Sent UPDATE message (66 bytes)
+Mining stopped

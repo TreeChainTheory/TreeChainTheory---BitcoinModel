@@ -1,3 +1,87 @@
-target = 0.3.2 which mean its currently mining 
+hey i have done the same testing thing again and here is the 4th terminal
 
-entry = 0.1.1.1
+Starting HTTP server on http://localhost:3004
+Starting P2P server on http://localhost:5004
+Connected to ports server
+Sent REGISTER message (79 bytes)
+Listening for peer to peer connections on 127.0.0.1:5004
+Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(11), "last_timestamp": Number(1758082897159)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(7), "last_timestamp": Number(1758082897159)}, Object {"addr": String("127.0.0.1:5004"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5003"), "chain_length": Number(7), "last_timestamp": Number(1758082897159)}], "type": String("PEER_LIST")}
+Received PEER_LIST with 4 peers
+Processing peer 127.0.0.1:5001: chain_length=11, last_timestamp=1758082897159
+Processing peer 127.0.0.1:5002: chain_length=7, last_timestamp=1758082897159
+Processing peer 127.0.0.1:5004: chain_length=1, last_timestamp=0
+Processing peer 127.0.0.1:5003: chain_length=7, last_timestamp=1758082897159
+Currently connected peers {}
+Peer 127.0.0.1:5001: should_connect=true
+Peer 127.0.0.1:5002: should_connect=true
+Peer 127.0.0.1:5003: should_connect=true
+Peer 127.0.0.1:5004: should_connect=false
+Connecting to 3 peers: ["127.0.0.1:5001", "127.0.0.1:5002", "127.0.0.1:5003"]
+Attempting to connect to 3 peers
+Initiating connection to peer 127.0.0.1:5001
+Successfully connected to peer 127.0.0.1:5001
+Initiating connection to peer 127.0.0.1:5002
+New connection from 127.0.0.1:5001
+Resolved 127.0.0.1:5001 to canonical address 127.0.0.1:5001
+Sending CONNECTION_INFO to 127.0.0.1:5001: chain_length=1
+Sent CONNECTION_INFO message (682 bytes)
+Starting message handler for peer 127.0.0.1:5001
+Successfully connected to peer 127.0.0.1:5002
+Initiating connection to peer 127.0.0.1:5003
+New connection from 127.0.0.1:5002
+Resolved 127.0.0.1:5002 to canonical address 127.0.0.1:5002
+Sending CONNECTION_INFO to 127.0.0.1:5002: chain_length=1
+Successfully connected to peer 127.0.0.1:5003
+New connection from 127.0.0.1:5003
+Resolved 127.0.0.1:5003 to canonical address 127.0.0.1:5003
+Sending CONNECTION_INFO to 127.0.0.1:5003: chain_length=1
+Sent CONNECTION_INFO message (682 bytes)
+Starting message handler for peer 127.0.0.1:5002
+Sent CONNECTION_INFO message (682 bytes)
+Starting message handler for peer 127.0.0.1:5003
+get blocks called
+Locked treechain (fast path) for building block locator
+Sent GETBLOCKS message (213 bytes)
+Received INVMESSAGE from 127.0.0.1:5001 with 11 entries
+called start next batch
+Sent GETDATA message (1114 bytes)
+Received BLOCK 000025a542b72c3df656584a39a7068400cbc375eea2dccffc5838ca51a5bfee from 127.0.0.1:5001
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd
+
+ Inserting at end
+Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 1
+add block called
+blocks len: 1 and queue_index: 2
+✅ Block 000025a542b72c3df656584a39a7068400cbc375eea2dccffc5838ca51a5bfee added successfully
+Sent UPDATE message (65 bytes)
+called start next batch
+Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(11), "last_timestamp": Number(1758082897159)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(7), "last_timestamp": Number(1758082897159)}, Object {"addr": String("127.0.0.1:5004"), "chain_length": Number(2), "last_timestamp": Number(1758082872776)}, Object {"addr": String("127.0.0.1:5003"), "chain_length": Number(7), "last_timestamp": Number(1758082897159)}], "type": String("PEER_LIST")}
+Received PEER_LIST with 4 peers
+Processing peer 127.0.0.1:5001: chain_length=11, last_timestamp=1758082897159
+Processing peer 127.0.0.1:5002: chain_length=7, last_timestamp=1758082897159
+Processing peer 127.0.0.1:5004: chain_length=2, last_timestamp=1758082872776
+Processing peer 127.0.0.1:5003: chain_length=7, last_timestamp=1758082897159
+Currently connected peers {"127.0.0.1:5002", "127.0.0.1:5001", "127.0.0.1:5003"}
+Peer 127.0.0.1:5003: should_connect=false
+Peer 127.0.0.1:5004: should_connect=false
+Peer 127.0.0.1:5002: should_connect=false
+Peer 127.0.0.1:5001: should_connect=false
+Connecting to 0 peers: []
+Attempting to connect to 0 peers
+
+
+everything is working fine except the thing with the new fresh node connection
+and also when you look at these logs the length is not being handled properly yet 
+correct the code such that 
+if iam a fresh node ( latest block hash == genisis hash) then first get the best peer by the chain_length and then send get_blocks message 
+here by observing the logs here
+## called start next batch ##
+ it didnt continue which could mean as we have updated the chain_length 
+we immediately have received this 
+Received message from ports server: Object {"peers": A
+so the process went that side , and may be that could be the reason why not every node's is having the correct chain_length 
+and just to remain every function like verify_and_addblock and that are related to treechain are working very fine ,no need to doubt on them 
+
+so now ensure that chain_length gets updated properly and the process dont get oversided after this ## called start next batch ##

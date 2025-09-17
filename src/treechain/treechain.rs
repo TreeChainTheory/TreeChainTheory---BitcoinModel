@@ -566,7 +566,7 @@ impl TreeChain {
             let placeholder_hash = format!("placeholder_{}", placeholder_index);
             self.blocks.insert(placeholder_hash, placeholder_block);
         }
-        println!("finished while lop");
+        // println!("finished while lop");
         // Check if there's a block at queue_index
         if let Some((existing_hash, existing_block)) = self.blocks.get_index(queue_index) {
             if !(existing_block.position.is_empty()) {
@@ -594,7 +594,7 @@ impl TreeChain {
             self.blocks.insert(hash.clone(), block);
             self.blocks.extend(tail);
         } else {
-            println!("calling block insert");
+            // println!("calling block insert");
             self.blocks.insert(hash.clone(), block);
         }
 
