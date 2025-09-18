@@ -1,14 +1,13 @@
-     Running `target/debug/TreeChainTheorey`
 Starting HTTP server on http://localhost:3001
 Starting P2P server on http://localhost:5001
 Connected to ports server
-Sent REGISTER message (79 bytes)
-Listening for peer to peer connections on 127.0.0.1:5001
+Sent REGISTER message (77 bytes)
 Parsed message of type Some(String("PEER_LIST"))
 Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(1), "last_timestamp": Number(0)}], "type": String("PEER_LIST")}
 Received PEER_LIST with 1 peers
 Processing peer 127.0.0.1:5001: chain_length=1, last_timestamp=0
 Currently connected peers {}
+Listening for peer to peer connections on 0.0.0.0:5001
 Peer 127.0.0.1:5001: should_connect=false
 Connecting to 0 peers: []
 Data too short for message length: 0 bytes
@@ -19,46 +18,22 @@ Received PEER_LIST with 2 peers
 Processing peer 127.0.0.1:5001: chain_length=1, last_timestamp=0
 Processing peer 127.0.0.1:5002: chain_length=1, last_timestamp=0
 Currently connected peers {}
-Peer 127.0.0.1:5001: should_connect=false
 Peer 127.0.0.1:5002: should_connect=false
+Peer 127.0.0.1:5001: should_connect=false
 Connecting to 0 peers: []
 Data too short for message length: 0 bytes
 Attempting to connect to 0 peers
-New connection from 127.0.0.1:56963
-Sending CONNECTION_INFO to temp_127.0.0.1:56963: chain_length=1
-Sent CONNECTION_INFO message (682 bytes)
-Starting message handler for peer temp_127.0.0.1:56963
-Read 686 bytes from temp_127.0.0.1:56963
-Parsed message of type Some(String("CONNECTION_INFO"))
-Processing message from temp_127.0.0.1:56963: Some(String("CONNECTION_INFO"))
-Received CONNECTION_INFO from temp_127.0.0.1:56963 with own_addr: 127.0.0.1:5002
-Updated peer_addr to 127.0.0.1:5002
-CONNECTION_INFO from 127.0.0.1:5002: remote_len=1, local_len=1
-Peer 127.0.0.1:5002 chain not longer; no sync needed
-Data too short for message length: 0 bytes
 Parsed message of type Some(String("PEER_LIST"))
-Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5003"), "chain_length": Number(1), "last_timestamp": Number(0)}], "type": String("PEER_LIST")}
+Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5003"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(1), "last_timestamp": Number(0)}], "type": String("PEER_LIST")}
 Received PEER_LIST with 3 peers
 Processing peer 127.0.0.1:5001: chain_length=1, last_timestamp=0
-Processing peer 127.0.0.1:5002: chain_length=1, last_timestamp=0
 Processing peer 127.0.0.1:5003: chain_length=1, last_timestamp=0
-Currently connected peers {"127.0.0.1:5002"}
-Peer 127.0.0.1:5002: should_connect=false
-Peer 127.0.0.1:5003: should_connect=false
+Processing peer 127.0.0.1:5002: chain_length=1, last_timestamp=0
+Currently connected peers {}
 Peer 127.0.0.1:5001: should_connect=false
+Peer 127.0.0.1:5003: should_connect=false
+Peer 127.0.0.1:5002: should_connect=false
 Connecting to 0 peers: []
-Data too short for message length: 0 bytes
-New connection from 127.0.0.1:56966
-Sending CONNECTION_INFO to temp_127.0.0.1:56966: chain_length=1
-Sent CONNECTION_INFO message (682 bytes)
-Starting message handler for peer temp_127.0.0.1:56966
-Read 686 bytes from temp_127.0.0.1:56966
-Parsed message of type Some(String("CONNECTION_INFO"))
-Processing message from temp_127.0.0.1:56966: Some(String("CONNECTION_INFO"))
-Received CONNECTION_INFO from temp_127.0.0.1:56966 with own_addr: 127.0.0.1:5003
-Updated peer_addr to 127.0.0.1:5003
-CONNECTION_INFO from 127.0.0.1:5003: remote_len=1, local_len=1
-Peer 127.0.0.1:5003 chain not longer; no sync needed
 Data too short for message length: 0 bytes
 Attempting to connect to 0 peers
 
@@ -77,154 +52,111 @@ expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8
 Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 1
 add block called
 blocks len: 1 and queue_index: 1
-Successfully mined block: 0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9
-Broadcasting MINED_BLOCK to 127.0.0.1:5003
-Sent MINED_BLOCK message (720 bytes)
-Broadcasting MINED_BLOCK to 127.0.0.1:5002
-Sent MINED_BLOCK message (720 bytes)
-Sent UPDATE message (65 bytes)
+Successfully mined block: 0000555a258127e65f49b587f17a5b3b3a2bf95355c4166af4ad40e92228f854
+Sent UPDATE message (87 bytes)
+Sent UPDATE message (87 bytes)
 
  current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
-current_children: ["0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
-Found matching child and its pqp commitment is: "5ddfaefa99bc486e4f1df4a7520bc9847a2d648a2608244415c7667815038486"
-returned 4,5ddfaefa99bc486e4f1df4a7520bc9847a2d648a2608244415c7667815038486
+current_children: ["0000555a258127e65f49b587f17a5b3b3a2bf95355c4166af4ad40e92228f854"]
+Found matching child and its pqp commitment is: "df59f331a60a7f0b36af9157ffe88ac2aa7060db1178a2a9d1a6742455f3ef33"
+returned 4,df59f331a60a7f0b36af9157ffe88ac2aa7060db1178a2a9d1a6742455f3ef33
 
  current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
-current_children: ["0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
-Found matching child and its pqp commitment is: "5ddfaefa99bc486e4f1df4a7520bc9847a2d648a2608244415c7667815038486"
-returned 4,5ddfaefa99bc486e4f1df4a7520bc9847a2d648a2608244415c7667815038486
-Read 725 bytes from temp_127.0.0.1:56963
-Parsed message of type Some(String("MINED_BLOCK"))
-Processing message from temp_127.0.0.1:56963: Some(String("MINED_BLOCK"))
-Received MINED_BLOCK 00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474 from temp_127.0.0.1:56963
-current_children: ["0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
-prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
-sibling_aligns contain: false
-expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd
-
- Inserting at end
-Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 2
-add block called
-blocks len: 2 and queue_index: 2
-✅ MINED_BLOCK 00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474 added successfully
-Sent UPDATE message (65 bytes)
-Read 4 bytes from temp_127.0.0.1:56966
-Data incomplete: have 4 bytes, need 725 bytes
-Read 721 bytes from temp_127.0.0.1:56966
-Parsed message of type Some(String("MINED_BLOCK"))
-Processing message from temp_127.0.0.1:56966: Some(String("MINED_BLOCK"))
-Received MINED_BLOCK 000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd from temp_127.0.0.1:56966
-current_children: ["00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474", "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"]
-prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
-sibling_aligns contain: false
-expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd
-
- Inserting at end
-Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 3
-add block called
-blocks len: 3 and queue_index: 3
-✅ MINED_BLOCK 000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd added successfully
-Sent UPDATE message (65 bytes)
-prev_parent: Some(ParentQueueEntry { queue_index: 3, align: 3, block_hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd", parent_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", miner_address: "MINER_3rd", prev_pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd", signature: "DUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTESDUMMY_SIGNATURE_64_BYTES", pqp_commitment: "a70ee8ed93e77324bebb13aeb59f0f76644049232d77e414af7490ad9c5ac3f5" })
-sibling_aligns contain: false
-expected_prev_commit in add_entry(): 5ddfaefa99bc486e4f1df4a7520bc9847a2d648a2608244415c7667815038486
-
- Inserting at end
-Updated children count for parent 0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9: 1
-add block called
-blocks len: 4 and queue_index: 4
-Successfully mined block: 000035d204f87cc2f4c9c6b469b4cbbda40cc57474bdedbda2b3bd0ac4c721b1
-Broadcasting MINED_BLOCK to 127.0.0.1:5003
-Sent MINED_BLOCK message (723 bytes)
-Broadcasting MINED_BLOCK to 127.0.0.1:5002
-Sent MINED_BLOCK message (723 bytes)
-Sent UPDATE message (65 bytes)
-
- current_parent hash: "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"
-current_children: ["000035d204f87cc2f4c9c6b469b4cbbda40cc57474bdedbda2b3bd0ac4c721b1"]
-Found matching child and its pqp commitment is: "ed9becea551a3c6eb5cde0725afe93bf0ab64202a46264546730cf157a123db3"
-returned 7,ed9becea551a3c6eb5cde0725afe93bf0ab64202a46264546730cf157a123db3
-
- current_parent hash: "0000621a3a96ca59a8cf5411ee4101e2faaa46b4744a48ee5f8141526c8a71f9"
-current_children: ["000035d204f87cc2f4c9c6b469b4cbbda40cc57474bdedbda2b3bd0ac4c721b1"]
-Found matching child and its pqp commitment is: "ed9becea551a3c6eb5cde0725afe93bf0ab64202a46264546730cf157a123db3"
-returned 7,ed9becea551a3c6eb5cde0725afe93bf0ab64202a46264546730cf157a123db3
+current_children: ["0000555a258127e65f49b587f17a5b3b3a2bf95355c4166af4ad40e92228f854"]
+Found matching child and its pqp commitment is: "df59f331a60a7f0b36af9157ffe88ac2aa7060db1178a2a9d1a6742455f3ef33"
+returned 4,df59f331a60a7f0b36af9157ffe88ac2aa7060db1178a2a9d1a6742455f3ef33
 Adding entry to next parent
-current_children: ["000035d204f87cc2f4c9c6b469b4cbbda40cc57474bdedbda2b3bd0ac4c721b1"]
-Found matching child and its pqp commitment is: "ed9becea551a3c6eb5cde0725afe93bf0ab64202a46264546730cf157a123db3"
+current_children: ["0000555a258127e65f49b587f17a5b3b3a2bf95355c4166af4ad40e92228f854"]
+Found matching child and its pqp commitment is: "df59f331a60a7f0b36af9157ffe88ac2aa7060db1178a2a9d1a6742455f3ef33"
+pushing entry to pool
+add block called
+blocks len: 2 and queue_index: 4
+Successfully mined block: 000019e34a4e89c0e69a7e87b38597285239a3470ce1c7638fff680f4a368e34
+Sent UPDATE message (87 bytes)
+Sent UPDATE message (87 bytes)
+
+ current_parent hash: "0000555a258127e65f49b587f17a5b3b3a2bf95355c4166af4ad40e92228f854"
+current_children: ["000019e34a4e89c0e69a7e87b38597285239a3470ce1c7638fff680f4a368e34"]
+Found matching child and its pqp commitment is: "8ecd7cfd17a66338725dcbfea6c27a4c589bea3c0f2d076ab6bb133cb38925f1"
+returned 7,8ecd7cfd17a66338725dcbfea6c27a4c589bea3c0f2d076ab6bb133cb38925f1
+
+ current_parent hash: "0000555a258127e65f49b587f17a5b3b3a2bf95355c4166af4ad40e92228f854"
+current_children: ["000019e34a4e89c0e69a7e87b38597285239a3470ce1c7638fff680f4a368e34"]
+Found matching child and its pqp commitment is: "8ecd7cfd17a66338725dcbfea6c27a4c589bea3c0f2d076ab6bb133cb38925f1"
+returned 7,8ecd7cfd17a66338725dcbfea6c27a4c589bea3c0f2d076ab6bb133cb38925f1
+Adding entry to next parent
+current_children: ["000019e34a4e89c0e69a7e87b38597285239a3470ce1c7638fff680f4a368e34"]
+Found matching child and its pqp commitment is: "8ecd7cfd17a66338725dcbfea6c27a4c589bea3c0f2d076ab6bb133cb38925f1"
 pushing entry to pool
 add block called
 blocks len: 5 and queue_index: 7
-Successfully mined block: 00004d13ce41ca84bf16a11d6983690beb87948133ab9555a40d9b2d0a53144b
-Broadcasting MINED_BLOCK to 127.0.0.1:5003
-Sent MINED_BLOCK message (722 bytes)
-Broadcasting MINED_BLOCK to 127.0.0.1:5002
-Sent MINED_BLOCK message (722 bytes)
-Sent UPDATE message (65 bytes)
+Successfully mined block: 00003e2cdf0d1f14a4e39a2fa9aab9d37dfd12cb8a680b575d9459844df557c3
+Sent UPDATE message (87 bytes)
+Sent UPDATE message (87 bytes)
 
- current_parent hash: "00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474"
-current_children: ["00004d13ce41ca84bf16a11d6983690beb87948133ab9555a40d9b2d0a53144b"]
-Found matching child and its pqp commitment is: "3489b9e42c82610b86175ddc975ceced3fc2350d5023aa5e2a098b26ae54d276"
-returned 10,3489b9e42c82610b86175ddc975ceced3fc2350d5023aa5e2a098b26ae54d276
+ current_parent hash: "000019e34a4e89c0e69a7e87b38597285239a3470ce1c7638fff680f4a368e34"
+current_children: ["00003e2cdf0d1f14a4e39a2fa9aab9d37dfd12cb8a680b575d9459844df557c3"]
+Found matching child and its pqp commitment is: "595ce3170e55d8c7c5ee1f335c0110f9e9ae65fd5f975eb445519b93fd6e5daa"
+returned 10,595ce3170e55d8c7c5ee1f335c0110f9e9ae65fd5f975eb445519b93fd6e5daa
 
- current_parent hash: "00007b2b48f08806b5a4de2a1a63306c3f5a0909c2558f95745a2159555bb474"
-current_children: ["00004d13ce41ca84bf16a11d6983690beb87948133ab9555a40d9b2d0a53144b"]
-Found matching child and its pqp commitment is: "3489b9e42c82610b86175ddc975ceced3fc2350d5023aa5e2a098b26ae54d276"
-returned 10,3489b9e42c82610b86175ddc975ceced3fc2350d5023aa5e2a098b26ae54d276
+ current_parent hash: "000019e34a4e89c0e69a7e87b38597285239a3470ce1c7638fff680f4a368e34"
+current_children: ["00003e2cdf0d1f14a4e39a2fa9aab9d37dfd12cb8a680b575d9459844df557c3"]
+Found matching child and its pqp commitment is: "595ce3170e55d8c7c5ee1f335c0110f9e9ae65fd5f975eb445519b93fd6e5daa"
+returned 10,595ce3170e55d8c7c5ee1f335c0110f9e9ae65fd5f975eb445519b93fd6e5daa
 Adding entry to next parent
-current_children: ["00004d13ce41ca84bf16a11d6983690beb87948133ab9555a40d9b2d0a53144b"]
-Found matching child and its pqp commitment is: "3489b9e42c82610b86175ddc975ceced3fc2350d5023aa5e2a098b26ae54d276"
+current_children: ["00003e2cdf0d1f14a4e39a2fa9aab9d37dfd12cb8a680b575d9459844df557c3"]
+Found matching child and its pqp commitment is: "595ce3170e55d8c7c5ee1f335c0110f9e9ae65fd5f975eb445519b93fd6e5daa"
 pushing entry to pool
 add block called
 blocks len: 8 and queue_index: 10
-Successfully mined block: 000038e453c947fb19deda202d06b31f0f4d080d389bbaf9a22a033a23b2de3a
-Broadcasting MINED_BLOCK to 127.0.0.1:5003
-Sent MINED_BLOCK message (724 bytes)
-Broadcasting MINED_BLOCK to 127.0.0.1:5002
-Sent MINED_BLOCK message (724 bytes)
-Sent UPDATE message (65 bytes)
+Successfully mined block: 0000496fbaab38f273ebc541cad6491e4c3637937a06db293dc9b9f461b90365
+Sent UPDATE message (87 bytes)
+Sent UPDATE message (87 bytes)
 
- current_parent hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd"
-current_children: ["000038e453c947fb19deda202d06b31f0f4d080d389bbaf9a22a033a23b2de3a"]
-Found matching child and its pqp commitment is: "a56c710ffe88680289e3f1dceba3e0e27d63d2e1f156e8a0135825115ce3d8a0"
-returned 13,a56c710ffe88680289e3f1dceba3e0e27d63d2e1f156e8a0135825115ce3d8a0
+ current_parent hash: "00003e2cdf0d1f14a4e39a2fa9aab9d37dfd12cb8a680b575d9459844df557c3"
+current_children: ["0000496fbaab38f273ebc541cad6491e4c3637937a06db293dc9b9f461b90365"]
+Found matching child and its pqp commitment is: "dc5113ff904b98826c8d0dfc3718f75844821749ac0e4df0317559d66f6be7ae"
+returned 13,dc5113ff904b98826c8d0dfc3718f75844821749ac0e4df0317559d66f6be7ae
 
- current_parent hash: "000075520096cf38ca45670c16f29b960f0335f64d395a34e08a371c5e59dcfd"
-current_children: ["000038e453c947fb19deda202d06b31f0f4d080d389bbaf9a22a033a23b2de3a"]
-Found matching child and its pqp commitment is: "a56c710ffe88680289e3f1dceba3e0e27d63d2e1f156e8a0135825115ce3d8a0"
-returned 13,a56c710ffe88680289e3f1dceba3e0e27d63d2e1f156e8a0135825115ce3d8a0
+ current_parent hash: "00003e2cdf0d1f14a4e39a2fa9aab9d37dfd12cb8a680b575d9459844df557c3"
+current_children: ["0000496fbaab38f273ebc541cad6491e4c3637937a06db293dc9b9f461b90365"]
+Found matching child and its pqp commitment is: "dc5113ff904b98826c8d0dfc3718f75844821749ac0e4df0317559d66f6be7ae"
+returned 13,dc5113ff904b98826c8d0dfc3718f75844821749ac0e4df0317559d66f6be7ae
 Adding entry to next parent
-current_children: ["000038e453c947fb19deda202d06b31f0f4d080d389bbaf9a22a033a23b2de3a"]
-Found matching child and its pqp commitment is: "a56c710ffe88680289e3f1dceba3e0e27d63d2e1f156e8a0135825115ce3d8a0"
+current_children: ["0000496fbaab38f273ebc541cad6491e4c3637937a06db293dc9b9f461b90365"]
+Found matching child and its pqp commitment is: "dc5113ff904b98826c8d0dfc3718f75844821749ac0e4df0317559d66f6be7ae"
 pushing entry to pool
 add block called
 blocks len: 11 and queue_index: 13
-Successfully mined block: 0000048386e2ad34941ef8f742080d37be298f96ff5295f904cdd7a4a942bc7e
-Broadcasting MINED_BLOCK to 127.0.0.1:5003
-Sent MINED_BLOCK message (725 bytes)
-Broadcasting MINED_BLOCK to 127.0.0.1:5002
-Sent MINED_BLOCK message (725 bytes)
-Sent UPDATE message (65 bytes)
-
- current_parent hash: "000035d204f87cc2f4c9c6b469b4cbbda40cc57474bdedbda2b3bd0ac4c721b1"
-current_children: ["0000048386e2ad34941ef8f742080d37be298f96ff5295f904cdd7a4a942bc7e"]
-Found matching child and its pqp commitment is: "10c4c025a7f6877ed6242edc8169d927c5effae3ae8114a26d339a758b2d8159"
-returned 16,10c4c025a7f6877ed6242edc8169d927c5effae3ae8114a26d339a758b2d8159
-
- current_parent hash: "000035d204f87cc2f4c9c6b469b4cbbda40cc57474bdedbda2b3bd0ac4c721b1"
-current_children: ["0000048386e2ad34941ef8f742080d37be298f96ff5295f904cdd7a4a942bc7e"]
-Found matching child and its pqp commitment is: "10c4c025a7f6877ed6242edc8169d927c5effae3ae8114a26d339a758b2d8159"
-returned 16,10c4c025a7f6877ed6242edc8169d927c5effae3ae8114a26d339a758b2d8159
-Adding entry to next parent
-current_children: ["0000048386e2ad34941ef8f742080d37be298f96ff5295f904cdd7a4a942bc7e"]
-Found matching child and its pqp commitment is: "10c4c025a7f6877ed6242edc8169d927c5effae3ae8114a26d339a758b2d8159"
-pushing entry to pool
-add block called
-blocks len: 14 and queue_index: 16
-Successfully mined block: 000073edf483ba7b9828e4d7dcaebf6ff7d9b0046d7c8c55688ab857c9666700
-Broadcasting MINED_BLOCK to 127.0.0.1:5003
-Sent MINED_BLOCK message (726 bytes)
-Broadcasting MINED_BLOCK to 127.0.0.1:5002
-Sent MINED_BLOCK message (726 bytes)
-Sent UPDATE message (65 bytes)
+Successfully mined block: 00002c32cbc1b243d8437d657fc120a362ee9c240218c7a7b716e3ccd941e62d
+Sent UPDATE message (87 bytes)
+Sent UPDATE message (87 bytes)
 Mining stopped
+Parsed message of type Some(String("PEER_LIST"))
+Received message from ports server: Object {"peers": Array [Object {"addr": String("172.30.255.68:5007"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(6), "last_timestamp": Number(1758215138355)}, Object {"addr": String("127.0.0.1:5003"), "chain_length": Number(6), "last_timestamp": Number(1758215136097)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(9), "last_timestamp": Number(1758215143046)}], "type": String("PEER_LIST")}
+Received PEER_LIST with 4 peers
+Processing peer 172.30.255.68:5007: chain_length=1, last_timestamp=0
+Processing peer 127.0.0.1:5001: chain_length=6, last_timestamp=1758215138355
+Processing peer 127.0.0.1:5003: chain_length=6, last_timestamp=1758215136097
+Processing peer 127.0.0.1:5002: chain_length=9, last_timestamp=1758215143046
+Currently connected peers {}
+Peer 127.0.0.1:5003: should_connect=false
+Peer 127.0.0.1:5002: should_connect=false
+Peer 127.0.0.1:5001: should_connect=false
+Peer 172.30.255.68:5007: should_connect=false
+Connecting to 0 peers: []
+Data too short for message length: 0 bytes
+Attempting to connect to 0 peers
+Parsed message of type Some(String("PEER_LIST"))
+Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(6), "last_timestamp": Number(1758215138355)}, Object {"addr": String("127.0.0.1:5003"), "chain_length": Number(6), "last_timestamp": Number(1758215136097)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(9), "last_timestamp": Number(1758215143046)}], "type": String("PEER_LIST")}
+Received PEER_LIST with 3 peers
+Processing peer 127.0.0.1:5001: chain_length=6, last_timestamp=1758215138355
+Processing peer 127.0.0.1:5003: chain_length=6, last_timestamp=1758215136097
+Processing peer 127.0.0.1:5002: chain_length=9, last_timestamp=1758215143046
+Currently connected peers {}
+Peer 127.0.0.1:5001: should_connect=false
+Peer 127.0.0.1:5003: should_connect=false
+Peer 127.0.0.1:5002: should_connect=false
+Connecting to 0 peers: []
+Data too short for message length: 0 bytes
+Attempting to connect to 0 peers

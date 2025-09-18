@@ -1,14 +1,15 @@
 //1st terminal cargo run --bin TreeChainTheorey
-//2nd terminal ALIGN=2 HTTP_PORT=3002 MINER_ADDRESS=MINER_2nd cargo run --bin TreeChainTheorey
-//3rd terminal ALIGN=3 HTTP_PORT=3003 MINER_ADDRESS=MINER_3rd cargo run --bin TreeChainTheorey
-//4th terminal ALIGN=1 HTTP_PORT=3004 MINER_ADDRESS=MINER_4th cargo run --bin TreeChainTheorey
-//5th terminal ALIGN=2 HTTP_PORT=3005 MINER_ADDRESS=MINER_5th cargo run --bin TreeChainTheorey
-//6th terminal ALIGN=3 HTTP_PORT=3006 MINER_ADDRESS=MINER_6th cargo run --bin TreeChainTheorey
+//2nd terminal ALIGN=2 HTTP_PORT=3002 P2P_PORT=5002 MINER_ADDRESS=MINER_2nd cargo run --bin TreeChainTheorey
+//3rd terminal ALIGN=3 HTTP_PORT=3003 P2P_PORT=5003 MINER_ADDRESS=MINER_3rd cargo run --bin TreeChainTheorey
+//4th terminal ALIGN=1 HTTP_PORT=3004 P2P_PORT=5004 MINER_ADDRESS=MINER_4th cargo run --bin TreeChainTheorey
+//5th terminal ALIGN=2 HTTP_PORT=3005 P2P_PORT=5005 MINER_ADDRESS=MINER_5th cargo run --bin TreeChainTheorey
+//6th terminal ALIGN=3 HTTP_PORT=3006 P2P_PORT=5006 MINER_ADDRESS=MINER_6th cargo run --bin TreeChainTheorey
 
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::ParentQueueEntry;
 use crate::treechain::treechain::{PQP, TreeChain};
+use k256::elliptic_curve::bigint::U64;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -61,7 +62,7 @@ pub struct P2PServer {
     pub current_mining_position: Arc<SyncMutex<Option<String>>>,
     pub abort_mining: Arc<SyncMutex<bool>>,
     pub ibd_or_online_state: Arc<Mutex<bool>>,
-    pub chain_length: Arc<Mutex<u64>>,
+    pub chain_length: Arc<SyncMutex<u64>>,
     pending_blocks: Arc<Mutex<HashMap<String, Block>>>, // New: Store blocks with missing parents
 }
 
@@ -73,6 +74,7 @@ impl P2PServer {
         current_mining_position: Arc<SyncMutex<Option<String>>>,
         abort_mining: Arc<SyncMutex<bool>>,
         own_addr: String,
+        chain_length: Arc<SyncMutex<u64>>,
     ) -> Self {
         P2PServer {
             treechain,
@@ -86,12 +88,30 @@ impl P2PServer {
             current_mining_position,
             abort_mining,
             ibd_or_online_state: Arc::new(Mutex::new(false)),
-            chain_length: Arc::new(Mutex::new(1)),
+            chain_length,
             pending_blocks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub async fn get_chain_info(&self) -> (u64, Option<u64>) {
+        let len = {
+            let chain_length = self.chain_length.lock().unwrap();
+            *chain_length
+        };
+
+        let treechain = self.treechain.lock().await;
+
+        let mut last_ts: Option<u64> = None;
+        for (_, b) in treechain.blocks.iter().rev() {
+            if !b.position.is_empty() {
+                last_ts = Some(b.timestamp as u64);
+                break;
+            }
+        }
+        (len, last_ts)
+    }
+
+    pub async fn get_chain_info_precise(&self) -> (u64, Option<u64>) {
         let treechain = self.treechain.lock().await;
         let mut len: u64 = 0;
         let mut last_ts: Option<u64> = None;
@@ -102,6 +122,20 @@ impl P2PServer {
             }
         }
         (len, last_ts)
+    }
+
+    pub async fn update_reg_cl_precise(&self) {
+        let opt_writer = self.registry_writer.lock().await.clone();
+        if let Some(writer) = opt_writer {
+            let (len, ts) = self.get_chain_info_precise().await;
+            let message = serde_json::json!({
+                "type": MESSAGE_TYPE_UPDATE,
+                "addr": self.own_addr,
+                "chain_length": len,
+                "last_timestamp": ts.unwrap_or(0),
+            });
+            Self::send_message(writer, &message, "UPDATE").await;
+        }
     }
 
     pub async fn update_registry_chain_length(&self) {
@@ -119,7 +153,7 @@ impl P2PServer {
     }
 
     async fn connect_to_registry(self: Arc<Self>, own_addr: String) {
-        match timeout(Duration::from_secs(5), TcpStream::connect("127.0.0.1:8080")).await {
+        match timeout(Duration::from_secs(5), TcpStream::connect("0.0.0.0:8080")).await {
             Ok(Ok(stream)) => {
                 println!("Connected to ports server");
                 let (reader, writer) = stream.into_split();
@@ -275,6 +309,11 @@ impl P2PServer {
                     pqp.add_entry_to_pqp(pqp_entry.clone(), &treechain);
                     if treechain.verify_and_add_block(&block) {
                         println!("✅ Added pending block {} from retry", block.hash);
+                        {
+                            let mut chain_length = self.chain_length.lock().unwrap();
+                            *chain_length += 1;
+                            drop(chain_length);
+                        }
                         drop(treechain);
                         drop(pqp);
                         self.update_registry_chain_length().await;
@@ -515,6 +554,7 @@ impl P2PServer {
             *ibd = false;
             println!("✅ Finished syncing all available blocks from best peer");
             drop(ibd);
+            self.update_reg_cl_precise().await;
             self.send_pqp_response(writer.clone()).await;
         }
     }
@@ -695,10 +735,12 @@ impl P2PServer {
                                                 let mut pqp = self.pqp.lock().await;
                                                 *pqp = PQP::new();
                                                 drop(pqp);
-                                                let mut chain_length =
-                                                    self.chain_length.lock().await;
-                                                *chain_length = 1;
-                                                drop(chain_length);
+                                                {
+                                                    let mut chain_length =
+                                                        self.chain_length.lock().unwrap();
+                                                    *chain_length = 1;
+                                                    drop(chain_length);
+                                                }
                                                 self.update_registry_chain_length().await;
                                             }
                                             let mut ibd = self.ibd_or_online_state.lock().await;
@@ -851,6 +893,12 @@ impl P2PServer {
                                                     "✅ Block {} added successfully",
                                                     block.hash
                                                 );
+                                                {
+                                                    let mut chain_length =
+                                                        self.chain_length.lock().unwrap();
+                                                    *chain_length += 1;
+                                                    drop(chain_length);
+                                                }
                                                 drop(treechain);
                                                 drop(pqp);
                                                 self.update_registry_chain_length().await;
@@ -987,6 +1035,12 @@ impl P2PServer {
                                                         "✅ MINED_BLOCK {} added successfully",
                                                         block.hash
                                                     );
+                                                    {
+                                                        let mut chain_length =
+                                                            self.chain_length.lock().unwrap();
+                                                        *chain_length += 1;
+                                                        drop(chain_length);
+                                                    }
                                                     // Broadcast the mined block to all connected peers
                                                     let message = serde_json::json!({
                                                         "type": MESSAGE_TYPE_MINEDBLOCK,
@@ -1119,10 +1173,12 @@ impl P2PServer {
                                                         let mut pqp = self.pqp.lock().await;
                                                         *pqp = PQP::new();
                                                         drop(pqp);
-                                                        let mut chain_length =
-                                                            self.chain_length.lock().await;
-                                                        *chain_length = 1;
-                                                        drop(chain_length);
+                                                        {
+                                                            let mut chain_length =
+                                                                self.chain_length.lock().unwrap();
+                                                            *chain_length = 1;
+                                                            drop(chain_length);
+                                                        }
                                                         let mut pending_blocks =
                                                             self.pending_blocks.lock().await;
                                                         pending_blocks.clear();
@@ -1258,8 +1314,11 @@ impl P2PServer {
         pqp: Arc<Mutex<PQP>>,
         current_mining_position: Arc<SyncMutex<Option<String>>>,
         abort_mining: Arc<SyncMutex<bool>>,
+        chain_length: Arc<SyncMutex<u64>>,
     ) -> Arc<P2PServer> {
-        let own_addr = format!("127.0.0.1:{}", p2p_port);
+        let own_addr = format!("0.0.0.0:{}", p2p_port);
+        // let own_addr = format!("172.30.255.27:{}", p2p_port); //for connecting to differnt device
+
         let server = Arc::new(P2PServer::new(
             treechain,
             pqp,
@@ -1267,6 +1326,7 @@ impl P2PServer {
             current_mining_position,
             abort_mining,
             own_addr.clone(),
+            chain_length,
         ));
         let server_clone = server.clone();
         std::thread::spawn(move || {
@@ -1285,13 +1345,10 @@ impl P2PServer {
     }
 
     async fn listen(self: Arc<Self>, port: u16) {
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
+        let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
             .await
             .unwrap();
-        println!(
-            "Listening for peer to peer connections on 127.0.0.1:{}",
-            port
-        );
+        println!("Listening for peer to peer connections on 0.0.0.0:{}", port);
         loop {
             let (stream, addr) = listener.accept().await.unwrap();
             println!("New connection from {}", addr);

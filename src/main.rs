@@ -1,7 +1,6 @@
-mod miner;
-
 pub mod chain_util;
 pub mod config;
+mod miner;
 pub mod treechain;
 pub mod wallet;
 
@@ -51,6 +50,7 @@ async fn main() {
     let mining_flag = Arc::new(Mutex::new(false));
     let current_mining_position = Arc::new(SyncMutex::new(None::<String>));
     let abort_mining = Arc::new(SyncMutex::new(false));
+    let chain_length = Arc::new(SyncMutex::new(1 as u64));
 
     let p2p_server = P2PServer::start_p2p_server(
         p2p_port.clone(),
@@ -59,6 +59,7 @@ async fn main() {
         Arc::clone(&pqp),
         Arc::clone(&current_mining_position),
         Arc::clone(&abort_mining),
+        Arc::clone(&chain_length),
     );
 
     HttpServer::new(move || {
@@ -72,10 +73,11 @@ async fn main() {
                 Arc::clone(&abort_mining),
                 miner_address.clone(),
                 align,
+                Arc::clone(&chain_length),
             )))
             .configure(miner::routes::init_routes)
     })
-    .bind(format!("127.0.0.1:{}", http_port))
+    .bind(format!("0.0.0.0:{}", http_port))
     .unwrap()
     .run()
     .await

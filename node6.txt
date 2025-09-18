@@ -1,0 +1,203 @@
+Starting HTTP server on http://localhost:3006
+Starting P2P server on http://localhost:5001
+Connected to ports server
+Sent REGISTER message (79 bytes)
+
+thread '<unnamed>' panicked at src/miner/p2p_server.rs:1348:14:
+called `Result::unwrap()` on an `Err` value: Os { code: 48, kind: AddrInUse, message: "Address already in use" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Parsed message of type Some(String("PEER_LIST"))
+Received message from ports server: Object {"peers": Array [Object {"addr": String("127.0.0.1:5001"), "chain_length": Number(1), "last_timestamp": Number(0)}, Object {"addr": String("127.0.0.1:5002"), "chain_length": Number(1), "last_timestamp": Number(0)}], "type": String("PEER_LIST")}
+Received PEER_LIST with 2 peers
+Processing peer 127.0.0.1:5001: chain_length=1, last_timestamp=0
+Processing peer 127.0.0.1:5002: chain_length=1, last_timestamp=0
+Currently connected peers {}
+Peer 127.0.0.1:5001: should_connect=false
+Peer 127.0.0.1:5002: should_connect=false
+Connecting to 0 peers: []
+Data too short for message length: 0 bytes
+
+ current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+
+ current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+prev_parent: Some(ParentQueueEntry { queue_index: 0, align: 0, block_hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b", parent_hash: "0000000000000000000000000000000000000000000000000000000000000000", miner_address: "GENISIS_LEADER_HEX", prev_pqp_commitment: "0000000000000000000000000000000000000000000000000000000000000000", signature: "", pqp_commitment: "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd" })
+sibling_aligns contain: false
+expected_prev_commit in add_entry(): 2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd
+
+ Inserting at end
+Updated children count for parent d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b: 1
+add block called
+blocks len: 1 and queue_index: 3
+Successfully mined block: 0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+
+ current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
+current_children: ["0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2"]
+Found matching child and its pqp commitment is: "1f152e9abfb4719bf7527b670b835790238c897dffbf0de882de820311f15997"
+returned 6,1f152e9abfb4719bf7527b670b835790238c897dffbf0de882de820311f15997
+
+ current_parent hash: "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b"
+current_children: ["0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2"]
+Found matching child and its pqp commitment is: "1f152e9abfb4719bf7527b670b835790238c897dffbf0de882de820311f15997"
+returned 6,1f152e9abfb4719bf7527b670b835790238c897dffbf0de882de820311f15997
+Adding entry to next parent
+current_children: ["0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2"]
+Found matching child and its pqp commitment is: "1f152e9abfb4719bf7527b670b835790238c897dffbf0de882de820311f15997"
+pushing entry to pool
+add block called
+blocks len: 4 and queue_index: 6
+Successfully mined block: 00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+
+ current_parent hash: "0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2"
+current_children: ["00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e"]
+Found matching child and its pqp commitment is: "61e852be0e775e078289daa43a820fa3ea9b1f6802802e51c96adc8259b4e1cb"
+returned 9,61e852be0e775e078289daa43a820fa3ea9b1f6802802e51c96adc8259b4e1cb
+
+ current_parent hash: "0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2"
+current_children: ["00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e"]
+Found matching child and its pqp commitment is: "61e852be0e775e078289daa43a820fa3ea9b1f6802802e51c96adc8259b4e1cb"
+returned 9,61e852be0e775e078289daa43a820fa3ea9b1f6802802e51c96adc8259b4e1cb
+Adding entry to next parent
+current_children: ["00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e"]
+Found matching child and its pqp commitment is: "61e852be0e775e078289daa43a820fa3ea9b1f6802802e51c96adc8259b4e1cb"
+pushing entry to pool
+add block called
+blocks len: 7 and queue_index: 9
+Successfully mined block: 000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+
+ current_parent hash: "00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e"
+current_children: ["000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6"]
+Found matching child and its pqp commitment is: "bed12640e12a170abd724ea8c4e4a45a1545165a4fd3015b2e9e3ccd94c08d75"
+returned 12,bed12640e12a170abd724ea8c4e4a45a1545165a4fd3015b2e9e3ccd94c08d75
+
+ current_parent hash: "00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e"
+current_children: ["000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6"]
+Found matching child and its pqp commitment is: "bed12640e12a170abd724ea8c4e4a45a1545165a4fd3015b2e9e3ccd94c08d75"
+returned 12,bed12640e12a170abd724ea8c4e4a45a1545165a4fd3015b2e9e3ccd94c08d75
+Adding entry to next parent
+current_children: ["000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6"]
+Found matching child and its pqp commitment is: "bed12640e12a170abd724ea8c4e4a45a1545165a4fd3015b2e9e3ccd94c08d75"
+pushing entry to pool
+add block called
+blocks len: 10 and queue_index: 12
+Successfully mined block: 00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+
+ current_parent hash: "000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6"
+current_children: ["00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f"]
+Found matching child and its pqp commitment is: "c09b42b595660c37eba80c315e2ae766256cfd4da0f8255a6d0a1836b3a824c9"
+returned 15,c09b42b595660c37eba80c315e2ae766256cfd4da0f8255a6d0a1836b3a824c9
+
+ current_parent hash: "000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6"
+current_children: ["00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f"]
+Found matching child and its pqp commitment is: "c09b42b595660c37eba80c315e2ae766256cfd4da0f8255a6d0a1836b3a824c9"
+returned 15,c09b42b595660c37eba80c315e2ae766256cfd4da0f8255a6d0a1836b3a824c9
+Adding entry to next parent
+current_children: ["00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f"]
+Found matching child and its pqp commitment is: "c09b42b595660c37eba80c315e2ae766256cfd4da0f8255a6d0a1836b3a824c9"
+pushing entry to pool
+add block called
+blocks len: 13 and queue_index: 15
+Successfully mined block: 000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+
+ current_parent hash: "00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f"
+current_children: ["000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9"]
+Found matching child and its pqp commitment is: "821b10a98fe9ebfcef8d9a323d075acf70fd67a4f0c1369ce38cf3804654610d"
+returned 18,821b10a98fe9ebfcef8d9a323d075acf70fd67a4f0c1369ce38cf3804654610d
+
+ current_parent hash: "00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f"
+current_children: ["000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9"]
+Found matching child and its pqp commitment is: "821b10a98fe9ebfcef8d9a323d075acf70fd67a4f0c1369ce38cf3804654610d"
+returned 18,821b10a98fe9ebfcef8d9a323d075acf70fd67a4f0c1369ce38cf3804654610d
+Adding entry to next parent
+current_children: ["000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9"]
+Found matching child and its pqp commitment is: "821b10a98fe9ebfcef8d9a323d075acf70fd67a4f0c1369ce38cf3804654610d"
+pushing entry to pool
+add block called
+blocks len: 16 and queue_index: 18
+Successfully mined block: 000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+
+ current_parent hash: "000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9"
+current_children: ["000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07"]
+Found matching child and its pqp commitment is: "5932f363d2fc934cd57ab05252e7c4dff886f5541f78bd8d7eef9a84327db555"
+returned 21,5932f363d2fc934cd57ab05252e7c4dff886f5541f78bd8d7eef9a84327db555
+
+ current_parent hash: "000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9"
+current_children: ["000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07"]
+Found matching child and its pqp commitment is: "5932f363d2fc934cd57ab05252e7c4dff886f5541f78bd8d7eef9a84327db555"
+returned 21,5932f363d2fc934cd57ab05252e7c4dff886f5541f78bd8d7eef9a84327db555
+Adding entry to next parent
+current_children: ["000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07"]
+Found matching child and its pqp commitment is: "5932f363d2fc934cd57ab05252e7c4dff886f5541f78bd8d7eef9a84327db555"
+pushing entry to pool
+add block called
+blocks len: 19 and queue_index: 21
+Successfully mined block: 000006277e1aaee57288e4f9d12dea827711a6601dfff7d1a4c75eb66ff51f83
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+
+ current_parent hash: "000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07"
+current_children: ["000006277e1aaee57288e4f9d12dea827711a6601dfff7d1a4c75eb66ff51f83"]
+Found matching child and its pqp commitment is: "2652f2a39ce261c65104d9a3e805e10f0192ba212e260826c1e0241d62cd029a"
+returned 24,2652f2a39ce261c65104d9a3e805e10f0192ba212e260826c1e0241d62cd029a
+
+ current_parent hash: "000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07"
+current_children: ["000006277e1aaee57288e4f9d12dea827711a6601dfff7d1a4c75eb66ff51f83"]
+Found matching child and its pqp commitment is: "2652f2a39ce261c65104d9a3e805e10f0192ba212e260826c1e0241d62cd029a"
+returned 24,2652f2a39ce261c65104d9a3e805e10f0192ba212e260826c1e0241d62cd029a
+Adding entry to next parent
+current_children: ["000006277e1aaee57288e4f9d12dea827711a6601dfff7d1a4c75eb66ff51f83"]
+Found matching child and its pqp commitment is: "2652f2a39ce261c65104d9a3e805e10f0192ba212e260826c1e0241d62cd029a"
+pushing entry to pool
+add block called
+blocks len: 22 and queue_index: 24
+Successfully mined block: 00004fbc408ccef5c981555f3f6bb0bbe1e394867564d54815b2d0933529bb67
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Failed to write length for UPDATE message: A Tokio 1.x context was found, but it is being shutdown.
+Mining stopped
+is valid tree started with length: 25
+base_index: 18
+base_index block found: 000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07
+base_index: 15
+base_index block found: 000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9
+base_index: 12
+base_index block found: 00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f
+base_index: 9
+base_index block found: 000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6
+base_index: 6
+base_index block found: 00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e
+base_index: 3
+base_index block found: 0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2
+base_index: 0
+base_index block found: d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b
+base_index: 21
+base_index block found: 000006277e1aaee57288e4f9d12dea827711a6601dfff7d1a4c75eb66ff51f83
+base_index: 18
+base_index block found: 000008f4775a866f80d36788609e779231746a61243f2b43b05578e6f0ac1c07
+base_index: 15
+base_index block found: 000071c20da0449bd4547532217728c9124e4fa402212c05d6c655a7ae7ccae9
+base_index: 12
+base_index block found: 00005247bd42bdd250160a65abb7f6e5621b12c608223b749dfa7d571f78357f
+base_index: 9
+base_index block found: 000065a8de5f5f41cb224c700dabc21f0ae5cbf65d05a4bc2673ff3fc4480ac6
+base_index: 6
+base_index block found: 00005cd4ea2cc786faefc1dbca24a69ee850c385f2d13d199c2b0464b089844e
+base_index: 3
+base_index block found: 0000031cfdc88275f4975aa2c1c51a972ffe4d383abcd10223fb8f27068deca2
+base_index: 0
+base_index block found: d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b
+✅ Tree and PQP validated successfully

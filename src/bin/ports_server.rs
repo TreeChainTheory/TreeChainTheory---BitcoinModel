@@ -248,8 +248,8 @@ impl PortsServer {
 #[tokio::main]
 async fn main() {
     let server = Arc::new(PortsServer::new());
-    let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
-    println!("Ports server listening on 127.0.0.1:8080");
+    let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    println!("Ports server listening on 0.0.0.0:8080");
     loop {
         let (stream, addr) = listener.accept().await.unwrap();
         println!("New connection from {}", addr);

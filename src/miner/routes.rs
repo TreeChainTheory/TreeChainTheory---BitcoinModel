@@ -1,6 +1,6 @@
 use crate::p2p_server::P2PServer;
 use crate::treechain::block::Block;
-use crate::treechain::treechain::{PQP, TreeChain};
+use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
 use actix_web::{HttpResponse, Responder, get, web};
 use num_bigint::BigUint;
 use std::sync::{Arc, Mutex as SyncMutex};
@@ -17,6 +17,7 @@ async fn start_mining(
         Arc<SyncMutex<bool>>,
         String,
         u8,
+        Arc<SyncMutex<u64>>,
     )>,
 ) -> impl Responder {
     let (
@@ -28,6 +29,7 @@ async fn start_mining(
         abort_mining,
         miner_address,
         align,
+        chain_length,
     ) = {
         let d = data.as_ref();
         (
@@ -39,6 +41,7 @@ async fn start_mining(
             Arc::clone(&d.5),
             d.6.clone(),
             d.7,
+            Arc::clone(&d.8),
         )
     };
 
@@ -157,6 +160,11 @@ async fn start_mining(
                                     .clone()
                                     .send_minedblock(mined_block.clone())
                                     .await;
+                                {
+                                    let mut chain_length = chain_length.lock().unwrap();
+                                    *chain_length += 1;
+                                    drop(chain_length);
+                                }
                                 p2p_server.clone().update_registry_chain_length().await;
                             } else {
                                 println!(
@@ -200,9 +208,10 @@ async fn stop_mining(
         Arc<SyncMutex<bool>>,
         String,
         u8,
+        Arc<SyncMutex<u64>>,
     )>,
 ) -> impl Responder {
-    let (_, _, mining_flag, _, _, _, _, _) = data.as_ref();
+    let (_, _, mining_flag, _, _, _, _, _, _) = data.as_ref();
     let mut mining = mining_flag.lock().await;
 
     if !*mining {
@@ -230,9 +239,10 @@ async fn get_blocks(
         Arc<SyncMutex<bool>>,
         String,
         u8,
+        Arc<SyncMutex<u64>>,
     )>,
 ) -> impl Responder {
-    let (treechain, _, _, _, _, _, _, _) = data.as_ref();
+    let (treechain, _, _, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
 
     let blocks: Vec<Block> = chain
@@ -248,6 +258,29 @@ async fn get_blocks(
     }))
 }
 
+#[get("/get_pqp")]
+async fn get_pqp(
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        String,
+        u8,
+        Arc<SyncMutex<u64>>,
+    )>,
+) -> impl Responder {
+    let (_, pqp, _, _, _, _, _, _, _) = data.as_ref();
+    let pqp = pqp.lock().await;
+    let pool: Vec<ParentQueueEntry> = pqp.pool.clone();
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "blocks": pool,
+    }))
+}
+
 #[get("/verify_tree")]
 async fn verify_tree(
     data: web::Data<(
@@ -259,9 +292,10 @@ async fn verify_tree(
         Arc<SyncMutex<bool>>,
         String,
         u8,
+        Arc<SyncMutex<u64>>,
     )>,
 ) -> impl Responder {
-    let (treechain, pqp, _, _, _, _, _, _) = data.as_ref();
+    let (treechain, pqp, _, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
     let pqp_guard = pqp.lock().await;
 
@@ -284,9 +318,10 @@ async fn verify_pqp(
         Arc<SyncMutex<bool>>,
         String,
         u8,
+        Arc<SyncMutex<u64>>,
     )>,
 ) -> impl Responder {
-    let (treechain, pqp, _, _, _, _, _, _) = data.as_ref();
+    let (treechain, pqp, _, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
     let pqp_guard = pqp.lock().await;
 
@@ -302,6 +337,7 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
     cfg.service(get_blocks);
+    cfg.service(get_pqp);
     cfg.service(verify_tree);
     cfg.service(verify_pqp);
 }
