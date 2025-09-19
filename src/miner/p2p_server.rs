@@ -887,33 +887,53 @@ impl P2PServer {
                                             let mut pqp = self.pqp.lock().await;
                                             let pqp_entry =
                                                 TreeChain::parent_queue_entry_from_block(&block);
-                                            pqp.add_entry_to_pqp(pqp_entry.clone(), &treechain);
-                                            if treechain.verify_and_add_block(&block) {
-                                                println!(
-                                                    "✅ Block {} added successfully",
-                                                    block.hash
-                                                );
-                                                {
-                                                    let mut chain_length =
-                                                        self.chain_length.lock().unwrap();
-                                                    *chain_length += 1;
-                                                    drop(chain_length);
+                                            pqp.add_entry_to_pqp_while_downloading(
+                                                pqp_entry.clone(),
+                                                &treechain,
+                                            );
+                                            //this functionality to be added here
+                                            let pqp_len = pqp.pool.len();
+                                            let exist = pqp
+                                                .pool
+                                                .iter()
+                                                .rev()
+                                                .take(pqp_len)
+                                                .any(|e| e.block_hash == pqp_entry.block_hash);
+                                            if exist {
+                                                if treechain.verify_and_add_block(&block) {
+                                                    println!(
+                                                        "✅ Block {} added successfully",
+                                                        block.hash
+                                                    );
+                                                    {
+                                                        let mut chain_length =
+                                                            self.chain_length.lock().unwrap();
+                                                        *chain_length += 1;
+                                                        drop(chain_length);
+                                                    }
+                                                    drop(treechain);
+                                                    drop(pqp);
+                                                    self.update_registry_chain_length().await;
+                                                    self.on_block_delivered(writer.clone()).await;
+                                                } else {
+                                                    println!(
+                                                        "❌ Failed to add block {} (duplicate or invalid)",
+                                                        block.hash
+                                                    );
+                                                    if pqp.remove_pqp_entry(pqp_entry.clone()) {
+                                                        println!("✅ Removed the pqp entry");
+                                                    } else {
+                                                        println!(
+                                                            "❌ Failed to remove the pqp entry"
+                                                        );
+                                                    }
+                                                    self.on_block_delivered(writer.clone()).await;
                                                 }
-                                                drop(treechain);
-                                                drop(pqp);
-                                                self.update_registry_chain_length().await;
-                                                self.on_block_delivered(writer.clone()).await;
                                             } else {
                                                 println!(
-                                                    "❌ Failed to add block {} (duplicate or invalid)",
-                                                    block.hash
+                                                    "❌ pqp entry of the block {} is not added while getting blocks",
+                                                    pqp_entry.block_hash
                                                 );
-                                                if pqp.remove_pqp_entry(pqp_entry.clone()) {
-                                                    println!("✅ Removed the pqp entry");
-                                                } else {
-                                                    println!("❌ Failed to remove the pqp entry");
-                                                }
-                                                self.on_block_delivered(writer.clone()).await;
                                             }
                                         }
                                     }
@@ -1280,11 +1300,7 @@ impl P2PServer {
             })
             .take(INVMESSAGE_LIMIT as usize)
             .collect();
-        inventories.sort_by(|a, b| {
-            let a_block = treechain.get_block(&a.block_hash).unwrap();
-            let b_block = treechain.get_block(&b.block_hash).unwrap();
-            a_block.timestamp.cmp(&b_block.timestamp)
-        });
+        inventories.sort_by(|a, b| a.queue_index.cmp(&b.queue_index));
         if inventories.is_empty() {
             println!(
                 "No blocks to send in INVMESSAGE (start_index: {:?})",

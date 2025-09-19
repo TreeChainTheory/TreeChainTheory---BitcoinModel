@@ -65,19 +65,214 @@ impl PQP {
     pub fn next_parent(&self) -> Option<&ParentQueueEntry> {
         let mut candidates: Vec<&ParentQueueEntry> = self.pool.iter().take(10).collect();
         candidates.sort_by_key(|e| e.queue_index);
+        // println!("\nnp candidates = {:?}", candidates);
         if candidates.len() >= 2 {
+            // println!("\nnp candidate:{:?}", candidates[1]);
             Some(candidates[1])
         } else {
             None
         }
     }
 
-    pub fn add_entry_to_pqp(&mut self, entry: ParentQueueEntry, treechain: &TreeChain) {
+    pub fn add_entry_to_pqp_while_downloading(
+        &mut self,
+        entry: ParentQueueEntry,
+        treechain: &TreeChain,
+    ) {
         let current_parent = self.current_parent().cloned();
-        // print!("\n current_parent: {:?}", current_parent);
+        print!(
+            "\n current_parent: {:?}",
+            current_parent.clone().unwrap().block_hash
+        );
         // print!("\n pqp_pool: {:?}", self.pool);
         let next_parent = self.next_parent().cloned();
-        // print!("\n next_parent: {:?}", next_parent);
+        // print!(
+        //     "\n next_parent: {:?}",
+        //     next_parent.clone().unwrap().block_hash
+        // );
+        let latest = self.latest().cloned();
+
+        if let Some(current) = current_parent {
+            if entry.parent_hash == current.block_hash {
+                let expected_prev_commit = self.get_prev_pqp_commitment(entry.align, &treechain);
+                let expected_next_prev_commit =
+                    self.get_next_prev_pqp_commitment(entry.align, &treechain);
+                println!(
+                    "expected_prev_commit in add_entry(): {}",
+                    expected_prev_commit
+                );
+                let exists = self
+                    .pool
+                    .iter()
+                    .rev()
+                    .take(CHILDREN as usize)
+                    .any(|e| e.align == entry.align && e.parent_hash == current.block_hash);
+                if exists {
+                    println!("❌ Rejected: Same Aligned Block already taken for current parent");
+                    return;
+                }
+                if entry.prev_pqp_commitment != expected_prev_commit {
+                    // Invalid commit → reject early
+                    println!(
+                        "\n entry:{:?} expected: {:?} , expected_next: {:?} ",
+                        entry.prev_pqp_commitment, expected_prev_commit, expected_next_prev_commit
+                    );
+
+                    if entry.prev_pqp_commitment != expected_next_prev_commit {
+                        println!("prev_pqp commit doesnt match");
+                        return;
+                    }
+                }
+                let children_count_current = self
+                    .pool
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .filter(|e| e.parent_hash == current.block_hash)
+                    .count();
+
+                let next_parent_has_children = if let Some(next) = next_parent {
+                    self.pool
+                        .iter()
+                        .rev()
+                        .take(CHILDREN as usize)
+                        .any(|e| e.parent_hash == next.block_hash)
+                } else {
+                    false
+                };
+
+                if !next_parent_has_children && children_count_current < CHILDREN as usize {
+                    let mut insert_pos = self.pool.len();
+
+                    for i in (0..self.pool.len()).rev() {
+                        if self.pool[i].queue_index < entry.queue_index {
+                            // Insert *after* this one
+                            insert_pos = i + 1;
+                            break;
+                        }
+                    }
+
+                    if insert_pos == self.pool.len() {
+                        println!("\n Inserting at end");
+                        self.pool.push(entry);
+                    } else {
+                        println!("\n Inserting at position: {}", insert_pos);
+                        self.pool.insert(insert_pos, entry);
+                    }
+
+                    // self.pool.push(entry.clone());
+                    let updated_children_count = self
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(10)
+                        .filter(|e| e.parent_hash == current.block_hash)
+                        .count();
+                    println!(
+                        "Updated children count for parent {}: {}",
+                        current.block_hash, updated_children_count
+                    );
+                    if updated_children_count >= CHILDREN as usize {
+                        if let Some(pos) = self
+                            .pool
+                            .iter()
+                            .position(|e| e.block_hash == current.block_hash)
+                        {
+                            self.pool.remove(pos);
+                        }
+                    }
+                } else {
+                    if let Some(pos) = self
+                        .pool
+                        .iter()
+                        .position(|e| e.block_hash == current.block_hash)
+                    {
+                        self.pool.remove(pos);
+                    }
+                }
+                // println!("\n pqp at add_entry:{:?}", &self.pool);
+            } else if let Some(next) = next_parent {
+                if entry.parent_hash == next.block_hash {
+                    println!("Adding entry to next parent");
+                    let expected_prev_commit =
+                        self.get_prev_pqp_commitment(entry.align, &treechain);
+
+                    let expected_next_prev_commit =
+                        self.get_next_prev_pqp_commitment(entry.align, &treechain);
+
+                    if entry.prev_pqp_commitment != expected_prev_commit {
+                        // Invalid commit → reject early
+                        println!(
+                            "\n entry:{:?} expected: {:?} , expected_next: {:?} ",
+                            entry.prev_pqp_commitment,
+                            expected_prev_commit,
+                            expected_next_prev_commit
+                        );
+
+                        if entry.prev_pqp_commitment != expected_next_prev_commit {
+                            println!("prev_pqp commit doesnt match");
+                            return;
+                        }
+                    }
+
+                    let exists = self
+                        .pool
+                        .iter()
+                        .rev()
+                        .take(CHILDREN as usize)
+                        .any(|e| e.align == entry.align && e.parent_hash == next.block_hash);
+                    if exists {
+                        println!("❌ Rejected: Same Aligned Block already taken for the parent");
+                        return;
+                    }
+                    println!("pushing entry to pool");
+                    self.pool.push(entry);
+                    if let Some(pos) = self
+                        .pool
+                        .iter()
+                        .position(|e| e.block_hash == current.block_hash)
+                    {
+                        println!(
+                            "✅ removing the pqp entry at pos:{} because next parent got children",
+                            pos
+                        );
+                        self.pool.remove(pos);
+                    }
+                }
+            }
+        } else {
+            let prev_parent = if let Some(latest) = latest {
+                self.pool
+                    .iter()
+                    .rev()
+                    .take(CHILDREN as usize)
+                    .find(|e| e.parent_hash != latest.parent_hash)
+            } else {
+                None
+            };
+
+            if Some(prev_parent.map(|e| e.block_hash.clone()))
+                == Some(Some(entry.parent_hash.clone()))
+            {
+                println!("❌ Rejected: Pointed to Prev Parent");
+            } else {
+                println!("❌ Rejected: No current parent and parent_hash mismatch");
+            }
+        }
+    }
+
+    pub fn add_entry_to_pqp(&mut self, entry: ParentQueueEntry, treechain: &TreeChain) {
+        let current_parent = self.current_parent().cloned();
+        print!(
+            "\n current_parent: {:?}",
+            current_parent.clone().unwrap().block_hash
+        );
+        // print!("\n pqp_pool: {:?}", self.pool);
+        let next_parent = self.next_parent().cloned();
+        // print!(
+        //     "\n next_parent: {:?}",
+        //     next_parent.clone().unwrap().block_hash
+        // );
         let latest = self.latest().cloned();
 
         if let Some(current) = current_parent {
@@ -204,6 +399,10 @@ impl PQP {
                         .iter()
                         .position(|e| e.block_hash == current.block_hash)
                     {
+                        println!(
+                            "✅ removing the pqp entry at pos:{} because next parent got children",
+                            pos
+                        );
                         self.pool.remove(pos);
                     }
                 }
@@ -356,12 +555,48 @@ impl PQP {
         }
     }
 
-    //This function needs to be changed
+    pub fn get_next_prev_pqp_commitment(&self, align: u8, treechain: &TreeChain) -> String {
+        if let Some(last) = self.latest() {
+            if let Some(current_parent) = self.current_parent() {
+                let current_children: Vec<&ParentQueueEntry> = self
+                    .pool
+                    .iter()
+                    .rev()
+                    .take(CHILDREN as usize)
+                    .filter(|e| e.parent_hash == current_parent.block_hash)
+                    .collect();
+                // println!(
+                //     "current_children: {:?}",
+                //     current_children
+                //         .iter()
+                //         .map(|e| e.block_hash.clone())
+                //         .collect::<Vec<_>>()
+                // );
+                for child in &current_children {
+                    if child.align == align {
+                        println!(
+                            "Found matching child and its pqp commitment is: {:?}",
+                            child.pqp_commitment.clone()
+                        );
+                        // align already taken
+                        return child.pqp_commitment.clone();
+                    }
+                }
+                if let Some(max_entry) = current_children.iter().max_by_key(|e| e.queue_index) {
+                    return max_entry.pqp_commitment.clone();
+                }
+            }
+        }
+        self.pool
+            .last()
+            .map(|e| e.pqp_commitment.clone())
+            .unwrap_or_default()
+    }
 
     pub fn get_prev_pqp_commitment(&self, align: u8, treechain: &TreeChain) -> String {
         if let Some(last) = self.latest() {
             if let Some(current_parent) = self.current_parent() {
-                // println!("current_parent: {:?}", current_parent);
+                println!("current_parent: {:?}", current_parent);
                 let prev_parent = if current_parent.block_hash == last.parent_hash {
                     let current_children: Vec<&ParentQueueEntry> = self
                         .pool
