@@ -1025,6 +1025,10 @@ impl P2PServer {
                                                             } else {
                                                                 false
                                                             }
+                                                        } else if target_parts.len()
+                                                            < block_parts.len()
+                                                        {
+                                                            true
                                                         } else {
                                                             false
                                                         }
