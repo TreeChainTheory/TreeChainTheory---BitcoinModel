@@ -831,6 +831,52 @@ impl Transaction {
 
         Ok(new_tx)
     }
+
+    // Helper function to create a sample transaction
+    pub fn create_sample_transaction() -> Transaction {
+        let input = TxInput {
+            txid: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            vout: 0,
+            script_sig: "4832".repeat(16).to_string(),
+            sequence: 0xffffffff,
+        };
+
+        let output = TxOutput {
+            value: 50000000, // 0.5 BTC in satoshis
+            script_pubkey: "76a9141a1b2c3d4e5f6789012345678901234567890abc88ac".to_string(), // P2PKH script
+        };
+
+        Transaction::new(
+            1, // version
+            0, // locktime
+            vec![input],
+            vec![output],
+            None, // no witnesses
+        )
+    }
+
+    // Helper function to create a second sample transaction with different output
+    pub fn create_sample_transaction_with_different_output() -> Transaction {
+        let input = TxInput {
+            txid: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+            vout: 0,
+            script_sig: "4831".repeat(16).to_string(),
+            sequence: 0xffffffff,
+        };
+
+        let output = TxOutput {
+            value: 25000000, // 0.25 BTC in satoshis
+            script_pubkey: "76a9141a1b2c3d4e5f6789012345678901234567890abc88ac".to_string(), // Different P2PKH script
+        };
+
+        Transaction::new(
+            1, // version
+            0, // locktime
+            vec![input],
+            vec![output],
+            None, // no witnesses
+        )
+    }
 }
 
 impl fmt::Display for Transaction {

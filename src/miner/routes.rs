@@ -1,6 +1,7 @@
 use crate::p2p_server::P2PServer;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
+use crate::wallet::transaction::Transaction;
 use actix_web::{HttpResponse, Responder, get, web};
 use num_bigint::BigUint;
 use std::sync::{Arc, Mutex as SyncMutex};
@@ -60,8 +61,12 @@ async fn start_mining(
     let pqp = Arc::clone(&pqp);
     let mining_flag = Arc::clone(&mining_flag);
 
-    let tx = vec!["tx1".to_string(), "tx2".to_string()];
+    // let tx = vec!["tx1".to_string(), "tx2".to_string()];
     let signature = "DUMMY_SIGNATURE_64_BYTES".to_string().repeat(3);
+
+    let tx1 = Transaction::create_sample_transaction_with_different_output();
+    let tx2 = Transaction::create_sample_transaction();
+    let tx = vec![tx1, tx2];
 
     tokio::spawn(async move {
         loop {

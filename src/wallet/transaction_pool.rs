@@ -240,6 +240,7 @@ impl TransactionPool {
 
         Ok(())
     }
+
     pub fn remove_transaction(&mut self, txid: &str) {
         if let Some(entry) = self.pool.remove(txid) {
             self.total_size -= entry.vsize;
@@ -334,6 +335,7 @@ impl TransactionPool {
         println!("Total selected transactions: {}", selected_txs.len());
         selected_txs
     }
+
     pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8) -> bool {
         if align == 0 {
             return true; // this is only for testing purposes

@@ -1,3 +1,5 @@
+use crate::config::EXPECTED_TIME;
+use crate::wallet::transaction::Transaction;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
@@ -50,7 +52,7 @@ pub struct Block {
     pub nTx: u32,
 
     /// List of transactions (will be changed later after buiilding transactions).
-    pub tx: Vec<String>,
+    pub tx: Vec<Transaction>,
 }
 
 impl Block {
@@ -68,7 +70,7 @@ impl Block {
         align: u8,
         pqp_entry: PQPEntry,
         nTx: u32,
-        tx: Vec<String>,
+        tx: Vec<Transaction>,
     ) -> Self {
         Self {
             hash,
@@ -167,7 +169,7 @@ impl Block {
         hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
         hasher.update(block.nTx.to_le_bytes());
         for tx in &block.tx {
-            hasher.update(tx.as_bytes());
+            hasher.update(hex::decode(&tx.txid).unwrap_or_default());
         }
 
         block.hash = hex::encode(hasher.finalize());
@@ -203,7 +205,7 @@ impl Block {
         hasher.update(hex::decode(&self.pqp_entry.signature).unwrap_or_default());
         hasher.update(self.nTx.to_le_bytes());
         for tx in &self.tx {
-            hasher.update(tx.as_bytes());
+            hasher.update(hex::decode(&tx.txid).unwrap_or_default());
         }
         let recalculated_hash = hex::encode(hasher.finalize());
 
@@ -228,15 +230,17 @@ impl Block {
 
     //next  mine_block_example( parentblock , align ,bits , pqp_entry , tx ) , merkle_root(tx) , calculate_target(bits),
 
-    pub fn merkle_root(tx: Vec<String>) -> String {
+    pub fn merkle_root(tx: Vec<Transaction>) -> String {
         if tx.is_empty() {
             return "0".repeat(64);
         }
         let mut hashes: Vec<String> = tx
             .iter()
             .map(|t| {
-                let hash = Sha256::digest(t.as_bytes()); // hash raw string bytes
-                hex::encode(Sha256::digest(hash)) // double SHA-256
+                // Hash transaction using double SHA-256 of its serialized form
+                let serialized = t.serialize_non_witness();
+                let hash = Sha256::digest(&serialized); // First SHA-256
+                hex::encode(Sha256::digest(hash)) // Second SHA-256
             })
             .collect();
 
@@ -280,5 +284,61 @@ impl Block {
             target = target >> (8 * (3 - exponent));
         }
         Some(target)
+    }
+
+    pub fn adjust_bits(
+        prev_bits: &str,
+        first_timestamp: u128,
+        last_timestamp: u128,
+    ) -> Option<String> {
+        // 1. Decode previous target
+        let prev_target = Self::calculate_target(prev_bits.to_string())?;
+
+        // 2. Calculate actual time span
+        let mut actual_time = (last_timestamp - first_timestamp) as i128;
+
+        // Expected = 2 weeks in seconds
+        let expected_time: i128 = EXPECTED_TIME;
+
+        // 3. Clamp adjustment between 1/4x and 4x
+        let min_time = expected_time / 4;
+        let max_time = expected_time * 4;
+        if actual_time < min_time {
+            actual_time = min_time;
+        }
+        if actual_time > max_time {
+            actual_time = max_time;
+        }
+
+        // 4. Compute new target
+        let mut new_target = prev_target * (actual_time as u128);
+        new_target /= expected_time as u128;
+
+        // 5. Convert target back into compact bits
+        Some(Self::target_to_bits(&new_target))
+    }
+
+    fn target_to_bits(target: &BigUint) -> String {
+        let mut target_bytes = target.to_bytes_be();
+        while !target_bytes.is_empty() && target_bytes[0] == 0 {
+            target_bytes.remove(0);
+        }
+
+        let exponent = target_bytes.len() as u8;
+        let mut mantissa: u32 = 0;
+
+        if exponent <= 3 {
+            mantissa = target_bytes
+                .iter()
+                .fold(0u32, |acc, &b| (acc << 8) | b as u32);
+            mantissa <<= 8 * (3 - exponent as usize);
+        } else {
+            mantissa = ((target_bytes[0] as u32) << 16)
+                | ((target_bytes[1] as u32) << 8)
+                | (target_bytes[2] as u32);
+        }
+
+        let compact: u32 = ((exponent as u32) << 24) | mantissa;
+        format!("{:08x}", compact)
     }
 }

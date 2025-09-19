@@ -1,6 +1,8 @@
 use crate::treechain;
 use crate::treechain::block::{Block, PQPEntry};
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
+use crate::wallet::transaction::Transaction;
+use crate::wallet::transaction::{TxInput, TxOutput};
 use num_bigint::BigUint;
 
 #[test]
@@ -14,16 +16,23 @@ fn test_block_genesis_block() {
 
 #[test]
 fn test_merkle_root_single_tx() {
-    let txs = vec!["abcd".repeat(16)];
-    let root = Block::merkle_root(txs.clone());
+    // Create a sample transaction
+    let sample_tx = Transaction::create_sample_transaction();
+
+    let txs = vec![sample_tx];
+    let root = Block::merkle_root(txs);
     assert_eq!(root.len(), 64);
     assert_ne!(root, "0".repeat(64));
 }
 
 #[test]
 fn test_merkle_root_two_txs() {
-    let txs = vec!["abcd".repeat(16), "1234".repeat(16)];
-    let root = Block::merkle_root(txs.clone());
+    // Create two sample transactions
+    let tx1 = Transaction::create_sample_transaction();
+    let tx2 = Transaction::create_sample_transaction_with_different_output();
+
+    let txs = vec![tx1, tx2];
+    let root = Block::merkle_root(txs);
     assert_eq!(root.len(), 64);
     assert_ne!(root, "0".repeat(64));
 }
@@ -36,33 +45,6 @@ fn test_target_calculation() {
     assert!(t > BigUint::from(0u32));
 }
 
-// #[test]
-// fn test_mining_block_example() {
-//     let mut pqp = PQP::new();
-//     let mut treechain = TreeChain::new();
-//     let parent = Block::genesis();
-//     let pqp_entry = PQPEntry {
-//         queue_index: 0,
-//         miner_address: "Miner1".to_string(),
-//         prev_pqp_commitment: parent.pqp_commitment.clone(),
-//         signature: "11".repeat(32),
-//     };
-
-//     let txs = vec!["txn_assbabc".repeat(8)];
-//     let mined = Block::mine_block_example(
-//         &mut pqp,
-//         &mut treechain,
-//         0,
-//         "207fffff".to_string(),
-//         pqp_entry,
-//         txs,
-//     );
-//     assert_eq!(mined.level, parent.level + 1);
-//     assert_eq!(mined.parent_hash, parent.hash);
-//     assert!(!mined.hash.is_empty());
-//     assert!(!mined.pqp_commitment.is_empty());
-// }
-
 #[test]
 fn test_calculate_hash_and_pqp_commitment() {
     let parent = Block::genesis();
@@ -72,6 +54,9 @@ fn test_calculate_hash_and_pqp_commitment() {
         prev_pqp_commitment: parent.pqp_commitment.clone(),
         signature: "22".repeat(32),
     };
+
+    // Create a sample transaction for the block
+    let sample_tx = Transaction::create_sample_transaction();
 
     let mut block = Block::new(
         "".to_string(),
@@ -87,7 +72,7 @@ fn test_calculate_hash_and_pqp_commitment() {
         1,
         pqp_entry,
         1,
-        vec!["deadbeef".to_string()],
+        vec![sample_tx],
     );
 
     Block::calculate_hash_and_pqp_commitment(&mut block);
