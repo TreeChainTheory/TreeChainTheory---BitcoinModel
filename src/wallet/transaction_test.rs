@@ -615,7 +615,7 @@ fn test_create_new_transaction() {
     // Setup TransactionPool and validate
     let mut pool = TransactionPool::new();
     pool.utxo_set = utxo_set.clone();
-    let result = pool.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64);
+    let result = pool.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64, &utxo_set);
     assert!(
         result.is_ok(),
         "Transaction validation failed: {:?}",
@@ -677,7 +677,7 @@ fn test_create_new_multisig_txn() {
     // Setup TransactionPool and validate
     let mut pool = TransactionPool::new();
     pool.utxo_set = utxo_set.clone();
-    let result = pool.validate_transaction(&multisig_tx, DEFAULT_MIN_FEE_RATE as f64);
+    let result = pool.validate_transaction(&multisig_tx, DEFAULT_MIN_FEE_RATE as f64, &utxo_set);
     assert!(
         result.is_ok(),
         "Multisig transaction validation failed: {:?}",
@@ -749,7 +749,7 @@ fn test_create_new_timelocked_cltv_txn() {
     // Setup TransactionPool and validate
     let mut pool = TransactionPool::new();
     pool.utxo_set = utxo_set.clone();
-    let result = pool.validate_transaction(&cltv_tx, DEFAULT_MIN_FEE_RATE as f64);
+    let result = pool.validate_transaction(&cltv_tx, DEFAULT_MIN_FEE_RATE as f64, &utxo_set);
     assert!(
         result.is_ok(),
         "CLTV transaction validation failed: {:?}",
@@ -822,7 +822,7 @@ fn test_create_new_timelocked_csv_txn() {
     // Setup TransactionPool and validate
     let mut pool = TransactionPool::new();
     pool.utxo_set = utxo_set.clone();
-    let result = pool.validate_transaction(&csv_tx, DEFAULT_MIN_FEE_RATE as f64);
+    let result = pool.validate_transaction(&csv_tx, DEFAULT_MIN_FEE_RATE as f64, &utxo_set);
     assert!(
         result.is_ok(),
         "CSV transaction validation failed: {:?}",

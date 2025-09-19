@@ -68,6 +68,8 @@ async fn start_mining(
     let tx2 = Transaction::create_sample_transaction();
     let tx = vec![tx1, tx2];
 
+    let tag = "WOW";
+
     tokio::spawn(async move {
         loop {
             if !*mining_flag.lock().await {

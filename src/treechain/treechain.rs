@@ -1433,6 +1433,7 @@ impl TreeChain {
         tx: Vec<Transaction>,
         miner_address: String,
         signature: String,
+        // tag: String,
     ) -> Option<Block> {
         let calc = self.calculate_qi(pqp, align);
         if let Some((queue_index, prev_pqp, parent_hash)) = calc {
@@ -1462,6 +1463,17 @@ impl TreeChain {
                 prev_pqp_commitment: prev_pqp,
                 signature,
             };
+
+            // let subsidy = Block::adjust_subsidy(queue_index as u64);
+            // let coinbase_txn = Transaction::new_coinbase(
+            //     1,
+            //     miner_address,
+            //     queue_index,
+            //     subsidy,
+            //     fees,
+            //     extra_nonce,
+            //     tag,
+            // );
 
             let mut block = Block::new(
                 "".to_string(), // hash (computed later)

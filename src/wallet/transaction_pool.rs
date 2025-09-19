@@ -50,6 +50,7 @@ impl TransactionPool {
         &self,
         tx: &Transaction,
         min_fee_rate: f64,
+        utxt_set: &UtxoSet,
     ) -> Result<(u64, usize, f64, HashSet<String>), String> {
         let vsize = self.calculate_vsize(tx);
         if vsize > MAX_TX_SIZE {
@@ -72,8 +73,7 @@ impl TransactionPool {
         let mut input_value = 0;
         let mut depends = HashSet::new();
         for input in &tx.vin {
-            let utxo = self
-                .utxo_set
+            let utxo = utxt_set
                 .get_utxo(&input.txid, input.vout)
                 .ok_or(format!("UTXO not found: {}:{}", input.txid, input.vout))?;
             input_value += utxo.out.value;
@@ -162,11 +162,11 @@ impl TransactionPool {
         Ok((fee, vsize, fee_rate, depends))
     }
 
-    pub fn add_transaction(&mut self, tx: Transaction) -> Result<(), String> {
+    pub fn add_transaction(&mut self, tx: Transaction, utxo_set: &UtxoSet) -> Result<(), String> {
         println!("Adding transaction to mempool: {}", tx.txid);
         // Validate transaction
         let (fee, vsize, fee_rate, depends) =
-            self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64)?;
+            self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)?;
 
         // Check mempool size limit
         if self.total_size + vsize > MAX_MEMPOOL_SIZE {
@@ -196,7 +196,7 @@ impl TransactionPool {
             }
         }
 
-        // Remove input UTXOs from the UTXO set
+        // Remove input UTXOs from the UTXO set in Transaction pool
         for input in &tx.vin {
             if self.utxo_set.has_utxo(&input.txid, input.vout) {
                 self.utxo_set.remove_utxo(&input.txid, input.vout);
@@ -349,11 +349,15 @@ impl TransactionPool {
         ((last_digit % CHILDREN as u32) + 1) == align as u32
     }
 
-    pub fn replace_transaction(&mut self, new_tx: Transaction) -> Result<(), String> {
+    pub fn replace_transaction(
+        &mut self,
+        new_tx: Transaction,
+        utxo_set: &UtxoSet,
+    ) -> Result<(), String> {
         println!("replace_transaction called for txid: {}", new_tx.txid);
         // Validate new transaction
         let (new_fee, new_vsize, new_fee_rate, new_depends) = self
-            .validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64)
+            .validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)
             .map_err(|e| format!("Validation failed for txid {}: {}", new_tx.txid, e))?;
 
         // Check if it replaces an existing transaction
@@ -419,7 +423,7 @@ impl TransactionPool {
         }
 
         // Add new transaction
-        self.add_transaction(new_tx)
+        self.add_transaction(new_tx, utxo_set)
     }
 
     pub fn parse_script_sig(script_sig: &str) -> Result<(String, String), String> {
@@ -499,10 +503,12 @@ impl TransactionPool {
             .collect()
     }
 
-    pub fn reorg(&mut self) {
+    pub fn reorg(&mut self, utxo_set: &UtxoSet) {
         let mut invalid_txids = Vec::new();
         for (txid, entry) in &self.pool {
-            if let Err(_) = self.validate_transaction(&entry.tx, DEFAULT_MIN_FEE_RATE as f64) {
+            if let Err(_) =
+                self.validate_transaction(&entry.tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)
+            {
                 invalid_txids.push(txid.clone());
             }
         }

@@ -1,4 +1,4 @@
-use crate::config::EXPECTED_TIME;
+use crate::config::{EXPECTED_TIME, HALVING_INTERVAL, INITIAL_SUBSIDY};
 use crate::wallet::transaction::Transaction;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
@@ -318,7 +318,7 @@ impl Block {
         Some(Self::target_to_bits(&new_target))
     }
 
-    fn target_to_bits(target: &BigUint) -> String {
+    pub fn target_to_bits(target: &BigUint) -> String {
         let mut target_bytes = target.to_bytes_be();
         while !target_bytes.is_empty() && target_bytes[0] == 0 {
             target_bytes.remove(0);
@@ -340,5 +340,16 @@ impl Block {
 
         let compact: u32 = ((exponent as u32) << 24) | mantissa;
         format!("{:08x}", compact)
+    }
+
+    pub fn adjust_subsidy(height: u64) -> u64 {
+        let halvings = height / HALVING_INTERVAL;
+
+        // If subsidy shifts beyond 64 halvings, return 0
+        if halvings >= 64 {
+            return 0;
+        }
+
+        INITIAL_SUBSIDY >> halvings
     }
 }
