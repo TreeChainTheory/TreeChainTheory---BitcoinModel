@@ -176,34 +176,25 @@ impl TransactionPool {
 
         // Check dependencies
         for parent_txid in &depends {
-            if !self.pool.contains_key(parent_txid) && !self.utxo_set.has_utxo(parent_txid, 0) {
-                return Err(format!("Parent transaction {} not found", parent_txid));
+            if let Some(parent) = self.pool.get_mut(parent_txid) {
+                parent.children.insert(tx.txid.clone());
+            } else {
+                return Err("Parent not in pool".to_string());
             }
         }
 
-        // Explicit check for conflicts
+        // Remove spent mempool UTXOs
         for input in &tx.vin {
-            if self.pool.values().any(|entry| {
-                entry
-                    .tx
-                    .vin
-                    .iter()
-                    .any(|in_| in_.txid == input.txid && in_.vout == input.vout)
-            }) {
-                return Err(format!(
-                    "Transaction {} conflicts with existing mempool transaction on input {}:{}",
-                    tx.txid, input.txid, input.vout
-                ));
-            }
-        }
-
-        // Remove input UTXOs from the UTXO set in Transaction pool
-        for input in &tx.vin {
-            if self.utxo_set.has_utxo(&input.txid, input.vout) {
+            if depends.contains(&input.txid) {
                 self.utxo_set.remove_utxo(&input.txid, input.vout);
             }
         }
 
+        // Add new UTXOs
+        for (i, _) in tx.vout.iter().enumerate() {
+            let utxo = Utxo::extract_utxo(&tx, i as u32, 0).unwrap();
+            self.utxo_set.add_utxo(tx.txid.clone(), i as u32, utxo);
+        }
         // Add to mempool
         let txid = tx.txid.clone();
         let entry = MempoolEntry {
@@ -221,24 +212,6 @@ impl TransactionPool {
         self.pool.insert(txid.clone(), entry.clone());
         self.total_size += vsize;
 
-        // Update children of parent transactions
-        for parent_txid in &entry.depends {
-            if let Some(parent_entry) = self.pool.get_mut(parent_txid) {
-                parent_entry.children.insert(txid.clone());
-            }
-        }
-
-        // Add transaction outputs to mempool UTXO set
-        for (vout_idx, out) in tx.vout.iter().enumerate() {
-            let utxo = Utxo::new(out.clone(), 0, false);
-            println!(
-                "Adding UTXO to set: for txn :{} ,  {:?}",
-                txid.clone(),
-                utxo.out
-            );
-            self.utxo_set.add_utxo(txid.clone(), vout_idx as u32, utxo);
-        }
-
         Ok(())
     }
 
@@ -246,25 +219,35 @@ impl TransactionPool {
         if let Some(entry) = self.pool.remove(txid) {
             self.total_size -= entry.vsize;
 
-            // Remove outputs from mempool UTXO set
-            for vout in 0..entry.tx.vout.len() as u32 {
-                self.utxo_set.remove_utxo(txid, vout);
+            // Recursively remove children first
+            let children = entry.children.clone();
+            for child in children {
+                self.remove_transaction(&child);
             }
 
-            // Update parents and children
-            for parent_txid in entry.depends {
-                if let Some(parent_entry) = self.pool.get_mut(&parent_txid) {
-                    parent_entry.children.remove(txid);
+            // Remove its UTXOs
+            for i in 0..entry.tx.vout.len() as u32 {
+                self.utxo_set.remove_utxo(&entry.tx.txid, i);
+            }
+
+            // Restore spent mempool UTXOs
+            for input in &entry.tx.vin {
+                if entry.depends.contains(&input.txid) {
+                    if let Some(parent) = self.pool.get(&input.txid) {
+                        let utxo = Utxo::extract_utxo(&parent.tx, input.vout, 0).unwrap();
+                        self.utxo_set.add_utxo(input.txid.clone(), input.vout, utxo);
+                    }
                 }
             }
-            for child_txid in entry.children {
-                if let Some(child_entry) = self.pool.get_mut(&child_txid) {
-                    child_entry.depends.remove(txid);
+
+            // Remove from parents' children
+            for parent_txid in entry.depends {
+                if let Some(parent) = self.pool.get_mut(&parent_txid) {
+                    parent.children.remove(txid);
                 }
             }
         }
     }
-
     pub fn evict_low_fee_transactions(&mut self, required_space: usize) -> Result<(), String> {
         let mut sorted_entries: Vec<(&String, &MempoolEntry)> = self.pool.iter().collect();
         sorted_entries.sort_by(|a, b| a.1.fee_rate.partial_cmp(&b.1.fee_rate).unwrap());
