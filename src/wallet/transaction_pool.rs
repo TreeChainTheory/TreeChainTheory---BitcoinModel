@@ -75,6 +75,7 @@ impl TransactionPool {
         for input in &tx.vin {
             let utxo = utxt_set
                 .get_utxo(&input.txid, input.vout)
+                .or_else(|| self.utxo_set.get_utxo(&input.txid, input.vout))
                 .ok_or(format!("UTXO not found: {}:{}", input.txid, input.vout))?;
             input_value += utxo.out.value;
 

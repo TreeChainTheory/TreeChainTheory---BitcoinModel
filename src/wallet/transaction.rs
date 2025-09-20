@@ -4,7 +4,6 @@ use crate::wallet::wallet::Wallet;
 use hex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::fmt;
 
 pub const SIGHASH_ALL: u32 = 0x01;

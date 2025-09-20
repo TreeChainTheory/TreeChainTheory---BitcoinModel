@@ -2,10 +2,9 @@ use crate::chain_util::ChainUtil;
 use k256::EncodedPoint;
 use k256::ecdsa::Signature;
 use k256::ecdsa::signature::Signer;
-use k256::ecdsa::signature::SignerMut;
+use k256::ecdsa::signature::Verifier;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use std::fmt;
 
 pub struct Wallet {
     pub key_pair: SigningKey,
@@ -34,5 +33,37 @@ impl Wallet {
     pub fn sign_data(&self, data: &[u8]) -> String {
         let signature: Signature = self.key_pair.sign(data);
         hex::encode(signature.to_der().to_bytes())
+    }
+
+    pub fn verify_data_signature(data: &[u8], signature_hex: &str, pubkey_hex: &str) -> bool {
+        // Decode the hex-encoded public key
+        let pubkey_bytes = match hex::decode(pubkey_hex) {
+            Ok(bytes) => bytes,
+            Err(_) => return false,
+        };
+
+        let encoded_point = match EncodedPoint::from_bytes(&pubkey_bytes) {
+            Ok(point) => point,
+            Err(_) => return false,
+        };
+
+        let verifying_key = match VerifyingKey::from_encoded_point(&encoded_point) {
+            Ok(key) => key,
+            Err(_) => return false,
+        };
+
+        // Decode signature
+        let signature_bytes = match hex::decode(signature_hex) {
+            Ok(bytes) => bytes,
+            Err(_) => return false,
+        };
+
+        let signature = match Signature::from_der(&signature_bytes) {
+            Ok(sig) => sig,
+            Err(_) => return false,
+        };
+
+        // Verify
+        verifying_key.verify(data, &signature).is_ok()
     }
 }

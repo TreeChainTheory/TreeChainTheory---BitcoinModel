@@ -2,8 +2,11 @@ use crate::config::{BITS, CHILDREN};
 use crate::treechain;
 use crate::treechain::block::{Block, PQPEntry};
 use crate::wallet::transaction::Transaction;
+use crate::wallet::transaction_pool::TransactionPool;
+use crate::wallet::utxo::{Utxo, UtxoSet};
 use indexmap::IndexMap;
 use num_bigint::BigUint;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 /// Represents an entry in the global PQP (Pending Queue of Parents)
 use sha2::{Digest, Sha256};
@@ -766,6 +769,7 @@ impl TreeChain {
         blocks.insert(genesis_hash.clone(), genesis);
         let mut children_map = IndexMap::new();
         children_map.insert(genesis_hash, vec![]);
+
         TreeChain {
             blocks,
             children_map,
@@ -1423,17 +1427,60 @@ impl TreeChain {
             return false;
         }
         self.add_block(block.clone());
-        true
+        if let Some(block) = self.get_block(&block.hash.clone()) {
+            return true;
+        }
+        false
+    }
+
+    pub fn calculate_total_fee(
+        txns: &[Transaction],
+        utxo_set: &UtxoSet,
+        txn_pool: &TransactionPool,
+    ) -> Result<u64, String> {
+        let mut total_input_value: u64 = 0;
+        let mut total_output_value: u64 = 0;
+
+        for txn in txns {
+            // Sum inputs
+            for input in &txn.vin {
+                let utxo = if let Some(utxo) = utxo_set.get_utxo(&input.txid, input.vout) {
+                    utxo
+                } else if let Some(utxo) = txn_pool.utxo_set.get_utxo(&input.txid, input.vout) {
+                    utxo
+                } else {
+                    return Err(format!(
+                        "UTXO not found for input {}:{}",
+                        input.txid, input.vout
+                    ));
+                };
+                total_input_value += utxo.out.value;
+            }
+
+            // Sum outputs
+            total_output_value += txn.vout.iter().map(|out| out.value).sum::<u64>();
+        }
+
+        if total_output_value > total_input_value {
+            return Err(format!(
+                "Total output value {} exceeds total input value {}",
+                total_output_value, total_input_value
+            ));
+        }
+
+        Ok(total_input_value - total_output_value)
     }
 
     pub fn prepare_block_template(
         &self,
         pqp: &mut PQP,
         align: u8,
-        tx: Vec<Transaction>,
+        mut tx: Vec<Transaction>,
         miner_address: String,
         signature: String,
-        // tag: String,
+        tag: String,
+        utxo_set: &UtxoSet,
+        txn_pool: &TransactionPool,
     ) -> Option<Block> {
         let calc = self.calculate_qi(pqp, align);
         if let Some((queue_index, prev_pqp, parent_hash)) = calc {
@@ -1448,33 +1495,44 @@ impl TreeChain {
             // Assume a method to calculate position; replace with your actual logic (e.g., based on align/parent.position)
             let position = format!("{}.{}", parent_block.position, align); // Placeholder; adjust
 
-            let merkle_root = Block::merkle_root(tx.clone());
+            let pqp_entry = PQPEntry {
+                queue_index,
+                miner_address: miner_address.clone(),
+                prev_pqp_commitment: prev_pqp,
+                signature,
+            };
 
+            let subsidy = Block::adjust_subsidy(queue_index as u64);
+            let fee = match Self::calculate_total_fee(&tx, utxo_set, txn_pool) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("Fee calculation error: {}", e);
+                    return None;
+                }
+            };
+
+            let mut rng = rand::thread_rng();
+            let extra_nonce: u64 = rng.gen_range(0..u64::MAX) ^ (queue_index as u64);
+            let extra_nonce_str = extra_nonce.to_string();
+
+            let coinbase_txn = Transaction::new_coinbase(
+                1,
+                miner_address,
+                queue_index,
+                subsidy,
+                fee,
+                &extra_nonce_str,
+                &tag.clone(),
+            );
+
+            tx.insert(0, coinbase_txn);
+            let merkle_root = Block::merkle_root(tx.clone());
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_else(|_| Duration::from_secs(0))
                 .as_millis();
 
             let bits = crate::config::BITS.to_string(); // Or however bits are determined
-
-            let pqp_entry = PQPEntry {
-                queue_index,
-                miner_address,
-                prev_pqp_commitment: prev_pqp,
-                signature,
-            };
-
-            // let subsidy = Block::adjust_subsidy(queue_index as u64);
-            // let coinbase_txn = Transaction::new_coinbase(
-            //     1,
-            //     miner_address,
-            //     queue_index,
-            //     subsidy,
-            //     fees,
-            //     extra_nonce,
-            //     tag,
-            // );
-
             let mut block = Block::new(
                 "".to_string(), // hash (computed later)
                 "".to_string(), // pqp_commitment (computed later)

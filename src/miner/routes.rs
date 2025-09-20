@@ -2,6 +2,8 @@ use crate::p2p_server::P2PServer;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
 use crate::wallet::transaction::Transaction;
+use crate::wallet::transaction_pool::TransactionPool;
+use crate::wallet::utxo::UtxoSet;
 use actix_web::{HttpResponse, Responder, get, web};
 use num_bigint::BigUint;
 use std::sync::{Arc, Mutex as SyncMutex};
@@ -19,6 +21,8 @@ async fn start_mining(
         String,
         u8,
         Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
     let (
@@ -31,6 +35,8 @@ async fn start_mining(
         miner_address,
         align,
         chain_length,
+        utxo_set,
+        txn_pool,
     ) = {
         let d = data.as_ref();
         (
@@ -43,6 +49,8 @@ async fn start_mining(
             d.6.clone(),
             d.7,
             Arc::clone(&d.8),
+            Arc::clone(&d.9),
+            Arc::clone(&d.10),
         )
     };
 
@@ -105,12 +113,17 @@ async fn start_mining(
                 {
                     let tree = treechain.lock().await;
                     let mut pqp_guard = pqp.lock().await;
+                    let txn_pool = txn_pool.lock().await;
+                    let utxo_set = utxo_set.lock().await;
                     block_template_opt = tree.prepare_block_template(
                         &mut pqp_guard,
                         align,
                         tx.clone(),
                         miner_address.clone(),
                         signature.clone(),
+                        tag.to_string(),
+                        &utxo_set,
+                        &txn_pool,
                     );
                 }
 
@@ -216,9 +229,11 @@ async fn stop_mining(
         String,
         u8,
         Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (_, _, mining_flag, _, _, _, _, _, _) = data.as_ref();
+    let (_, _, mining_flag, _, _, _, _, _, _, _, _) = data.as_ref();
     let mut mining = mining_flag.lock().await;
 
     if !*mining {
@@ -247,9 +262,11 @@ async fn get_blocks(
         String,
         u8,
         Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (treechain, _, _, _, _, _, _, _, _) = data.as_ref();
+    let (treechain, _, _, _, _, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
 
     let blocks: Vec<Block> = chain
@@ -277,9 +294,11 @@ async fn get_pqp(
         String,
         u8,
         Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (_, pqp, _, _, _, _, _, _, _) = data.as_ref();
+    let (_, pqp, _, _, _, _, _, _, _, _, _) = data.as_ref();
     let pqp = pqp.lock().await;
     let pool: Vec<ParentQueueEntry> = pqp.pool.clone();
     HttpResponse::Ok().json(serde_json::json!({
@@ -300,9 +319,11 @@ async fn verify_tree(
         String,
         u8,
         Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (treechain, pqp, _, _, _, _, _, _, _) = data.as_ref();
+    let (treechain, pqp, _, _, _, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
     let pqp_guard = pqp.lock().await;
 
@@ -326,9 +347,11 @@ async fn verify_pqp(
         String,
         u8,
         Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (treechain, pqp, _, _, _, _, _, _, _) = data.as_ref();
+    let (treechain, pqp, _, _, _, _, _, _, _, _, _) = data.as_ref();
     let chain = treechain.lock().await;
     let pqp_guard = pqp.lock().await;
 
