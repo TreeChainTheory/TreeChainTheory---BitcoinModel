@@ -1,9 +1,9 @@
 //1st terminal cargo run --bin TreeChainTheorey
-//2nd terminal ALIGN=2 HTTP_PORT=3002 P2P_PORT=5002 MINER_ADDRESS=MINER_2nd cargo run --bin TreeChainTheorey
-//3rd terminal ALIGN=3 HTTP_PORT=3003 P2P_PORT=5003 MINER_ADDRESS=MINER_3rd cargo run --bin TreeChainTheorey
-//4th terminal ALIGN=1 HTTP_PORT=3004 P2P_PORT=5004 MINER_ADDRESS=MINER_4th cargo run --bin TreeChainTheorey
-//5th terminal ALIGN=2 HTTP_PORT=3005 P2P_PORT=5005 MINER_ADDRESS=MINER_5th cargo run --bin TreeChainTheorey
-//6th terminal ALIGN=3 HTTP_PORT=3006 P2P_PORT=5006 MINER_ADDRESS=MINER_6th cargo run --bin TreeChainTheorey
+//2nd terminal ALIGN=2 HTTP_PORT=3002 P2P_PORT=5002 cargo run --bin TreeChainTheorey
+//3rd terminal ALIGN=3 HTTP_PORT=3003 P2P_PORT=5003 cargo run --bin TreeChainTheorey
+//4th terminal ALIGN=1 HTTP_PORT=3004 P2P_PORT=5004 cargo run --bin TreeChainTheorey
+//5th terminal ALIGN=2 HTTP_PORT=3005 P2P_PORT=5005 cargo run --bin TreeChainTheorey
+//6th terminal ALIGN=3 HTTP_PORT=3006 P2P_PORT=5006 cargo run --bin TreeChainTheorey
 
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;

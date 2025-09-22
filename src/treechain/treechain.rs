@@ -1440,11 +1440,11 @@ impl TreeChain {
         sig_data.extend(hex::decode(&block.pqp_entry.miner_address).unwrap_or_default());
         sig_data.extend(hex::decode(&block.pqp_entry.prev_pqp_commitment).unwrap_or_default());
 
-        if !Wallet::verify_data_signature(
-            &sig_data,
-            &block.pqp_entry.signature,
-            &block.pqp_entry.miner_address,
-        ) {
+        let combined_signature = &block.pqp_entry.signature;
+        let pubkey_hex = &combined_signature[block.pqp_entry.signature.len() - 66..]; // Last 66 chars (33 bytes hex)
+        let signature_hex = &combined_signature[..combined_signature.len() - 66];
+
+        if !Wallet::verify_data_signature(&sig_data, signature_hex, pubkey_hex) {
             println!(
                 "❌ PQP entry signature verification failed for block: {}",
                 block.hash
@@ -1489,9 +1489,17 @@ impl TreeChain {
             return false;
         }
 
-        // Assuming miner_address is public key hex, verify coinbase script_pubkey matches hash of miner_address
-        let pubkey_bytes = hex::decode(&block.pqp_entry.miner_address).unwrap_or_default();
-        let expected_pubkey_hash = hex::encode(ChainUtil::hash160(&pubkey_bytes));
+        let expected_pubkey_hash =
+            match ChainUtil::pubkey_hash_from_address(&block.pqp_entry.miner_address) {
+                Ok(hash) => hash,
+                Err(e) => {
+                    println!(
+                        "❌ Failed to derive pubkey hash from miner address in block {}: {}",
+                        block.hash, e
+                    );
+                    return false;
+                }
+            };
         let expected_script = Transaction::create_p2pkh_script(&expected_pubkey_hash);
         if coinbase.vout[0].script_pubkey != expected_script {
             println!(

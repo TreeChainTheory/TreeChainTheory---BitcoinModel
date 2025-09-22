@@ -7,7 +7,7 @@ use crate::wallet::transaction::Transaction;
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
 use crate::wallet::wallet::Wallet;
-use actix_web::{HttpResponse, Responder, get, web};
+use actix_web::{HttpResponse, Responder, get, post, web};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex as SyncMutex};
@@ -73,13 +73,10 @@ async fn start_mining(
     let pqp = Arc::clone(&pqp);
     let mining_flag = Arc::clone(&mining_flag);
 
-    // let tx = vec!["tx1".to_string(), "tx2".to_string()];
-    let signature = "DUMMY_SIGNATURE_64_BYTES".to_string().repeat(3); //this has to be changed 
-
-    //this should be updated to txn_pool.get_txns_by_align
-    let tx1 = Transaction::create_sample_transaction_with_different_output();
-    let tx2 = Transaction::create_sample_transaction();
-    let tx = vec![tx1, tx2];
+    // //this should be updated to txn_pool.get_txns_by_align
+    // let tx1 = Transaction::create_sample_transaction_with_different_output();
+    // let tx2 = Transaction::create_sample_transaction();
+    let tx = vec![];
 
     let tag = "WOW";
 
@@ -114,6 +111,19 @@ async fn start_mining(
             if let Some((queue_index, prev_pqp, parent_hash)) = calc {
                 *current_mining_position.lock().unwrap() = Some(parent_pos.clone());
 
+                let miner_address = wallet.address.clone();
+                let mut sig_data = Vec::new();
+                sig_data.extend_from_slice(&queue_index.to_le_bytes());
+                sig_data.extend(hex::decode(&parent_hash).unwrap_or_default());
+                sig_data.extend(hex::decode(&miner_address).unwrap_or_default());
+                sig_data.extend(hex::decode(&prev_pqp).unwrap_or_default());
+
+                // Sign the data
+                let signature = wallet.sign_data(&sig_data);
+
+                // CONCATENATE signature with wallet.public_key
+                let combined_signature = format!("{}{}", signature, wallet.public_key);
+
                 let block_template_opt;
                 {
                     let tree = treechain.lock().await;
@@ -125,7 +135,7 @@ async fn start_mining(
                         align,
                         tx.clone(),
                         wallet.address.clone(),
-                        signature.clone(),
+                        combined_signature.clone(),
                         tag.to_string(),
                         &utxo_set,
                         &txn_pool,
@@ -165,6 +175,8 @@ async fn start_mining(
                     if let Some(mined_block) = mined_result {
                         let mut tree = treechain.lock().await;
                         let mut pqp_guard = pqp.lock().await;
+                        let mut utxo_set = utxo_set.lock().await;
+                        let mut txn_pool = txn_pool.lock().await;
 
                         let pqp_entry = TreeChain::parent_queue_entry_from_block(&mined_block);
                         pqp_guard.add_entry_to_pqp(pqp_entry.clone(), &tree);
@@ -177,10 +189,16 @@ async fn start_mining(
                             .any(|e| e.block_hash == pqp_entry.block_hash);
 
                         if exist {
-                            if tree.verify_and_add_block(&mined_block) {
+                            if tree.verify_and_add_block_to_tree(
+                                &mined_block,
+                                &mut utxo_set,
+                                &mut txn_pool,
+                            ) {
                                 println!("Successfully mined block: {}", mined_block.hash);
                                 drop(tree);
                                 drop(pqp_guard);
+                                drop(utxo_set);
+                                drop(txn_pool);
                                 p2p_server
                                     .clone()
                                     .send_minedblock(mined_block.clone())
@@ -381,7 +399,7 @@ struct CreateSimpleTxnRequest {
     fee: Option<u64>,
 }
 
-#[get("/create_txn")]
+#[post("/create_txn")]
 async fn create_txn(
     data: web::Data<(
         Arc<Mutex<TreeChain>>,
@@ -450,7 +468,7 @@ async fn create_txn(
 
     // Create the transaction
     match Transaction::create_new_transaction(
-        &wallet,
+        &wallet.clone(),
         &utxo_set_guard,
         payload.value,
         fee,
@@ -474,25 +492,8 @@ async fn create_txn(
                 .collect();
 
             // Now sign using the collected data
-            for (i, (txid, vout, script_pubkey, value)) in input_data.iter().enumerate() {
-                let sighash = tx.compute_sighash(i, script_pubkey, *value, SIGHASH_ALL);
-
-                let sig_hex = wallet.sign_data(&sighash);
-                tx.vin[i].script_sig = format!(
-                    "{}{}{}",
-                    format!("{:02x}", sig_hex.len() + 1), // sig length + sighash type
-                    sig_hex,
-                    format!(
-                        "{}{}",
-                        format!("{:02x}", wallet.public_key.len()), // pubkey length
-                        wallet.public_key
-                    )
-                );
-            }
-
-            // Compute final txid after signing
-            tx.txid = tx.compute_non_witness_txid();
-            tx.hash = tx.compute_hash();
+            tx.clone()
+                .sign_transaction(&wallet, &mut tx, &utxo_set_guard);
 
             // Lock transaction pool for adding
             let mut txn_pool_guard = txn_pool.lock().await;
