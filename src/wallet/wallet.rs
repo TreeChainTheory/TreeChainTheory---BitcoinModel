@@ -1,4 +1,7 @@
 use crate::chain_util::ChainUtil;
+use crate::wallet::transaction::Transaction;
+use crate::wallet::utxo::Utxo;
+use crate::wallet::utxo::UtxoSet;
 use k256::EncodedPoint;
 use k256::ecdsa::Signature;
 use k256::ecdsa::signature::Signer;
@@ -6,6 +9,7 @@ use k256::ecdsa::signature::Verifier;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Wallet {
     pub key_pair: SigningKey,
     pub public_key: String,
@@ -65,5 +69,60 @@ impl Wallet {
 
         // Verify
         verifying_key.verify(data, &signature).is_ok()
+    }
+
+    pub fn get_balance(address: &str, utxo_set: &UtxoSet) -> u64 {
+        // Get the public key hash from the address
+        let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
+            Ok(hash) => hash,
+            Err(_) => {
+                println!("❌ Invalid address: {}", address);
+                return 0;
+            }
+        };
+
+        // Calculate the expected P2PKH script_pubkey for this address
+        let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
+
+        // Sum the value of all UTXOs with matching script_pubkey
+        let balance = utxo_set
+            .utxos
+            .values()
+            .filter(|utxo| utxo.out.script_pubkey == expected_script)
+            .map(|utxo| utxo.out.value)
+            .sum::<u64>();
+
+        println!(
+            "✅ Balance for address {} (pkhash: {}): {} satoshis",
+            address, pubkey_hash, balance
+        );
+
+        balance
+    }
+
+    pub fn get_utxos_for_address<'a>(
+        address: &'a str,
+        utxo_set: &'a UtxoSet,
+    ) -> Vec<(String, u32, &'a Utxo)> {
+        let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
+            Ok(hash) => hash,
+            Err(_) => {
+                println!("❌ Invalid address: {}", address);
+                return Vec::new();
+            }
+        };
+
+        let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
+
+        let utxos = utxo_set
+            .utxos
+            .iter()
+            .filter(|((_, _), utxo)| utxo.out.script_pubkey == expected_script)
+            .map(|((txid, vout), utxo)| (txid.clone(), *vout, utxo))
+            .collect::<Vec<_>>();
+
+        println!("✅ Found {} UTXOs for address {}", utxos.len(), address);
+
+        utxos
     }
 }

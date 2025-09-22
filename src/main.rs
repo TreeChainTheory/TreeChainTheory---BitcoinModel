@@ -9,6 +9,7 @@ use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
 use config::CHILDREN;
 use treechain::treechain::{PQP, TreeChain};
+use wallet::wallet::Wallet;
 
 use actix_web::{App, HttpServer, web};
 use dotenv::dotenv;
@@ -39,10 +40,12 @@ async fn main() {
         val
     }
 
+    let wallet = Wallet::new();
+
     let http_port = env::var("HTTP_PORT").unwrap_or_else(|_| "3001".into());
     let p2p_port = env::var("P2P_PORT").unwrap_or_else(|_| "5001".into());
     let peers = env::var("PEERS").unwrap_or_else(|_| "".into());
-    let miner_address = env::var("MINER_ADDRESS").unwrap_or_else(|_| "Miner 123".to_string());
+    let miner_address = wallet.clone().address;
     let align = get_align();
 
     println!("Starting HTTP server on http://localhost:{}", http_port);
@@ -60,8 +63,11 @@ async fn main() {
     let p2p_server = P2PServer::start_p2p_server(
         p2p_port.clone(),
         peers.clone(),
+        miner_address.clone(),
         Arc::clone(&treechain),
         Arc::clone(&pqp),
+        Arc::clone(&utxo_set),
+        Arc::clone(&transaction_pool),
         Arc::clone(&current_mining_position),
         Arc::clone(&abort_mining),
         Arc::clone(&chain_length),
@@ -76,7 +82,7 @@ async fn main() {
                 Arc::clone(&p2p_server),
                 Arc::clone(&current_mining_position),
                 Arc::clone(&abort_mining),
-                miner_address.clone(),
+                wallet.clone(),
                 align,
                 Arc::clone(&chain_length),
                 Arc::clone(&utxo_set),

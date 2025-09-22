@@ -1,9 +1,11 @@
+use crate::chain_util::ChainUtil;
 use crate::config::{BITS, CHILDREN};
 use crate::treechain;
 use crate::treechain::block::{Block, PQPEntry};
 use crate::wallet::transaction::Transaction;
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::{Utxo, UtxoSet};
+use crate::wallet::wallet::Wallet;
 use indexmap::IndexMap;
 use num_bigint::BigUint;
 use rand::Rng;
@@ -1413,6 +1415,147 @@ impl TreeChain {
             signature: block.pqp_entry.signature.clone(),
             pqp_commitment: block.pqp_commitment.clone(),
         }
+    }
+
+    pub fn verify_and_add_block_to_tree(
+        &mut self,
+        block: &Block,
+        utxo_set: &mut UtxoSet,
+        txn_pool: &mut TransactionPool,
+    ) -> bool {
+        if !block.verify_hash_pqp_commitment() {
+            println!("❌ Block verification failed for hash: {}", block.hash);
+            return false;
+        }
+
+        if block.level != 0 && !self.blocks.contains_key(&block.parent_hash) {
+            println!("❌ Parent block missing for block: {}", block.hash);
+            return false;
+        }
+
+        // Verify PQP entry signature
+        let mut sig_data = Vec::new();
+        sig_data.extend_from_slice(&block.pqp_entry.queue_index.to_le_bytes());
+        sig_data.extend(hex::decode(&block.parent_hash).unwrap_or_default());
+        sig_data.extend(hex::decode(&block.pqp_entry.miner_address).unwrap_or_default());
+        sig_data.extend(hex::decode(&block.pqp_entry.prev_pqp_commitment).unwrap_or_default());
+
+        if !Wallet::verify_data_signature(
+            &sig_data,
+            &block.pqp_entry.signature,
+            &block.pqp_entry.miner_address,
+        ) {
+            println!(
+                "❌ PQP entry signature verification failed for block: {}",
+                block.hash
+            );
+            return false;
+        }
+
+        // Verify Merkle root
+        let computed_merkle_root = Block::merkle_root(block.tx.clone());
+        if computed_merkle_root != block.merkle_root {
+            println!("❌ Merkle root mismatch for block: {}", block.hash);
+            return false;
+        }
+
+        // Verify each transaction (skipping coinbase as validate_transaction expects user txns)
+        if block.tx.is_empty() {
+            println!("❌ Block has no transactions: {}", block.hash);
+            return false;
+        }
+
+        // Basic coinbase validation
+        let coinbase = &block.tx[0];
+        if coinbase.vin.len() != 1
+            || coinbase.vin[0].txid != "00".repeat(32)
+            || coinbase.vin[0].vout != u32::MAX
+        {
+            println!("❌ Invalid coinbase transaction in block: {}", block.hash);
+            return false;
+        }
+
+        let subsidy = Block::adjust_subsidy(block.pqp_entry.queue_index as u64);
+        let fee = match Self::calculate_total_fee(&block.tx[1..], utxo_set, txn_pool) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("❌ Fee calculation failed for block {}: {}", block.hash, e);
+                return false;
+            }
+        };
+
+        if coinbase.vout.len() != 1 || coinbase.vout[0].value != subsidy + fee {
+            println!("❌ Invalid coinbase value in block: {}", block.hash);
+            return false;
+        }
+
+        // Assuming miner_address is public key hex, verify coinbase script_pubkey matches hash of miner_address
+        let pubkey_bytes = hex::decode(&block.pqp_entry.miner_address).unwrap_or_default();
+        let expected_pubkey_hash = hex::encode(ChainUtil::hash160(&pubkey_bytes));
+        let expected_script = Transaction::create_p2pkh_script(&expected_pubkey_hash);
+        if coinbase.vout[0].script_pubkey != expected_script {
+            println!(
+                "❌ Coinbase script_pubkey does not match miner in block: {}",
+                block.hash
+            );
+            return false;
+        }
+
+        // Validate non-coinbase transactions
+        for tx in &block.tx[1..] {
+            if let Err(e) = txn_pool.validate_transaction(tx, 0.0, utxo_set) {
+                println!(
+                    "❌ Transaction validation failed in block {}: {}",
+                    block.hash, e
+                );
+                return false;
+            }
+        }
+
+        self.add_block(block.clone());
+        // Update UTXO set after successfully adding block
+        if let Some(_) = self.get_block(&block.hash) {
+            //remove from txn pool
+            for tx in &block.tx {
+                txn_pool.remove_confirmed_txn(&tx.txid);
+            }
+
+            // Remove spent UTXOs (all inputs from all transactions)
+            for tx in &block.tx {
+                for input in &tx.vin {
+                    // Skip coinbase input (it doesn't spend a real UTXO)
+                    if tx.txid == block.tx[0].txid
+                        && input.txid == "00".repeat(32)
+                        && input.vout == u32::MAX
+                    {
+                        continue;
+                    }
+                    // Remove the spent UTXO
+                    utxo_set.remove_utxo(&input.txid, input.vout);
+                }
+            }
+
+            // Add new UTXOs from transaction outputs
+            for tx in &block.tx {
+                for (vout_index, output) in tx.vout.iter().enumerate() {
+                    let utxo = Utxo::new(
+                        output.clone(),
+                        block.pqp_entry.queue_index, // Use block's queue_index
+                        tx.txid == block.tx[0].txid, // True if this is the coinbase transaction
+                    );
+                    utxo_set.add_utxo(tx.txid.clone(), vout_index as u32, utxo);
+                }
+            }
+
+            println!(
+                "✅ Updated UTXO set for block: {} (added {} new UTXOs)",
+                block.hash,
+                block.tx.iter().map(|tx| tx.vout.len()).sum::<usize>()
+            );
+            return true;
+        }
+
+        false
     }
 
     pub fn verify_and_add_block(&mut self, block: &Block) -> bool {

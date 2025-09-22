@@ -9,6 +9,8 @@ use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::ParentQueueEntry;
 use crate::treechain::treechain::{PQP, TreeChain};
+use crate::wallet::transaction_pool::TransactionPool;
+use crate::wallet::utxo::UtxoSet;
 use k256::elliptic_curve::bigint::U64;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -53,6 +55,8 @@ pub struct SyncState {
 pub struct P2PServer {
     pub treechain: Arc<Mutex<TreeChain>>,
     pub pqp: Arc<Mutex<PQP>>,
+    pub utxo_set: Arc<Mutex<UtxoSet>>,
+    pub txn_pool: Arc<Mutex<TransactionPool>>,
     pub peer_lengths: Arc<Mutex<HashMap<String, (u64, u64)>>>,
     pub connected_peers: Arc<Mutex<HashSet<String>>>,
     pub peer_writers: Arc<Mutex<HashMap<String, Arc<Mutex<OwnedWriteHalf>>>>>,
@@ -70,6 +74,8 @@ impl P2PServer {
     pub fn new(
         treechain: Arc<Mutex<TreeChain>>,
         pqp: Arc<Mutex<PQP>>,
+        utxo_set: Arc<Mutex<UtxoSet>>,
+        txn_pool: Arc<Mutex<TransactionPool>>,
         _peers: Vec<String>,
         current_mining_position: Arc<SyncMutex<Option<String>>>,
         abort_mining: Arc<SyncMutex<bool>>,
@@ -79,6 +85,8 @@ impl P2PServer {
         P2PServer {
             treechain,
             pqp,
+            utxo_set,
+            txn_pool,
             peer_lengths: Arc::new(Mutex::new(HashMap::new())),
             connected_peers: Arc::new(Mutex::new(HashSet::new())),
             peer_writers: Arc::new(Mutex::new(HashMap::new())),
@@ -1330,8 +1338,11 @@ impl P2PServer {
     pub fn start_p2p_server(
         p2p_port: String,
         _peers: String,
+        _miner_address: String,
         treechain: Arc<Mutex<TreeChain>>,
         pqp: Arc<Mutex<PQP>>,
+        utxo_set: Arc<Mutex<UtxoSet>>,
+        txn_pool: Arc<Mutex<TransactionPool>>,
         current_mining_position: Arc<SyncMutex<Option<String>>>,
         abort_mining: Arc<SyncMutex<bool>>,
         chain_length: Arc<SyncMutex<u64>>,
@@ -1342,6 +1353,8 @@ impl P2PServer {
         let server = Arc::new(P2PServer::new(
             treechain,
             pqp,
+            utxo_set,
+            txn_pool,
             vec![],
             current_mining_position,
             abort_mining,

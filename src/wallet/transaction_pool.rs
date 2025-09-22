@@ -248,6 +248,30 @@ impl TransactionPool {
             }
         }
     }
+
+    pub fn remove_confirmed_txn(&mut self, txid: &str) {
+        if let Some(entry) = self.pool.remove(txid) {
+            self.total_size -= entry.vsize;
+
+            // Remove its UTXOs from mempool UTXO set (do NOT restore spent UTXOs)
+            for i in 0..entry.tx.vout.len() as u32 {
+                self.utxo_set.remove_utxo(&entry.tx.txid, i);
+            }
+
+            // Remove from parent transactions' children lists
+            for parent_txid in &entry.depends {
+                if let Some(parent) = self.pool.get_mut(parent_txid) {
+                    parent.children.remove(txid);
+                }
+            }
+
+            println!(
+                "✅ Removed confirmed transaction {} from mempool (size: {} vB)",
+                txid, entry.vsize
+            );
+        }
+    }
+
     pub fn evict_low_fee_transactions(&mut self, required_space: usize) -> Result<(), String> {
         let mut sorted_entries: Vec<(&String, &MempoolEntry)> = self.pool.iter().collect();
         sorted_entries.sort_by(|a, b| a.1.fee_rate.partial_cmp(&b.1.fee_rate).unwrap());
