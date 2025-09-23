@@ -1,9 +1,10 @@
 use crate::chain_util::ChainUtil;
 use crate::config::SIGHASH_ALL;
+use crate::miner::p2p_server;
 use crate::p2p_server::P2PServer;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
-use crate::wallet::transaction::Transaction;
+use crate::wallet::transaction::{Transaction, TxInput};
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
 use crate::wallet::wallet::Wallet;
@@ -76,8 +77,13 @@ async fn start_mining(
     // //this should be updated to txn_pool.get_txns_by_align
     // let tx1 = Transaction::create_sample_transaction_with_different_output();
     // let tx2 = Transaction::create_sample_transaction();
-    let tx = vec![];
-
+    let tx: Vec<Transaction>;
+    {
+        let txn_pool = txn_pool.lock().await;
+        tx = txn_pool.select_transactions(1024 * 10, align.clone());
+        println!("🤔🤔 selected txns: {:?}", tx);
+        drop(txn_pool);
+    }
     let tag = "WOW";
 
     tokio::spawn(async move {
@@ -416,7 +422,7 @@ async fn create_txn(
     )>,
     payload: web::Json<CreateSimpleTxnRequest>,
 ) -> impl Responder {
-    let (_, _, _, _, _, _, wallet, _, _, utxo_set, txn_pool) = data.as_ref();
+    let (_, _, _, p2p_server, _, _, wallet, _, _, utxo_set, txn_pool) = data.as_ref();
 
     // Validate required fields
     if payload.value == 0 {
@@ -502,7 +508,7 @@ async fn create_txn(
             match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard) {
                 Ok(()) => {
                     println!(
-                        "✅ Created and added simple txn to pool: {} ({} satoshis to {})",
+                        "✅ Created and added normal txn to pool: {} ({} satoshis to {})",
                         tx.txid, payload.value, payload.to_address
                     );
 
@@ -518,6 +524,8 @@ async fn create_txn(
                         "wallet_balance": wallet_balance,
                         "transaction": tx
                     });
+                    println!("sening broadcast txn");
+                    p2p_server.clone().broadcast_transaction(tx.clone()).await;
 
                     HttpResponse::Ok()
                         .content_type("application/json")
@@ -826,6 +834,54 @@ async fn wallet_details(
         .content_type("application/json")
         .json(response)
 }
+
+#[get("/utxo_set")]
+async fn utxo_set_details(
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Wallet,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let utxo_set = data.9.lock().await;
+
+    // Convert UTXO set to a JSON-serializable format
+    let utxos: Vec<serde_json::Value> = utxo_set
+        .utxos
+        .iter()
+        .map(|((txid, vout), utxo)| {
+            serde_json::json!({
+                "txid": txid,
+                "vout": vout,
+                "value": utxo.out.value,
+                "script_pubkey": utxo.out.script_pubkey,
+                "queue_index": utxo.queue_index,
+                "is_coinbase": utxo.f_coinbase
+            })
+        })
+        .collect();
+
+    let response = serde_json::json!({
+        "success": true,
+        "utxo_count": utxos.len(),
+        "utxos": utxos,
+        "total_value": utxo_set.utxos.values().map(|u| u.out.value).sum::<u64>(),
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    });
+
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .json(response)
+}
+
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
@@ -836,4 +892,5 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(create_txn);
     cfg.service(transaction_pool);
     cfg.service(wallet_details);
+    cfg.service(utxo_set_details);
 }

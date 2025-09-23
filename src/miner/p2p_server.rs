@@ -9,6 +9,7 @@ use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::ParentQueueEntry;
 use crate::treechain::treechain::{PQP, TreeChain};
+use crate::wallet::transaction::Transaction;
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
 use k256::elliptic_curve::bigint::U64;
@@ -38,6 +39,7 @@ const MESSAGE_TYPE_REGISTER: &str = "REGISTER";
 const MESSAGE_TYPE_UPDATE: &str = "UPDATE";
 const MESSAGE_TYPE_PEER_LIST: &str = "PEER_LIST";
 const MESSAGE_TYPE_GET_PEER_LIST: &str = "GET_PEER_LIST";
+const MESSATE_TYPE_TRANSACTION: &str = "TRANSACTION";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -234,6 +236,17 @@ impl P2PServer {
                                     map.insert(addr, (chain_length, last_timestamp));
                                 }
                             }
+                            let treechain = self.treechain.lock().await;
+
+                            let mut last_ts: Option<u64> = None;
+                            for (_, b) in treechain.blocks.iter().rev() {
+                                if !b.position.is_empty() {
+                                    last_ts = Some(b.timestamp as u64);
+                                    break;
+                                }
+                            }
+                            drop(treechain);
+                            let mut peer_lengths = self.peer_lengths.lock().await;
                             let connected_peers = self.connected_peers.lock().await;
                             println!("Currently connected peers {:?}", connected_peers);
                             let peers_to_connect: Vec<String> = map
@@ -241,9 +254,16 @@ impl P2PServer {
                                 .cloned()
                                 .filter(|a| {
                                     let formatted = format!("{}", a);
+                                    let peer_info = peer_lengths.get(&formatted);
+                                    let self_len = *self.chain_length.lock().unwrap();
+                                    let self_ts = last_ts;
                                     let should_connect = a != &self.own_addr
                                         && !connected_peers.contains(&formatted)
-                                        && self.own_addr > formatted;
+                                        && peer_info.map_or(true, |&(peer_len, peer_ts)| {
+                                            peer_len > self_len
+                                                || (peer_len == self_len
+                                                    && peer_ts > self_ts.unwrap_or(0))
+                                        });
                                     println!("Peer {}: should_connect={}", a, should_connect);
                                     should_connect
                                 })
@@ -312,10 +332,13 @@ impl P2PServer {
                 drop(pending_blocks);
                 let mut treechain = self.treechain.lock().await;
                 let mut pqp = self.pqp.lock().await;
+                let mut utxo_set = self.utxo_set.lock().await;
+                let mut txn_pool = self.txn_pool.lock().await;
                 for block in blocks {
                     let pqp_entry = TreeChain::parent_queue_entry_from_block(&block);
                     pqp.add_entry_to_pqp(pqp_entry.clone(), &treechain);
-                    if treechain.verify_and_add_block(&block) {
+                    if treechain.verify_and_add_block_to_tree(&block, &mut utxo_set, &mut txn_pool)
+                    {
                         println!("✅ Added pending block {} from retry", block.hash);
                         {
                             let mut chain_length = self.chain_length.lock().unwrap();
@@ -324,9 +347,13 @@ impl P2PServer {
                         }
                         drop(treechain);
                         drop(pqp);
+                        drop(utxo_set);
+                        drop(txn_pool);
                         self.update_registry_chain_length().await;
                         treechain = self.treechain.lock().await;
                         pqp = self.pqp.lock().await;
+                        utxo_set = self.utxo_set.lock().await;
+                        txn_pool = self.txn_pool.lock().await;
                     } else {
                         println!("❌ Failed to add pending block {}; re-queueing", block.hash);
                         pending_blocks = self.pending_blocks.lock().await;
@@ -444,6 +471,19 @@ impl P2PServer {
         }
         // Update own chain length
         self.update_registry_chain_length().await;
+    }
+
+    pub async fn broadcast_transaction(&self, txn: Transaction) {
+        println!("called broadcast txn");
+        let writers = self.peer_writers.lock().await;
+        let message = serde_json::json!({
+            "type": MESSATE_TYPE_TRANSACTION,
+            "transaction": txn,
+        });
+        for (addr, w) in writers.iter() {
+            println!("Broadcasting Txn to {}", addr);
+            Self::send_message(w.clone(), &message, "TRANSACTION").await;
+        }
     }
 
     async fn connect_to_peers(self: Arc<Self>, peers: Vec<String>) {
@@ -893,6 +933,8 @@ impl P2PServer {
                                             );
                                             let mut treechain = self.treechain.lock().await;
                                             let mut pqp = self.pqp.lock().await;
+                                            let mut utxo_set = self.utxo_set.lock().await;
+                                            let mut txn_pool = self.txn_pool.lock().await;
                                             let pqp_entry =
                                                 TreeChain::parent_queue_entry_from_block(&block);
                                             pqp.add_entry_to_pqp_while_downloading(
@@ -908,7 +950,11 @@ impl P2PServer {
                                                 .take(pqp_len)
                                                 .any(|e| e.block_hash == pqp_entry.block_hash);
                                             if exist {
-                                                if treechain.verify_and_add_block(&block) {
+                                                if treechain.verify_and_add_block_to_tree(
+                                                    &block,
+                                                    &mut utxo_set,
+                                                    &mut txn_pool,
+                                                ) {
                                                     println!(
                                                         "✅ Block {} added successfully",
                                                         block.hash
@@ -921,6 +967,8 @@ impl P2PServer {
                                                     }
                                                     drop(treechain);
                                                     drop(pqp);
+                                                    drop(utxo_set);
+                                                    drop(txn_pool);
                                                     self.update_registry_chain_length().await;
                                                     self.on_block_delivered(writer.clone()).await;
                                                 } else {
@@ -1051,6 +1099,8 @@ impl P2PServer {
                                             }
                                             let mut treechain = self.treechain.lock().await;
                                             let mut pqp = self.pqp.lock().await;
+                                            let mut utxo_set = self.utxo_set.lock().await;
+                                            let mut txn_pool = self.txn_pool.lock().await;
                                             let pqp_entry =
                                                 TreeChain::parent_queue_entry_from_block(&block);
                                             pqp.add_entry_to_pqp(pqp_entry.clone(), &treechain);
@@ -1062,7 +1112,11 @@ impl P2PServer {
                                                 .take(pqp_len)
                                                 .any(|e| e.block_hash == pqp_entry.block_hash);
                                             if exist {
-                                                if treechain.verify_and_add_block(&block.clone()) {
+                                                if treechain.verify_and_add_block_to_tree(
+                                                    &block.clone(),
+                                                    &mut utxo_set,
+                                                    &mut txn_pool,
+                                                ) {
                                                     println!(
                                                         "✅ MINED_BLOCK {} added successfully",
                                                         block.hash
@@ -1264,6 +1318,31 @@ impl P2PServer {
                                             println!("❌ Own PQP is invalid after full sync");
                                         }
                                     }
+                                    MESSATE_TYPE_TRANSACTION => {
+                                        println!("received broadcasted txn");
+                                        if let Some(txn_val) = data.get("transaction") {
+                                            let txn: Transaction = match serde_json::from_value(
+                                                txn_val.clone(),
+                                            ) {
+                                                Ok(b) => b,
+                                                Err(e) => {
+                                                    println!(
+                                                        "❌ Failed to deserialize Broadcasted Transaction: {}",
+                                                        e
+                                                    );
+                                                    continue;
+                                                }
+                                            };
+                                            {
+                                                let mut txn_pool = self.txn_pool.lock().await;
+                                                let utxo_set = self.utxo_set.lock().await;
+                                                txn_pool.add_transaction(txn, &utxo_set);
+                                                drop(txn_pool);
+                                                drop(utxo_set);
+                                            }
+                                        }
+                                    }
+
                                     _ => {
                                         println!("Other type from {}: {:?}", peer_addr, data);
                                     }
