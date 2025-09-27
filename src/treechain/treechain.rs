@@ -894,7 +894,7 @@ impl TreeChain {
             }
             let base_index = max_queue_index;
             let queue_index = base_index + align as u32;
-            println!("returned {},{}", queue_index, prev_pqp);
+            // println!("returned {},{}", queue_index, prev_pqp);
             return Some((
                 queue_index,
                 prev_pqp,
@@ -1154,15 +1154,45 @@ impl TreeChain {
         let mut temp_txn_pool = TransactionPool::new();
 
         // Verify and add each block (excluding placeholders)
+        let mut i = 0;
         for (hash, block) in self.blocks.iter() {
             if hash.starts_with("placeholder_") || (*hash == (Block::genesis().hash)) {
+                i += 1;
                 continue;
             }
+            if block.pqp_entry.queue_index != i {
+                println!(
+                    "queue_index not equal to index {} : {}",
+                    block.pqp_entry.queue_index, i
+                );
+                return false;
+            }
+            let pqp_entry = TreeChain::parent_queue_entry_from_block(&block);
+            temp_pqp.add_entry_to_pqp_while_downloading(pqp_entry.clone(), &temp_treechain);
+
+            let exist: bool = temp_pqp
+                .pool
+                .iter()
+                .rev()
+                .take(crate::config::CHILDREN as usize)
+                .any(|e| e.block_hash == pqp_entry.block_hash);
             // Assuming verify_and_add_block_to_tree is similar to verify_and_add_block
-            if !temp_treechain.verify_and_add_block(block) {
+            if !exist {
+                println!(
+                    "pqp doest added for block : {} whild validating tree",
+                    block.hash
+                );
+                return false;
+            }
+            if !temp_treechain.verify_and_add_block_to_tree(
+                block,
+                &mut temp_utxo_set,
+                &mut temp_txn_pool,
+            ) {
                 println!("❌ Verification failed for block: {}", hash);
                 return false;
             }
+            i += 1;
         }
 
         // Drop temporary instances
