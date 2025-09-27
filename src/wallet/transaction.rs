@@ -336,6 +336,9 @@ impl Transaction {
             if utxo.out.script_pubkey == sender_script {
                 selected.push((txid.clone(), *vout, utxo.out.value));
                 total_input += utxo.out.value;
+                if total_input > value + fee {
+                    break;
+                }
             }
         }
 

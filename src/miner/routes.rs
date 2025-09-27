@@ -77,13 +77,7 @@ async fn start_mining(
     // //this should be updated to txn_pool.get_txns_by_align
     // let tx1 = Transaction::create_sample_transaction_with_different_output();
     // let tx2 = Transaction::create_sample_transaction();
-    let tx: Vec<Transaction>;
-    {
-        let txn_pool = txn_pool.lock().await;
-        tx = txn_pool.select_transactions(1024 * 10, align.clone());
-        println!("🤔🤔 selected txns: {:?}", tx);
-        drop(txn_pool);
-    }
+
     let tag = "WOW";
 
     tokio::spawn(async move {
@@ -91,6 +85,14 @@ async fn start_mining(
             if !*mining_flag.lock().await {
                 println!("Mining stopped");
                 break;
+            }
+
+            let tx: Vec<Transaction>;
+            {
+                let txn_pool = txn_pool.lock().await;
+                tx = txn_pool.select_transactions(1024 * 10, align.clone());
+                println!("🤔🤔 selected txns: {:?}", tx);
+                drop(txn_pool);
             }
 
             *abort_mining.lock().unwrap() = false;

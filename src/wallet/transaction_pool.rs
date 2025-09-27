@@ -144,7 +144,7 @@ impl TransactionPool {
                 fee_rate, min_fee_rate
             ));
         }
-        println!("self.pool values: {:?}", self.pool.values());
+        // println!("self.pool values: {:?}", self.pool.values());
         for input in &tx.vin {
             if self.pool.values().any(|entry| {
                 entry

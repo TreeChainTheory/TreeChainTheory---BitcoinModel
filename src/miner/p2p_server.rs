@@ -39,7 +39,8 @@ const MESSAGE_TYPE_REGISTER: &str = "REGISTER";
 const MESSAGE_TYPE_UPDATE: &str = "UPDATE";
 const MESSAGE_TYPE_PEER_LIST: &str = "PEER_LIST";
 const MESSAGE_TYPE_GET_PEER_LIST: &str = "GET_PEER_LIST";
-const MESSATE_TYPE_TRANSACTION: &str = "TRANSACTION";
+const MESSAGE_TYPE_TRANSACTION: &str = "TRANSACTION";
+const MESSAGE_TYPE_GET_TRANSACTION_POOL: &str = "GET_TRANSACTION_POOL";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -274,6 +275,7 @@ impl P2PServer {
                                 peers_to_connect.len(),
                                 peers_to_connect
                             );
+                            drop(peer_lengths);
                             *self.peer_lengths.lock().await = map;
                             let self_clone = self.clone();
                             let peers_to_connect_clone = peers_to_connect.clone();
@@ -449,6 +451,20 @@ impl P2PServer {
         Self::send_message(writer, &message, "GETDATA").await;
     }
 
+    async fn send_get_pqp(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_GET_PQP
+        });
+        Self::send_message(writer, &message, "GET_PQP").await;
+    }
+
+    async fn send_get_txnpool(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_GET_TRANSACTION_POOL
+        });
+        Self::send_message(writer, &message, "GET_TXN_POOL").await;
+    }
+
     async fn send_pqp_response(&self, writer: Arc<Mutex<OwnedWriteHalf>>) {
         let pqp = self.pqp.lock().await;
         let message = serde_json::json!({
@@ -477,7 +493,7 @@ impl P2PServer {
         println!("called broadcast txn");
         let writers = self.peer_writers.lock().await;
         let message = serde_json::json!({
-            "type": MESSATE_TYPE_TRANSACTION,
+            "type": MESSAGE_TYPE_TRANSACTION,
             "transaction": txn,
         });
         for (addr, w) in writers.iter() {
@@ -603,7 +619,8 @@ impl P2PServer {
             println!("✅ Finished syncing all available blocks from best peer");
             drop(ibd);
             self.update_reg_cl_precise().await;
-            self.send_pqp_response(writer.clone()).await;
+            self.send_get_pqp(writer.clone()).await;
+            self.send_get_txnpool(writer.clone()).await;
         }
     }
 
@@ -1318,7 +1335,7 @@ impl P2PServer {
                                             println!("❌ Own PQP is invalid after full sync");
                                         }
                                     }
-                                    MESSATE_TYPE_TRANSACTION => {
+                                    MESSAGE_TYPE_TRANSACTION => {
                                         println!("received broadcasted txn");
                                         if let Some(txn_val) = data.get("transaction") {
                                             let txn: Transaction = match serde_json::from_value(
@@ -1341,6 +1358,37 @@ impl P2PServer {
                                                 drop(utxo_set);
                                             }
                                         }
+                                    }
+                                    MESSAGE_TYPE_GET_TRANSACTION_POOL => {
+                                        println!(
+                                            "Received GET_TRANSACTION_POOL from {}",
+                                            peer_addr
+                                        );
+                                        let txn_pool = self.txn_pool.lock().await;
+                                        let transactions: Vec<Transaction> = txn_pool
+                                            .pool
+                                            .values()
+                                            .map(|entry| entry.tx.clone())
+                                            .collect();
+                                        drop(txn_pool);
+
+                                        for txn in transactions.clone() {
+                                            let message = serde_json::json!({
+                                                "type": MESSAGE_TYPE_TRANSACTION,
+                                                "transaction": txn,
+                                            });
+                                            Self::send_message(
+                                                writer.clone(),
+                                                &message,
+                                                "TRANSACTION",
+                                            )
+                                            .await;
+                                        }
+                                        println!(
+                                            "Sent {} transactions to {}",
+                                            transactions.clone().len(),
+                                            peer_addr
+                                        );
                                     }
 
                                     _ => {

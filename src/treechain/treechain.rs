@@ -1143,6 +1143,10 @@ impl TreeChain {
                     return false;
                 }
             };
+            if block.hash == Block::genesis().hash {
+                continue;
+            }
+
             //step 2 recalculate pqp_commitment
 
             let mut pqp_hasher = Sha256::new();
@@ -1163,7 +1167,33 @@ impl TreeChain {
                 return false;
             }
 
-            // Step 3: Signature verification - To be added later
+            // // Step 3: Signature verification - To be added later
+            let mut sig_data = Vec::new();
+            sig_data.extend_from_slice(&entry.queue_index.to_le_bytes());
+            sig_data.extend(hex::decode(&entry.parent_hash).unwrap_or_default());
+            sig_data.extend(hex::decode(&entry.miner_address).unwrap_or_default());
+            sig_data.extend(hex::decode(&entry.prev_pqp_commitment).unwrap_or_default());
+
+            // Extract signature and public key from combined signature
+            let signature_len = entry.signature.len();
+            if signature_len < 66 {
+                println!(
+                    "❌ Invalid signature length for entry {}: {}",
+                    entry.queue_index, signature_len
+                );
+                return false;
+            }
+            let sig_hex = &entry.signature[0..signature_len - 66]; // Assuming last 66 chars are pubkey (compressed, 33 bytes = 66 hex)
+            let pubkey_hex = &entry.signature[signature_len - 66..]; // Compressed public key
+
+            if !Wallet::verify_data_signature(&sig_data, sig_hex, pubkey_hex) {
+                println!(
+                    "❌ Signature verification failed for entry {}",
+                    entry.queue_index
+                );
+                return false;
+            }
+
             if i + 1 < pool.len() {
                 let prev_entry = &pool[pool.len() - 1 - (i + 1)];
                 if prev_entry.queue_index >= entry.queue_index {
@@ -1508,6 +1538,12 @@ impl TreeChain {
             );
             return false;
         }
+        let mut removed_txns: Vec<&Transaction> = vec![];
+        //remove from txn pool
+        for tx in &block.tx {
+            txn_pool.remove_confirmed_txn(&tx.txid);
+            removed_txns.push(&tx);
+        }
 
         // Validate non-coinbase transactions
         for tx in &block.tx[1..] {
@@ -1523,11 +1559,6 @@ impl TreeChain {
         self.add_block(block.clone());
         // Update UTXO set after successfully adding block
         if let Some(_) = self.get_block(&block.hash) {
-            //remove from txn pool
-            for tx in &block.tx {
-                txn_pool.remove_confirmed_txn(&tx.txid);
-            }
-
             // Remove spent UTXOs (all inputs from all transactions)
             for tx in &block.tx {
                 for input in &tx.vin {
@@ -1561,6 +1592,11 @@ impl TreeChain {
                 block.tx.iter().map(|tx| tx.vout.len()).sum::<usize>()
             );
             return true;
+        } else {
+            println!("adding back the txns because block didnt get added");
+            for txn in removed_txns {
+                txn_pool.add_transaction(txn.clone(), utxo_set);
+            }
         }
 
         false
