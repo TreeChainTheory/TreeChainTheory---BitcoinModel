@@ -57,6 +57,24 @@ impl Transaction {
         tx
     }
 
+    pub fn check_txid_and_hash(tx: &Transaction) -> bool {
+        let mut txn = Transaction {
+            txid: String::new(),
+            hash: String::new(),
+            version: tx.version,
+            vin: tx.clone().vin,
+            vout: tx.clone().vout,
+            witnesses: tx.clone().witnesses,
+            locktime: tx.locktime,
+        };
+        txn.txid = tx.compute_non_witness_txid();
+        txn.hash = tx.compute_hash();
+        if tx.txid == txn.txid && tx.hash == txn.hash {
+            return true;
+        }
+        return false;
+    }
+
     pub fn double_sha(data: &[u8]) -> Vec<u8> {
         let mut hasher = Sha256::new();
         hasher.update(data);

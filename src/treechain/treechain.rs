@@ -6,7 +6,7 @@ use crate::wallet::transaction::Transaction;
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::{Utxo, UtxoSet};
 use crate::wallet::wallet::Wallet;
-use indexmap::IndexMap;
+use indexmap::{Equivalent, IndexMap};
 use num_bigint::BigUint;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -1003,7 +1003,7 @@ impl TreeChain {
                 } else {
                     0
                 };
-                println!("base_index: {}", base_index);
+                // println!("base_index: {}", base_index);
 
                 let mut prev_pqp_block = None;
                 let mut prev_pqp_block_hash = String::new();
@@ -1011,7 +1011,7 @@ impl TreeChain {
                 // Check if block at (queue_index - CHILDREN) exists
                 if block.pqp_entry.queue_index >= CHILDREN as u32 {
                     if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
-                        println!("base_index block found: {}", hash);
+                        // println!("base_index block found: {}", hash);
                         if !hash.starts_with("placeholder_") {
                             prev_pqp_block = Some(base_block);
                             prev_pqp_block_hash = hash.clone();
@@ -1113,9 +1113,63 @@ impl TreeChain {
                     return false;
                 }
 
+                if candidate.merkle_root != Block::merkle_root(candidate.tx) {
+                    println!(
+                        "❌ merkle root didnt match for the candidate {}",
+                        candidate.hash
+                    );
+                    return false;
+                }
+
+                // Verify PQP entry signature
+                let mut sig_data = Vec::new();
+                sig_data.extend_from_slice(&candidate.pqp_entry.queue_index.to_le_bytes());
+                sig_data.extend(hex::decode(&candidate.parent_hash).unwrap_or_default());
+                sig_data
+                    .extend(hex::decode(&candidate.pqp_entry.miner_address).unwrap_or_default());
+                sig_data.extend(
+                    hex::decode(&candidate.pqp_entry.prev_pqp_commitment).unwrap_or_default(),
+                );
+
+                let combined_signature = &candidate.pqp_entry.signature;
+                let pubkey_hex = &combined_signature[candidate.pqp_entry.signature.len() - 66..]; // Last 66 chars (33 bytes hex)
+                let signature_hex = &combined_signature[..combined_signature.len() - 66];
+
+                if !Wallet::verify_data_signature(&sig_data, signature_hex, pubkey_hex) {
+                    println!(
+                        "❌ PQP entry signature verification failed for candidate: {}",
+                        candidate.hash
+                    );
+                    return false;
+                }
+
                 current_hash = block.parent_hash.clone();
             }
         }
+
+        // Create temporary instances for verification
+        let mut temp_treechain = TreeChain::new();
+        let mut temp_pqp = PQP::new();
+        let mut temp_utxo_set = UtxoSet::new();
+        let mut temp_txn_pool = TransactionPool::new();
+
+        // Verify and add each block (excluding placeholders)
+        for (hash, block) in self.blocks.iter() {
+            if hash.starts_with("placeholder_") || (*hash == (Block::genesis().hash)) {
+                continue;
+            }
+            // Assuming verify_and_add_block_to_tree is similar to verify_and_add_block
+            if !temp_treechain.verify_and_add_block(block) {
+                println!("❌ Verification failed for block: {}", hash);
+                return false;
+            }
+        }
+
+        // Drop temporary instances
+        drop(temp_treechain);
+        drop(temp_pqp);
+        drop(temp_utxo_set);
+        drop(temp_txn_pool);
         println!("✅ Tree and PQP validated successfully");
         true
     }

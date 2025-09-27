@@ -52,6 +52,14 @@ impl TransactionPool {
         min_fee_rate: f64,
         utxt_set: &UtxoSet,
     ) -> Result<(u64, usize, f64, HashSet<String>), String> {
+        //check txid and hash
+        if !Transaction::check_txid_and_hash(tx) {
+            return Err(format!(
+                "Transaction txid and hash dosnt match calculation: {}",
+                tx.txid
+            ));
+        }
+
         let vsize = self.calculate_vsize(tx);
         if vsize > MAX_TX_SIZE {
             return Err(format!("Transaction too large: {} vB", vsize));
