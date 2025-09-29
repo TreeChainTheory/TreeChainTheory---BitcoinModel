@@ -588,9 +588,25 @@ impl PQP {
                         return child.pqp_commitment.clone();
                     }
                 }
-                if let Some(max_entry) = current_children.iter().max_by_key(|e| e.queue_index) {
-                    return max_entry.pqp_commitment.clone();
+                // if let Some(max_entry) = current_children.iter().max_by_key(|e| e.queue_index) {
+                //     return max_entry.pqp_commitment.clone();
+                // }
+
+                let prev_pqp = self.pool.iter().rev().find(|e| e.align == align.clone());
+                if prev_pqp == None {
+                    let first_qi = self.pool[0].clone().queue_index as usize;
+                    for i in (0..first_qi).rev() {
+                        if let Some((hash, block)) = treechain.blocks.get_index(i) {
+                            if block.align == align.clone() {
+                                return block.pqp_commitment.clone();
+                            }
+                        }
+                    }
+                    return Block::genesis().pqp_commitment.clone();
                 }
+                return prev_pqp
+                    .map(|e| e.pqp_commitment.clone())
+                    .unwrap_or_default();
             }
         }
         self.pool
@@ -601,6 +617,9 @@ impl PQP {
 
     pub fn get_prev_pqp_commitment(&self, align: u8, treechain: &TreeChain) -> String {
         if let Some(last) = self.latest() {
+            if last.block_hash == Block::genesis().hash {
+                return last.pqp_commitment.clone();
+            }
             if let Some(current_parent) = self.current_parent() {
                 println!("current_parent: {:?}", current_parent);
                 let prev_parent = if current_parent.block_hash == last.parent_hash {
@@ -638,49 +657,67 @@ impl PQP {
                     Some(last) // default: use last
                 };
                 println!("prev_parent: {:?}", prev_parent);
-                let sibling_aligns: Vec<u8> = self
-                    .pool
-                    .iter()
-                    .rev()
-                    .take(CHILDREN as usize)
-                    .filter(|e| e.parent_hash == current_parent.block_hash)
-                    .filter_map(|e| treechain.get_block(&e.block_hash)) // to be rechecked
-                    .map(|block| block.align)
-                    .collect();
+                // let sibling_aligns: Vec<u8> = self
+                //     .pool
+                //     .iter()
+                //     .rev()
+                //     .take(CHILDREN as usize)
+                //     .filter(|e| e.parent_hash == current_parent.block_hash)
+                //     .filter_map(|e| treechain.get_block(&e.block_hash)) // to be rechecked
+                //     .map(|block| block.align)
+                //     .collect();
 
-                println!(
-                    "sibling_aligns contain: {}",
-                    sibling_aligns.contains(&align)
-                );
-                if sibling_aligns.contains(&align) {
-                    // align already taken
-                    let prev_pqp =
-                        self.pool.iter().rev().find(|e| {
-                            e.parent_hash == current_parent.block_hash && e.align == align
-                        });
+                // println!(
+                //     "sibling_aligns contain: {}",
+                //     sibling_aligns.contains(&align)
+                // );
+                // if sibling_aligns.contains(&align) {
+                //     // align already taken
+                //     let prev_pqp =
+                //         self.pool.iter().rev().find(|e| {
+                //             e.parent_hash == current_parent.block_hash && e.align == align
+                //         });
+                //     return prev_pqp
+                //         .map(|e| e.pqp_commitment.clone())
+                //         .unwrap_or_default();
+                // }
+
+                if let Some(prev_parent) = prev_parent {
+                    let prev_pqp = self.pool.iter().rev().find(|e| e.align == align.clone());
+                    if prev_pqp == None {
+                        let first_qi = self.pool[0].clone().queue_index as usize;
+                        for i in (0..first_qi).rev() {
+                            if let Some((hash, block)) = treechain.blocks.get_index(i) {
+                                if block.align == align.clone() {
+                                    return block.pqp_commitment.clone();
+                                }
+                            }
+                        }
+                        return Block::genesis().pqp_commitment.clone();
+                    }
                     return prev_pqp
                         .map(|e| e.pqp_commitment.clone())
                         .unwrap_or_default();
-                }
+                    //here what if there is no align in the current pqp condition should be checked
+                    //and also if not present at all then it should return genisis
 
-                if let Some(prev_parent) = prev_parent {
-                    let siblings: Vec<&ParentQueueEntry> = self
-                        .pool
-                        .iter()
-                        .rev()
-                        .take(10)
-                        .filter(|e| e.parent_hash == prev_parent.parent_hash)
-                        .collect();
+                    // let siblings: Vec<&ParentQueueEntry> = self
+                    //     .pool
+                    //     .iter()
+                    //     .rev()
+                    //     .take(10)
+                    //     .filter(|e| e.parent_hash == prev_parent.parent_hash && e.align == align)
+                    //     .collect();
 
-                    // exact align match
-                    if let Some(sibling) = siblings.iter().find(|s| s.align == align) {
-                        return sibling.pqp_commitment.clone();
-                    }
+                    // // exact align match
+                    // if let Some(sibling) = siblings.iter().find(|s| s.align == align) {
+                    //     return sibling.pqp_commitment.clone();
+                    // }
 
-                    // fallback: latest sibling
-                    if let Some(last_sibling) = siblings.iter().max_by_key(|e| e.queue_index) {
-                        return last_sibling.pqp_commitment.clone();
-                    }
+                    // // fallback: latest sibling
+                    // if let Some(last_sibling) = siblings.iter().max_by_key(|e| e.queue_index) {
+                    //     return last_sibling.pqp_commitment.clone();
+                    // }
                 }
             }
         }
@@ -1008,6 +1045,15 @@ impl TreeChain {
                 let mut prev_pqp_block = None;
                 let mut prev_pqp_block_hash = String::new();
 
+                if base_index == 0 {
+                    if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
+                        if !hash.starts_with("placeholder_") {
+                            prev_pqp_block = Some(base_block);
+                            prev_pqp_block_hash = hash.clone();
+                        }
+                    }
+                }
+
                 // Check if block at (queue_index - CHILDREN) exists
                 if block.pqp_entry.queue_index >= CHILDREN as u32 {
                     if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
@@ -1017,15 +1063,8 @@ impl TreeChain {
                             prev_pqp_block_hash = hash.clone();
                         } else {
                             // If block at base_index is a placeholder, adjust base_index
-                            let mut num = block.pqp_entry.queue_index - CHILDREN as u32;
-                            // Increase num to the next multiple of CHILDREN if not already
-                            if num % CHILDREN as u32 != 0 {
-                                num += (CHILDREN as u32) - (num % CHILDREN as u32);
-                            }
-                            base_index = num as usize;
-                            let mut attempts = 0;
-                            // Decrease index up to CHILDREN times until a non-placeholder block is found
-                            while attempts < CHILDREN as usize {
+                            base_index -= CHILDREN as usize;
+                            while base_index > 0 as usize {
                                 if let Some((hash, base_block)) = self.blocks.get_index(base_index)
                                 {
                                     if !hash.starts_with("placeholder_") {
@@ -1034,11 +1073,19 @@ impl TreeChain {
                                         break;
                                     }
                                 }
-                                if base_index == 0 {
-                                    break;
+                                if (base_index as i32 - CHILDREN as i32) < 0 {
+                                    base_index = 0;
+                                } else {
+                                    base_index -= CHILDREN as usize;
                                 }
-                                base_index = base_index.saturating_sub(1);
-                                attempts += 1;
+                            }
+                            if prev_pqp_block == None {
+                                if let Some((hash, base_block)) = self.blocks.get_index(0) {
+                                    if !hash.starts_with("placeholder_") {
+                                        prev_pqp_block = Some(base_block);
+                                        prev_pqp_block_hash = hash.clone();
+                                    }
+                                }
                             }
                         }
                     }
@@ -1052,29 +1099,6 @@ impl TreeChain {
                 //     "base_index adjusted to: {} for block with queue_index: {}",
                 //     base_index, block.pqp_entry.queue_index
                 // );
-
-                if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
-                    prev_pqp_block = Some(base_block);
-                    prev_pqp_block_hash = hash.clone();
-
-                    // Traverse backward to find a block with matching align and same parent_hash
-                    for idx in (0..base_index + 1).rev() {
-                        if let Some((hash, candidate_block)) = self.blocks.get_index(idx) {
-                            if candidate_block.align == block.align
-                                && candidate_block.parent_hash
-                                    == prev_pqp_block.unwrap().parent_hash
-                            {
-                                prev_pqp_block = Some(candidate_block);
-                                prev_pqp_block_hash = hash.clone();
-                                break;
-                            } else if candidate_block.parent_hash
-                                != prev_pqp_block.unwrap().parent_hash
-                            {
-                                break;
-                            }
-                        }
-                    }
-                }
 
                 let (prev_pqp_block_hash, prev_pqp_block) = match prev_pqp_block {
                     Some(block) => (prev_pqp_block_hash, block),
@@ -1314,17 +1338,87 @@ impl TreeChain {
                         }
                     }
                     if !found {
-                        if let Some(max_sibling) =
-                            prev_siblings.iter().max_by_key(|e| e.queue_index)
-                        {
-                            if entry.prev_pqp_commitment != max_sibling.pqp_commitment {
-                                println!("entry: {:?}", entry);
-                                println!("prev siblings: {:?}", prev_siblings);
-                                println!(
-                                    "failed at entry.prev_pqp_commitment != max_sibling.pqp_commitment"
-                                );
+                        let mut base_index = if entry.queue_index >= CHILDREN as u32 {
+                            (entry.queue_index - CHILDREN as u32) as usize
+                        } else {
+                            0
+                        };
+
+                        let mut prev_pqp_block = None;
+                        let mut prev_pqp_block_hash = String::new();
+
+                        if base_index == 0 {
+                            if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
+                                if !hash.starts_with("placeholder_") {
+                                    prev_pqp_block = Some(base_block);
+                                    prev_pqp_block_hash = hash.clone();
+                                }
+                            }
+                        }
+
+                        // Check if block at (queue_index - CHILDREN) exists
+                        if entry.queue_index >= CHILDREN as u32 {
+                            if let Some((hash, base_block)) = self.blocks.get_index(base_index) {
+                                // println!("base_index block found: {}", hash);
+                                if !hash.starts_with("placeholder_") {
+                                    prev_pqp_block = Some(base_block);
+                                    prev_pqp_block_hash = hash.clone();
+                                } else {
+                                    // If block at base_index is a placeholder, adjust base_index
+                                    base_index -= CHILDREN as usize;
+                                    while base_index > 0 as usize {
+                                        if let Some((hash, base_block)) =
+                                            self.blocks.get_index(base_index)
+                                        {
+                                            if !hash.starts_with("placeholder_") {
+                                                prev_pqp_block = Some(base_block);
+                                                prev_pqp_block_hash = hash.clone();
+                                                break;
+                                            }
+                                        }
+                                        if (base_index as i32 - CHILDREN as i32) < 0 {
+                                            base_index = 0;
+                                        } else {
+                                            base_index -= CHILDREN as usize;
+                                        }
+                                    }
+                                    if prev_pqp_block == None {
+                                        if let Some((hash, base_block)) = self.blocks.get_index(0) {
+                                            if !hash.starts_with("placeholder_") {
+                                                prev_pqp_block = Some(base_block);
+                                                prev_pqp_block_hash = hash.clone();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Set base_index to the queue_index of the found non-placeholder block
+                        base_index = prev_pqp_block
+                            .map(|b| b.pqp_entry.queue_index as usize)
+                            .unwrap_or(0);
+                        // println!(
+                        //     "base_index adjusted to: {} for block with queue_index: {}",
+                        //     base_index, block.pqp_entry.queue_index
+                        // );
+
+                        let (prev_pqp_block_hash, prev_pqp_block) = match prev_pqp_block {
+                            Some(block) => (prev_pqp_block_hash, block),
+                            None => {
+                                println!("❌ Failed to get base block at index {}", base_index);
                                 return false;
                             }
+                        };
+
+                        if prev_pqp_block.pqp_commitment != block.pqp_entry.prev_pqp_commitment {
+                            println!(
+                                "❌ Previous PQP commitment mismatch for block {} \nExpected: {} \nFound: {}",
+                                block.hash,
+                                prev_pqp_block.pqp_commitment,
+                                block.pqp_entry.prev_pqp_commitment
+                            );
+                            return false;
                         }
                     }
                 } else {
@@ -1366,20 +1460,92 @@ impl TreeChain {
                             }
                         }
                         if !found {
-                            if let Some(max_sibling) = siblings.iter().max_by_key(|e| e.queue_index)
-                            {
-                                if entry.prev_pqp_commitment != max_sibling.pqp_commitment {
-                                    println!("siblings: {:?}", siblings);
-                                    println!(
-                                        "entry q_i: {} maxsib q_i:{} ; entry a_i: {} maxsib a_i:{}",
-                                        entry.queue_index,
-                                        max_sibling.queue_index,
-                                        entry.align,
-                                        max_sibling.align
-                                    );
-                                    println!("failed here 2");
+                            let mut base_index = if entry.queue_index >= CHILDREN as u32 {
+                                (entry.queue_index - CHILDREN as u32) as usize
+                            } else {
+                                0
+                            };
+
+                            let mut prev_pqp_block = None;
+                            let mut prev_pqp_block_hash = String::new();
+
+                            if base_index == 0 {
+                                if let Some((hash, base_block)) = self.blocks.get_index(base_index)
+                                {
+                                    if !hash.starts_with("placeholder_") {
+                                        prev_pqp_block = Some(base_block);
+                                        prev_pqp_block_hash = hash.clone();
+                                    }
+                                }
+                            }
+
+                            // Check if block at (queue_index - CHILDREN) exists
+                            if entry.queue_index >= CHILDREN as u32 {
+                                if let Some((hash, base_block)) = self.blocks.get_index(base_index)
+                                {
+                                    // println!("base_index block found: {}", hash);
+                                    if !hash.starts_with("placeholder_") {
+                                        prev_pqp_block = Some(base_block);
+                                        prev_pqp_block_hash = hash.clone();
+                                    } else {
+                                        // If block at base_index is a placeholder, adjust base_index
+                                        base_index -= CHILDREN as usize;
+                                        while base_index > 0 as usize {
+                                            if let Some((hash, base_block)) =
+                                                self.blocks.get_index(base_index)
+                                            {
+                                                if !hash.starts_with("placeholder_") {
+                                                    prev_pqp_block = Some(base_block);
+                                                    prev_pqp_block_hash = hash.clone();
+                                                    break;
+                                                }
+                                            }
+                                            if (base_index as i32 - CHILDREN as i32) < 0 {
+                                                base_index = 0;
+                                            } else {
+                                                base_index -= CHILDREN as usize;
+                                            }
+                                        }
+                                        if prev_pqp_block == None {
+                                            if let Some((hash, base_block)) =
+                                                self.blocks.get_index(0)
+                                            {
+                                                if !hash.starts_with("placeholder_") {
+                                                    prev_pqp_block = Some(base_block);
+                                                    prev_pqp_block_hash = hash.clone();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Set base_index to the queue_index of the found non-placeholder block
+                            base_index = prev_pqp_block
+                                .map(|b| b.pqp_entry.queue_index as usize)
+                                .unwrap_or(0);
+                            // println!(
+                            //     "base_index adjusted to: {} for block with queue_index: {}",
+                            //     base_index, block.pqp_entry.queue_index
+                            // );
+
+                            let (prev_pqp_block_hash, prev_pqp_block) = match prev_pqp_block {
+                                Some(block) => (prev_pqp_block_hash, block),
+                                None => {
+                                    println!("❌ Failed to get base block at index {}", base_index);
                                     return false;
                                 }
+                            };
+
+                            if prev_pqp_block.pqp_commitment != block.pqp_entry.prev_pqp_commitment
+                            {
+                                println!(
+                                    "❌ Previous PQP commitment mismatch for block {} \nExpected: {} \nFound: {}",
+                                    block.hash,
+                                    prev_pqp_block.pqp_commitment,
+                                    block.pqp_entry.prev_pqp_commitment
+                                );
+                                return false;
                             }
                         }
                     }
