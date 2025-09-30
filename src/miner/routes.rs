@@ -884,6 +884,8 @@ async fn utxo_set_details(
         .json(response)
 }
 
+//multisig txn creation and handling
+
 #[derive(Deserialize)]
 struct MultisigBody {
     pubkeys: Vec<String>,
@@ -1298,6 +1300,167 @@ async fn sign_multisig(
     }
 }
 
+//cration and handling the timelocked txn
+#[derive(Deserialize)]
+struct CreateTimelockedTxnBody {
+    txn_type: String, // "cltv" or "csv"
+    lock: u32,
+    value: u64,
+    fee: u64,
+    to_address: String,
+}
+
+#[post("/create_timelocked_txn")]
+async fn create_timelocked_txn(
+    body: web::Json<CreateTimelockedTxnBody>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Wallet,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let p2p_server = data.3.clone();
+    let wallet = data.6.clone();
+    let utxo_set = data.9.clone();
+    let txn_pool = data.10.clone();
+
+    let txn_type = body.txn_type.clone();
+    let lock = body.lock;
+    let value = body.value;
+    let fee = body.fee;
+    let to_address = body.to_address.clone();
+
+    // Validate required fields
+    if value == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Value must be positive"
+        }));
+    }
+
+    if to_address.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "To address is required"
+        }));
+    }
+
+    if txn_type != "cltv" && txn_type != "csv" {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Invalid txn_type, must be 'cltv' or 'csv'"
+        }));
+    }
+
+    let utxo_set_guard = utxo_set.lock().await;
+
+    let mut tx = if txn_type == "cltv" {
+        Transaction::create_new_timelocked_cltv_txn(
+            &wallet,
+            &utxo_set_guard,
+            value,
+            fee,
+            lock,
+            &to_address,
+        )
+    } else {
+        Transaction::create_new_timelocked_csv_txn(
+            &wallet,
+            &utxo_set_guard,
+            value,
+            fee,
+            lock,
+            &to_address,
+        )
+    }
+    .expect("Failed to create timelocked transaction");
+
+    tx = tx
+        .clone()
+        .sign_transaction(&wallet, &mut tx, &utxo_set_guard);
+
+    let mut txn_pool_guard = txn_pool.lock().await;
+
+    let add_result = txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard);
+
+    let status_message = match add_result {
+        Ok(_) => {
+            p2p_server.broadcast_transaction(tx.clone()).await;
+            "Transaction added to mempool and broadcasted"
+        }
+        Err(e) if e.contains("locktime not yet reached") => {
+            "Transaction created but locktime in future - broadcast later when condition met"
+        }
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "status": "error",
+                "message": e
+            }));
+        }
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "message": status_message,
+        "transaction": tx
+    }))
+}
+
+#[derive(Deserialize)]
+struct BroadcastTxnBody {
+    transaction: Transaction,
+}
+
+#[post("/broadcast_txn")]
+async fn broadcast_txn(
+    body: web::Json<BroadcastTxnBody>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Wallet,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let p2p_server = data.3.clone();
+    let utxo_set = data.9.clone();
+    let txn_pool = data.10.clone();
+
+    let tx = body.transaction.clone();
+
+    let utxo_set_guard = utxo_set.lock().await;
+    let mut txn_pool_guard = txn_pool.lock().await;
+
+    match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard) {
+        Ok(_) => {
+            p2p_server.broadcast_transaction(tx.clone()).await;
+            HttpResponse::Ok().json(serde_json::json!({
+                "status": "success",
+                "message": "Transaction added to mempool and broadcasted",
+                "txid": tx.txid
+            }))
+        }
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": e
+        })),
+    }
+}
+
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
@@ -1313,4 +1476,6 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(create_spending_multisig_tx);
     cfg.service(sign_multisig);
     cfg.service(spend_multisig_txn);
+    cfg.service(create_timelocked_txn);
+    cfg.service(broadcast_txn);
 }
