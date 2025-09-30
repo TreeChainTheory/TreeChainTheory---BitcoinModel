@@ -22,6 +22,16 @@ enum Op {
     Code(u8),
 }
 
+impl Op {
+    fn as_push(&self) -> Option<&Vec<u8>> {
+        if let Op::Push(data) = self {
+            Some(data)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug)]
 enum ScriptInfo {
     P2pkh { pubkey_hash: String },
@@ -217,7 +227,7 @@ impl TransactionPool {
                 tx.locktime, current_time
             ));
         }
-
+        println!("validate transaction here 1");
         // Verify inputs are unspent and calculate total input value
         let mut input_value = 0;
         let mut depends = HashSet::new();
@@ -234,11 +244,13 @@ impl TransactionPool {
                 depends.insert(input.txid.clone());
             }
         }
+        println!("validate transaction here 2");
 
         // Verify signatures and scripts for all inputs
         let witnesses = tx.witnesses.as_ref();
         for (i, input) in tx.vin.iter().enumerate() {
             let utxo = &utxos[i];
+            println!("validate transaction here 3");
             Self::verify_input(
                 tx,
                 i,
@@ -287,10 +299,11 @@ impl TransactionPool {
         current_time: u32,
         witness: Option<&Vec<String>>,
     ) -> Result<(), String> {
+        println!("called verify input");
         let script_pubkey = &utxo.out.script_pubkey;
         let script_pubkey_bytes =
             hex::decode(script_pubkey).map_err(|e| format!("Invalid script_pubkey hex: {}", e))?;
-
+        println!("verify input here 1");
         let is_segwit = witness.is_some();
         let stack: Vec<String>;
 
@@ -301,6 +314,7 @@ impl TransactionPool {
                 .map_err(|e| format!("Invalid script_sig hex: {}", e))?;
             stack = Self::parse_stack(&script_sig_bytes)?;
         }
+        println!("verify input here 2");
 
         if script_pubkey_bytes.len() == 25
             && script_pubkey_bytes[0] == 0x76
@@ -330,6 +344,7 @@ impl TransactionPool {
             && script_pubkey_bytes[1] == 0x14
             && script_pubkey_bytes[22] == 0x87
         {
+            println!("verify input here 3");
             // Legacy P2SH
             if stack.is_empty() {
                 return Err("Empty stack for P2SH".to_string());
@@ -342,11 +357,15 @@ impl TransactionPool {
             let hash1 = hasher.finalize();
             let ripemd_hash = Ripemd160::digest(hash1);
             let expected_hash = hex::encode(&script_pubkey_bytes[2..22]);
+            // let redeem_bytes = hex::decode(redeem).expect("Invalid redeem script hex");
+            // let script_hash = ChainUtil::hash160(&redeem_bytes);
             if hex::encode(ripemd_hash) != expected_hash {
+                println!("verify input here 4");
                 return Err("Redeem script hash mismatch for P2SH".to_string());
             }
             let script_code = redeem.clone();
             let input_stack = &stack[0..stack.len() - 1];
+            println!("verify input here 5");
             Self::verify_script(
                 tx,
                 input_index,
@@ -425,10 +444,16 @@ impl TransactionPool {
         current_time: u32,
         is_segwit: bool,
     ) -> Result<(), String> {
+        println!("called verify script");
         let script_bytes =
             hex::decode(script_hex).map_err(|e| format!("Invalid script hex: {}", e))?;
+        println!("verify script here 0.1");
         let ops = Self::parse_script_ops(&script_bytes);
+        println!("verify script here 0.2");
+        // let err = Self::get_script_info(&ops).unwrap_err();
+        // println!("Error: {}", err);
         let script_info = Self::get_script_info(&ops)?;
+        println!("verify script here 0.3");
 
         let sighash = if is_segwit {
             tx.compute_segwit_sighash(input_index, input_value, script_hex, SIGHASH_ALL)
@@ -452,20 +477,21 @@ impl TransactionPool {
                 }
             }
             ScriptInfo::Multisig { m, n, pubkeys } => {
+                println!("verify script called here 1");
                 if stack.len() != (m as usize + 1) || !stack[0].is_empty() {
                     // Expect empty for OP_0
                     return Err("Invalid stack for multisig".to_string());
                 }
                 let sigs = &stack[1..];
-                if sigs.len() != m as usize {
+                if sigs.len() < m as usize {
                     return Err("Incorrect number of signatures for multisig".to_string());
                 }
                 let mut valid_sigs = 0;
                 for sig in sigs {
                     for pubk in &pubkeys {
+                        println!("verify script called here 2");
                         if Self::verify_signature(&sighash, sig, pubk) {
                             valid_sigs += 1;
-                            break;
                         }
                     }
                 }
@@ -538,6 +564,7 @@ impl TransactionPool {
     }
 
     fn parse_script_ops(bytes: &[u8]) -> Vec<Op> {
+        println!("called parse script ops");
         let mut ops = vec![];
         let mut pos = 0;
         while pos < bytes.len() {
@@ -560,89 +587,82 @@ impl TransactionPool {
 
     fn get_script_info(ops: &[Op]) -> Result<ScriptInfo, String> {
         if ops.len() == 5
-            && matches!(&ops[0], Op::Code(0x76)) // DUP
-            && matches!(&ops[1], Op::Code(0xa9)) // HASH160
-            && matches!(&ops[2], Op::Push(p) if p.len() == 20)
-            && matches!(&ops[3], Op::Code(0x88)) // EQUALVERIFY
-            && matches!(&ops[4], Op::Code(0xac))
-        // CHECKSIG
+            && matches!(ops[0], Op::Code(0x76))
+            && matches!(ops[1], Op::Code(0xa9))
+            && matches!(ops[2], Op::Push(ref data) if data.len() == 20)
+            && matches!(ops[3], Op::Code(0x88))
+            && matches!(ops[4], Op::Code(0xac))
         {
-            if let Op::Push(pkh_bytes) = &ops[2] {
-                return Ok(ScriptInfo::P2pkh {
-                    pubkey_hash: hex::encode(pkh_bytes),
-                });
-            }
-        } else if ops.len() >= 4
-            && matches!(&ops[ops.len() - 1], Op::Code(0xae)) // CHECKMULTISIG
-            && matches!(&ops[ops.len() - 2], Op::Code(n) if (0x51..=0x60).contains(n))
-        // OP_1 to OP_16
-        {
-            let n = if let Op::Code(code) = ops[ops.len() - 2] {
-                code - 0x50
-            } else {
-                0
-            };
-            let m_index = ops.len() - 2 - n as usize;
-            if m_index < ops.len()
-                && matches!(&ops[m_index], Op::Code(m_code) if (0x51..=0x60).contains(m_code))
-            {
-                let m = if let Op::Code(code) = ops[m_index] {
-                    code - 0x50
-                } else {
-                    0
-                };
-                let pubkey_start = m_index + 1;
-                let pubkey_end = pubkey_start + n as usize;
-                if pubkey_end == ops.len() - 1 {
-                    let mut pubkeys = vec![];
-                    for i in pubkey_start..pubkey_end {
-                        if let Op::Push(pubk) = &ops[i] {
-                            if pubk.len() == 33 {
-                                pubkeys.push(hex::encode(pubk));
+            return Ok(ScriptInfo::P2pkh {
+                pubkey_hash: hex::encode(&ops[2].as_push().unwrap()),
+            });
+        }
+        if ops.len() >= 4 {
+            let m_op = &ops[0];
+            let n_op = &ops[ops.len() - 2];
+            let checkmultisig_op = &ops[ops.len() - 1];
+            if let (Op::Code(m), Op::Code(n), Op::Code(0xae)) = (m_op, n_op, checkmultisig_op) {
+                if *m >= 0x51 && *m <= 0x60 && *n >= 0x51 && *n <= 0x60 && *n >= *m {
+                    let m = m - 0x50;
+                    let n = n - 0x50;
+                    let pubkeys: Vec<String> = ops[1..ops.len() - 2]
+                        .iter()
+                        .map(|op| {
+                            if let Op::Push(data) = op {
+                                hex::encode(data)
                             } else {
-                                return Err("Invalid pubkey length in multisig".to_string());
+                                "".to_string()
                             }
-                        } else {
-                            return Err("Expected push in multisig".to_string());
-                        }
+                        })
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if pubkeys.len() == n as usize {
+                        return Ok(ScriptInfo::Multisig { m, pubkeys, n });
                     }
-                    return Ok(ScriptInfo::Multisig { m, pubkeys, n });
                 }
             }
-        } else if ops.len() == 8
-            && matches!(&ops[1], Op::Code(0xb1)) // CLTV
-            && matches!(&ops[2], Op::Code(0x75)) // DROP
-            && matches!(&ops[3], Op::Code(0x76)) // DUP
-            && matches!(&ops[4], Op::Code(0xa9)) // HASH160
-            && matches!(&ops[5], Op::Push(p) if p.len() == 20)
-            && matches!(&ops[6], Op::Code(0x88)) // EQUALVERIFY
-            && matches!(&ops[7], Op::Code(0xac))
-        // CHECKSIG
+        }
+        if ops.len() == 6
+            && matches!(ops[0], Op::Push(_))
+            && matches!(ops[1], Op::Code(0xb1))
+            && matches!(ops[2], Op::Code(0x76))
+            && matches!(ops[3], Op::Code(0xa9))
+            && matches!(ops[4], Op::Push(ref data) if data.len() == 20)
+            && matches!(ops[5], Op::Code(0x88))
         {
-            if let (Op::Push(lock_bytes), Op::Push(pkh_bytes)) = (&ops[0], &ops[5]) {
-                let lock = Self::bytes_to_u32(lock_bytes);
-                return Ok(ScriptInfo::Cltv {
-                    lock,
-                    pubkey_hash: hex::encode(pkh_bytes),
-                });
-            }
-        } else if ops.len() == 8
-            && matches!(&ops[1], Op::Code(0xb8)) // CSV
-            && matches!(&ops[2], Op::Code(0x75)) // DROP
-            && matches!(&ops[3], Op::Code(0x76)) // DUP
-            && matches!(&ops[4], Op::Code(0xa9)) // HASH160
-            && matches!(&ops[5], Op::Push(p) if p.len() == 20)
-            && matches!(&ops[6], Op::Code(0x88)) // EQUALVERIFY
-            && matches!(&ops[7], Op::Code(0xac))
-        // CHECKSIG
+            let lock_bytes = ops[0].as_push().unwrap();
+            let lock = if lock_bytes.len() <= 4 {
+                let mut bytes = [0u8; 4];
+                bytes[..lock_bytes.len()].copy_from_slice(lock_bytes);
+                u32::from_le_bytes(bytes)
+            } else {
+                return Err("Invalid CLTV locktime length".to_string());
+            };
+            return Ok(ScriptInfo::Cltv {
+                lock,
+                pubkey_hash: hex::encode(&ops[4].as_push().unwrap()),
+            });
+        }
+        if ops.len() == 6
+            && matches!(ops[0], Op::Push(_))
+            && matches!(ops[1], Op::Code(0xb2))
+            && matches!(ops[2], Op::Code(0x76))
+            && matches!(ops[3], Op::Code(0xa9))
+            && matches!(ops[4], Op::Push(ref data) if data.len() == 20)
+            && matches!(ops[5], Op::Code(0x88))
         {
-            if let (Op::Push(lock_bytes), Op::Push(pkh_bytes)) = (&ops[0], &ops[5]) {
-                let lock = Self::bytes_to_u32(lock_bytes);
-                return Ok(ScriptInfo::Csv {
-                    lock,
-                    pubkey_hash: hex::encode(pkh_bytes),
-                });
-            }
+            let lock_bytes = ops[0].as_push().unwrap();
+            let lock = if lock_bytes.len() <= 4 {
+                let mut bytes = [0u8; 4];
+                bytes[..lock_bytes.len()].copy_from_slice(lock_bytes);
+                u32::from_le_bytes(bytes)
+            } else {
+                return Err("Invalid CSV locktime length".to_string());
+            };
+            return Ok(ScriptInfo::Csv {
+                lock,
+                pubkey_hash: hex::encode(&ops[4].as_push().unwrap()),
+            });
         }
         Err("Unsupported script info".to_string())
     }
@@ -707,8 +727,10 @@ impl TransactionPool {
     // }
 
     pub fn add_transaction(&mut self, tx: Transaction, utxo_set: &UtxoSet) -> Result<(), String> {
+        println!("add transaction called");
         let (fee, vsize, fee_rate, depends) =
             self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)?;
+        println!("validated txn");
 
         let entry_size = tx.serialize_non_witness().len();
         if self.total_size + entry_size > MAX_MEMPOOL_SIZE {

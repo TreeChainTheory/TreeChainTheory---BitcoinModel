@@ -940,7 +940,7 @@ async fn create_multisig_txn(
 }
 
 #[derive(Deserialize)]
-struct SpendMultisigBody {
+struct CreateSpendingMultisigBody {
     txid: String,
     vout: u32,
     pubkeys: Vec<String>,
@@ -948,12 +948,12 @@ struct SpendMultisigBody {
     to_address: String,
     value: u64,
     fee: u64,
-    other_sigs: Option<Vec<Option<String>>>,
+    change_address: Option<String>,
 }
 
-#[post("/spend_multisig_txn")]
-async fn spend_multisig_txn(
-    body: web::Json<SpendMultisigBody>,
+#[post("/create_spending_multisig_tx")]
+async fn create_spending_multisig_tx(
+    body: web::Json<CreateSpendingMultisigBody>,
     data: web::Data<(
         Arc<Mutex<TreeChain>>,
         Arc<Mutex<PQP>>,
@@ -968,8 +968,6 @@ async fn spend_multisig_txn(
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let p2p_server = data.3.clone();
-    let wallet = data.6.clone();
     let utxo_set = data.9.clone();
 
     let txid = body.txid.clone();
@@ -979,7 +977,7 @@ async fn spend_multisig_txn(
     let to_address = body.to_address.clone();
     let value = body.value;
     let fee = body.fee;
-    let other_sigs = body.other_sigs.clone();
+    let change_address = body.change_address.clone();
 
     if m as usize > pubkeys.len() || m == 0 {
         return HttpResponse::BadRequest().json(serde_json::json!({
@@ -1026,10 +1024,19 @@ async fn spend_multisig_txn(
     }];
 
     if change > 0 {
-        vout_vec.push(TxOutput {
-            value: change,
-            script_pubkey: Transaction::create_p2pkh_script(&wallet.public_key_hash),
-        });
+        if let Some(ch_addr) = change_address {
+            vout_vec.push(TxOutput {
+                value: change,
+                script_pubkey: Transaction::create_p2pkh_script(
+                    &ChainUtil::pubkey_hash_from_address(&ch_addr).unwrap(),
+                ),
+            });
+        } else {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "status": "error",
+                "message": "Change address required for remainder"
+            }));
+        }
     }
 
     let vin = vec![TxInput {
@@ -1040,69 +1047,255 @@ async fn spend_multisig_txn(
     }];
 
     let mut txn = Transaction::new(1, 0, vin, vout_vec, None);
-
-    let sighash = txn.compute_sighash(0, &redeem, input_value, SIGHASH_ALL);
-
-    let sig = wallet.sign_data(&sighash);
-
-    let my_index = match pubkeys.iter().position(|p| p == &wallet.public_key) {
-        Some(idx) => idx,
-        None => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "status": "error",
-                "message": "Wallet pubkey not in multisig"
-            }));
-        }
-    };
-
-    let mut sigs: Vec<String> = vec!["".to_string(); pubkeys.len()];
-    if let Some(os) = other_sigs {
-        if os.len() != pubkeys.len() {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "status": "error",
-                "message": "Other sigs length mismatch"
-            }));
-        }
-        for (i, o) in os.into_iter().enumerate() {
-            if let Some(s) = o {
-                sigs[i] = s;
-            }
-        }
-    }
-
-    sigs[my_index] = sig;
-
-    let mut script_sig_vec: Vec<u8> = vec![0]; // OP_0
-
-    for s in &sigs {
-        if !s.is_empty() {
-            let s_b = hex::decode(s).unwrap();
-            script_sig_vec.push(s_b.len() as u8);
-            script_sig_vec.extend_from_slice(&s_b);
-        }
-    }
-
-    let redeem_b = hex::decode(&redeem).unwrap();
-    script_sig_vec.push(redeem_b.len() as u8);
-    script_sig_vec.extend_from_slice(&redeem_b);
-
-    txn.vin[0].script_sig = hex::encode(script_sig_vec);
-
     txn.txid = txn.compute_non_witness_txid();
     txn.hash = txn.compute_hash();
 
-    let num_sigs = sigs.iter().filter(|s| !s.is_empty()).count();
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "unsigned_transaction": txn,
+    }))
+}
 
-    if num_sigs >= m as usize {
-        p2p_server.broadcast_transaction(txn.clone()).await;
+#[derive(Deserialize)]
+struct SpendMultisigBody {
+    spending_tx: Transaction,
+    pubkeys: Vec<String>,
+    m: u8,
+    sigs: Vec<Option<String>>,
+}
+
+#[post("/spend_multisig_txn")]
+async fn spend_multisig_txn(
+    body: web::Json<SpendMultisigBody>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Wallet,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let p2p_server = data.3.clone();
+    let wallet = data.6.clone();
+    let utxo_set = data.9.clone();
+    let txn_pool = data.10.clone();
+
+    let mut spending_tx = body.spending_tx.clone();
+    let pubkeys = body.pubkeys.clone();
+    let m = body.m;
+    let mut sigs = body.sigs.clone();
+
+    if m as usize > pubkeys.len() || m == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Invalid m or pubkeys"
+        }));
+    }
+    if sigs.len() < m as usize {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Signatures length is less than m"
+        }));
     }
 
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": if num_sigs >= m as usize { "success - broadcasted" } else { "partial - need more signatures" },
-        "transaction": txn,
-        "num_signatures": num_sigs,
-        "required": m,
-    }))
+    // Assume single input for simplicity
+    if spending_tx.vin.len() != 1 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Only single-input transactions supported"
+        }));
+    }
+
+    let input = &spending_tx.vin[0];
+    let txid = input.txid.clone();
+    let vout = input.vout;
+
+    let utxo_set_guard = utxo_set.lock().await;
+    let utxo = match utxo_set_guard.get_utxo(&txid, vout) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::BadRequest()
+                .content_type("application/json")
+                .json(serde_json::json!({
+                    "success": false,
+                    "error": format!("UTXO not found: {}:{}", txid, vout)
+                }));
+        }
+    };
+    let input_value = utxo.out.value;
+
+    let redeem = Transaction::create_multisig_redeem_script(m, &pubkeys);
+    let expected_script = Transaction::create_p2sh_script(&redeem);
+    if utxo.out.script_pubkey != expected_script {
+        return HttpResponse::BadRequest()
+            .content_type("application/json")
+            .json(serde_json::json!({
+                "status": "error",
+                "message": "Script mismatch"
+            }));
+    }
+
+    let total_output: u64 = spending_tx.vout.iter().map(|out| out.value).sum();
+    let fee = input_value.saturating_sub(total_output);
+    if input_value < total_output {
+        return HttpResponse::BadRequest()
+            .content_type("application/json")
+            .json(serde_json::json!({
+                "success": false,
+                "error": format!(
+                    "Insufficient funds: input {} satoshis, outputs {} satoshis",
+                    input_value, total_output
+                )
+            }));
+    }
+
+    // Find if current wallet can sign
+    if let Some(my_index) = pubkeys.iter().position(|p| p == &wallet.public_key) {
+        if sigs[my_index].is_none() {
+            let sighash = spending_tx.compute_sighash(0, &redeem, input_value, SIGHASH_ALL);
+            let sig = wallet.sign_data(&sighash);
+            sigs[my_index] = Some(sig);
+        }
+    }
+
+    let num_sigs = sigs.iter().filter(|s| s.is_some()).count();
+
+    if num_sigs >= m as usize {
+        // Build script_sig
+        let mut script_sig_vec: Vec<u8> = vec![0]; // OP_0
+
+        for s in &sigs {
+            if let Some(sig_str) = s {
+                let s_b = hex::decode(sig_str).unwrap();
+                script_sig_vec.push(s_b.len() as u8);
+                script_sig_vec.extend_from_slice(&s_b);
+            }
+        }
+
+        let redeem_b = hex::decode(&redeem).unwrap();
+        script_sig_vec.push(redeem_b.len() as u8);
+        script_sig_vec.extend_from_slice(&redeem_b);
+
+        spending_tx.vin[0].script_sig = hex::encode(script_sig_vec);
+        spending_tx.txid = spending_tx.compute_non_witness_txid();
+        spending_tx.hash = spending_tx.compute_hash();
+
+        // Lock transaction pool for adding
+        let mut txn_pool_guard = txn_pool.lock().await;
+
+        match txn_pool_guard.add_transaction(spending_tx.clone(), &utxo_set_guard) {
+            Ok(()) => {
+                println!(
+                    "✅ Added multisig spending txn to pool: {} (input {}:{})",
+                    spending_tx.txid, txid, vout
+                );
+
+                // Broadcast the transaction
+                p2p_server.broadcast_transaction(spending_tx.clone()).await;
+
+                // Return transaction details as JSON
+                let response = serde_json::json!({
+                    "success": true,
+                    "txid": spending_tx.txid,
+                    "from_multisig": format!("{}:{}", txid, vout),
+                    "total_output": total_output,
+                    "fee": fee,
+                    "total_input": input_value,
+                    "num_signatures": num_sigs,
+                    "required_signatures": m,
+                    "transaction": spending_tx
+                });
+
+                HttpResponse::Ok()
+                    .content_type("application/json")
+                    .json(response)
+            }
+            Err(e) => {
+                println!(
+                    "❌ Failed to add multisig spending transaction to pool: {}",
+                    e
+                );
+                HttpResponse::BadRequest()
+                    .content_type("application/json")
+                    .json(serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to add to mempool: {}", e),
+                        "transaction": spending_tx
+                    }))
+            }
+        }
+    } else {
+        let response = serde_json::json!({
+            "success": false,
+            "error": "Insufficient signatures",
+            "updated_sigs": sigs,
+            "num_signatures": num_sigs,
+            "required_signatures": m,
+            "transaction": spending_tx
+        });
+        HttpResponse::Ok()
+            .content_type("application/json")
+            .json(response)
+    }
+}
+#[derive(Deserialize)]
+struct SignMultisigBody {
+    txid: String,
+    vout: u32,
+    spending_tx: Transaction,
+    pubkeys: Vec<String>,
+    m: u8,
+}
+
+#[post("/sign_multisig")]
+async fn sign_multisig(
+    body: web::Json<SignMultisigBody>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Wallet,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let wallet = data.6.clone();
+    let utxo_set = data.9.lock().await;
+
+    let txid = body.txid.clone();
+    let vout = body.vout;
+    let spending_tx = body.spending_tx.clone();
+    let pubkeys = body.pubkeys.clone();
+    let m = body.m;
+
+    if m as usize > pubkeys.len() || m == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Invalid m or pubkeys"
+        }));
+    }
+
+    match wallet.sign_multisig(&utxo_set, &txid, vout, &spending_tx, &pubkeys, m) {
+        Ok(signature) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "signature": signature,
+        })),
+        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
 }
 
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
@@ -1117,5 +1310,7 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(wallet_details);
     cfg.service(utxo_set_details);
     cfg.service(create_multisig_txn);
+    cfg.service(create_spending_multisig_tx);
+    cfg.service(sign_multisig);
     cfg.service(spend_multisig_txn);
 }

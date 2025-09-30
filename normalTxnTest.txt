@@ -1,0 +1,51 @@
+Body:
+{
+"to_address":"19ZCMN2d2LQbrqzMbzoUQUriaWUukgx8mA", //address not pubkey hex
+"value":5699999999,
+"fee":100000000
+}
+
+result:
+{
+    "fee": 100000000,
+    "from_address": "1Em1o7Dpgh9tFPSXc7A94arw95a1BsyWct",
+    "success": true,
+    "to_address": "19ZCMN2d2LQbrqzMbzoUQUriaWUukgx8mA",
+    "total_input": 5799999999,
+    "transaction": {
+        "hash": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
+        "locktime": 0,
+        "txid": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
+        "version": 1,
+        "vin": [
+            {
+                "script_sig": "473045022100ac049092cf77f4a1bfb6fb759e4e088eeafad4012519d8a38f09a354f2cc3fbb022010bda1d3a47da54dbc795c2bfa361429358c964824e6d119fc8592d0d4f5aee521026c469f4feb872c4d950e15c1ece80993a5a10d5cc1f7e1c7385d2836b05bb87a",
+                "sequence": 4294967295,
+                "txid": "26b4cb81ff8d04fd24678081b034132cd3fbbe637178d0e3637c2dfa04a5c98b",
+                "vout": 0
+            },
+            {
+                "script_sig": "46304402204ab0c8189a318489769782b683e12a23acc9a48337af0a6a78674c6cd866055d02203794d7b2236d946b1d25df3cc5d6a06062efe9411299a6a9d92d4aad9df6f31921026c469f4feb872c4d950e15c1ece80993a5a10d5cc1f7e1c7385d2836b05bb87a",
+                "sequence": 4294967295,
+                "txid": "d2950c0d08369b140b9408d5bd43d68f2cac96e387b407abd4f9dc8c9af92bd2",
+                "vout": 0
+            }
+        ],
+        "vout": [
+            {
+                "script_pubkey": "76a9145dd7cade0ae535c7df0f586cd8f081f59faf640d88ac",
+                "value": 5699999999
+            },
+            {
+                "script_pubkey": "76a91496ec99e1c0f7ea3c187e34d378267da25f58075a88ac",
+                "value": 4200000001
+            }
+        ],
+        "witnesses": null
+    },
+    "txid": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
+    "value": 5699999999,
+    "wallet_balance": 94200000001
+}
+
+

@@ -1063,7 +1063,11 @@ impl TreeChain {
                             prev_pqp_block_hash = hash.clone();
                         } else {
                             // If block at base_index is a placeholder, adjust base_index
-                            base_index -= CHILDREN as usize;
+                            if (base_index as i32 - CHILDREN as i32) < 0 {
+                                base_index = 0;
+                            } else {
+                                base_index -= CHILDREN as usize;
+                            }
                             while base_index > 0 as usize {
                                 if let Some((hash, base_block)) = self.blocks.get_index(base_index)
                                 {
@@ -1365,7 +1369,11 @@ impl TreeChain {
                                     prev_pqp_block_hash = hash.clone();
                                 } else {
                                     // If block at base_index is a placeholder, adjust base_index
-                                    base_index -= CHILDREN as usize;
+                                    if (base_index as i32 - CHILDREN as i32) < 0 {
+                                        base_index = 0;
+                                    } else {
+                                        base_index -= CHILDREN as usize;
+                                    }
                                     while base_index > 0 as usize {
                                         if let Some((hash, base_block)) =
                                             self.blocks.get_index(base_index)
@@ -1489,7 +1497,11 @@ impl TreeChain {
                                         prev_pqp_block_hash = hash.clone();
                                     } else {
                                         // If block at base_index is a placeholder, adjust base_index
-                                        base_index -= CHILDREN as usize;
+                                        if (base_index as i32 - CHILDREN as i32) < 0 {
+                                            base_index = 0;
+                                        } else {
+                                            base_index -= CHILDREN as usize;
+                                        }
                                         while base_index > 0 as usize {
                                             if let Some((hash, base_block)) =
                                                 self.blocks.get_index(base_index)

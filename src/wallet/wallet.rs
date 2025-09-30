@@ -1,4 +1,5 @@
 use crate::chain_util::ChainUtil;
+use crate::config::SIGHASH_ALL;
 use crate::wallet::transaction::Transaction;
 use crate::wallet::utxo::Utxo;
 use crate::wallet::utxo::UtxoSet;
@@ -124,5 +125,75 @@ impl Wallet {
         println!("✅ Found {} UTXOs for address {}", utxos.len(), address);
 
         utxos
+    }
+    pub fn find_multisig_utxos(
+        &self,
+        utxo_set: &UtxoSet,
+        pubkeys: &Vec<String>,
+        m: u8,
+    ) -> Vec<(String, u32, Utxo)> {
+        if !pubkeys.contains(&self.public_key) {
+            return vec![];
+        }
+        if m as usize > pubkeys.len() || m == 0 {
+            return vec![];
+        }
+        let redeem = Transaction::create_multisig_redeem_script(m, pubkeys);
+        let script_pubkey = Transaction::create_p2sh_script(&redeem);
+        utxo_set
+            .utxos
+            .iter()
+            .filter(|((_, _), utxo)| utxo.out.script_pubkey == script_pubkey)
+            .map(|((txid, vout), utxo)| (txid.clone(), *vout, utxo.clone()))
+            .collect()
+    }
+
+    pub fn sign_multisig(
+        &self,
+        utxo_set: &UtxoSet,
+        txid: &str,
+        vout: u32,
+        spending_tx: &Transaction,
+        pubkeys: &Vec<String>,
+        m: u8,
+    ) -> Result<String, String> {
+        // Verify UTXO exists
+        let utxo = utxo_set
+            .get_utxo(txid, vout)
+            .ok_or_else(|| format!("UTXO not found: {}:{}", txid, vout))?;
+
+        // Check if this wallet can sign the multisig UTXO
+        let multisig_utxos = self.find_multisig_utxos(utxo_set, pubkeys, m);
+        if !multisig_utxos
+            .iter()
+            .any(|(t, v, _)| t == txid && *v == vout)
+        {
+            return Err(
+                "UTXO is not a multisig output or wallet is not part of the multisig".to_string(),
+            );
+        }
+
+        // Reconstruct redeem script
+        let redeem = Transaction::create_multisig_redeem_script(m, pubkeys);
+
+        // Verify the UTXO's script_pubkey matches the expected P2SH script
+        let expected_script = Transaction::create_p2sh_script(&redeem);
+        if utxo.out.script_pubkey != expected_script {
+            return Err("Script mismatch for P2SH multisig output".to_string());
+        }
+
+        // Compute sighash for the input
+        let input_index = spending_tx
+            .vin
+            .iter()
+            .position(|input| input.txid == txid && input.vout == vout)
+            .ok_or_else(|| "Input not found in spending transaction".to_string())?;
+        let sighash =
+            spending_tx.compute_sighash(input_index, &redeem, utxo.out.value, SIGHASH_ALL);
+
+        // Sign the sighash
+        let signature = self.sign_data(&sighash);
+
+        Ok(signature)
     }
 }
