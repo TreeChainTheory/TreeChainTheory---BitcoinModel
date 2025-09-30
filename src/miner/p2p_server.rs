@@ -967,6 +967,11 @@ impl P2PServer {
                                                 .take(pqp_len)
                                                 .any(|e| e.block_hash == pqp_entry.block_hash);
                                             if exist {
+                                                let block_exists = treechain.get_block(&block.hash);
+                                                let mut existing: bool = false;
+                                                if block_exists != None {
+                                                    existing = true;
+                                                }
                                                 if treechain.verify_and_add_block_to_tree(
                                                     &block,
                                                     &mut utxo_set,
@@ -986,20 +991,28 @@ impl P2PServer {
                                                     drop(pqp);
                                                     drop(utxo_set);
                                                     drop(txn_pool);
-                                                    self.update_registry_chain_length().await;
+                                                    if !existing {
+                                                        self.update_registry_chain_length().await;
+                                                    }
                                                     self.on_block_delivered(writer.clone()).await;
                                                 } else {
                                                     println!(
                                                         "❌ Failed to add block {} (duplicate or invalid)",
                                                         block.hash
                                                     );
-                                                    if pqp.remove_pqp_entry(pqp_entry.clone()) {
-                                                        println!("✅ Removed the pqp entry");
-                                                    } else {
-                                                        println!(
-                                                            "❌ Failed to remove the pqp entry"
-                                                        );
+                                                    if !existing {
+                                                        if pqp.remove_pqp_entry(pqp_entry.clone()) {
+                                                            println!("✅ Removed the pqp entry");
+                                                        } else {
+                                                            println!(
+                                                                "❌ Failed to remove the pqp entry"
+                                                            );
+                                                        }
                                                     }
+                                                    drop(treechain);
+                                                    drop(pqp);
+                                                    drop(utxo_set);
+                                                    drop(txn_pool);
                                                     self.on_block_delivered(writer.clone()).await;
                                                 }
                                             } else {

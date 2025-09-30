@@ -1743,7 +1743,10 @@ impl TreeChain {
             );
             return false;
         }
-
+        if let Some(_) = self.get_block(&block.hash) {
+            println!("✅ Block already present no need further operations");
+            return true;
+        }
         // Verify Merkle root
         let computed_merkle_root = Block::merkle_root(block.tx.clone());
         if computed_merkle_root != block.merkle_root {
@@ -1800,6 +1803,7 @@ impl TreeChain {
             );
             return false;
         }
+
         let mut removed_txns: Vec<&Transaction> = vec![];
         //remove from txn pool
         for tx in &block.tx {
