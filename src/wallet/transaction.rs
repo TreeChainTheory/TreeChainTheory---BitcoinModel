@@ -1,4 +1,5 @@
 use crate::chain_util::ChainUtil;
+use crate::wallet::transaction_pool::{ScriptInfo, TransactionPool};
 use crate::wallet::utxo::{Utxo, UtxoSet};
 use crate::wallet::wallet::Wallet;
 use hex;
@@ -258,38 +259,20 @@ impl Transaction {
         format!("0020{}", hex::encode(script_hash))
     }
 
-    pub fn create_cltv_redeem_script(cltv_lock_time: u32, pubkey_hash: &str) -> String {
-        let mut script: Vec<u8> = vec![];
-        let lock_bytes = cltv_lock_time.to_le_bytes();
-        script.push(lock_bytes.len() as u8);
-        script.extend(lock_bytes);
-        script.push(0xb1); // OP_CHECKLOCKTIMEVERIFY
-        script.push(0x75); // OP_DROP
-        script.push(0x76); // OP_DUP
-        script.push(0xa9); // OP_HASH160
-        let pk_hash_bytes = hex::decode(pubkey_hash).expect("Invalid pubkey hash hex");
-        script.push(pk_hash_bytes.len() as u8);
-        script.extend(pk_hash_bytes);
-        script.push(0x88); // OP_EQUALVERIFY
-        script.push(0xac); // OP_CHECKSIG
-        hex::encode(script)
+    pub fn create_cltv_redeem_script(lock: u32, pubkey_hash: &str) -> String {
+        let lock_hex = format!("{:08x}", lock);
+        let lock_push = format!("{:02x}{}", (lock_hex.len() / 2) as u8, lock_hex);
+        let standard = "76a914".to_string() + pubkey_hash + "88ac";
+        // Fixed: Opcodes as hex strings, not chars
+        format!("{}{}b175{}{}", lock_push, "b1", "75", standard)
     }
 
-    pub fn create_csv_redeem_script(csv_lock_blocks: u32, pubkey_hash: &str) -> String {
-        let mut script: Vec<u8> = vec![];
-        let lock_bytes = csv_lock_blocks.to_le_bytes();
-        script.push(lock_bytes.len() as u8);
-        script.extend(lock_bytes);
-        script.push(0xb2); // OP_CHECKSEQUENCEVERIFY
-        script.push(0x75); // OP_DROP
-        script.push(0x76); // OP_DUP
-        script.push(0xa9); // OP_HASH160
-        let pk_hash_bytes = hex::decode(pubkey_hash).expect("Invalid pubkey hash hex");
-        script.push(pk_hash_bytes.len() as u8);
-        script.extend(pk_hash_bytes);
-        script.push(0x88); // OP_EQUALVERIFY
-        script.push(0xac); // OP_CHECKSIG
-        hex::encode(script)
+    pub fn create_csv_redeem_script(lock: u32, pubkey_hash: &str) -> String {
+        let lock_hex = format!("{:08x}", lock);
+        let lock_push = format!("{:02x}{}", (lock_hex.len() / 2) as u8, lock_hex);
+        let standard = "76a914".to_string() + pubkey_hash + "88ac";
+        // Fixed: Opcodes as hex strings, not chars
+        format!("{}{}b275{}{}", lock_push, "b2", "75", standard)
     }
 
     pub fn sign_transaction(
@@ -336,60 +319,166 @@ impl Transaction {
         return tx.clone();
     }
 
+    pub fn extract_redeem_from_scriptsig(script_sig: &str) -> Option<String> {
+        let bytes = match hex::decode(script_sig) {
+            Ok(b) => b,
+            Err(_) => return None,
+        };
+        let mut offset = 0;
+        let mut last_push_end = 0;
+        while offset < bytes.len() {
+            if offset >= bytes.len() {
+                break;
+            }
+            let len = bytes[offset] as usize;
+            offset += 1;
+            if offset + len > bytes.len() {
+                return None; // Invalid push
+            }
+            last_push_end = offset + len;
+            offset += len;
+        }
+        if last_push_end > 0 {
+            let redeem_start = last_push_end - (bytes[last_push_end - 1] as usize); // Backtrack to last len
+            Some(hex::encode(&bytes[redeem_start..last_push_end]))
+        } else {
+            None
+        }
+    }
+
+    /// Placeholder: Can't extract full redeem from script_pubkey hash alone.
+    pub fn extract_redeem_script(_script_pubkey: &str) -> Option<String> {
+        None // Use extract_redeem_from_scriptsig for spends
+    }
+
     pub fn create_new_transaction(
         wallet: &Wallet,
         utxo_set: &UtxoSet,
         value: u64,
         fee: u64,
         to_address: &str,
-    ) -> Result<Self, String> {
-        let version = 1;
-        let locktime = 0;
-        let sender_script = Self::create_p2pkh_script(&wallet.public_key_hash);
+        current_time: u32,
+        current_height: u64,
+    ) -> Result<Transaction, String> {
+        let pubkey_hash = &wallet.public_key_hash;
+        let expected_p2pkh_script = Self::create_p2pkh_script(pubkey_hash);
 
-        // Select UTXOs
-        let mut selected = vec![];
-        let mut total_input = 0;
-        for ((txid, vout), utxo) in utxo_set.utxos.iter() {
-            if utxo.out.script_pubkey == sender_script {
-                selected.push((txid.clone(), *vout, utxo.out.value));
-                total_input += utxo.out.value;
-                if total_input > value + fee {
-                    break;
+        let mut inputs = vec![];
+        let mut total_input = 0u64;
+        let target_amount = value + fee;
+
+        // Collect spendable UTXOs (P2PKH + unlocked CLTV/CSV P2SH)
+        for ((txid, vout), utxo) in &utxo_set.utxos {
+            if total_input >= target_amount {
+                break;
+            }
+
+            let script_pubkey = &utxo.out.script_pubkey;
+            let mut can_spend = false;
+            let mut redeem_script: Option<String> = None;
+            let mut is_cltv = false;
+            let mut lock_value = 0u32;
+
+            // Check P2PKH
+            if script_pubkey == &expected_p2pkh_script {
+                can_spend = true;
+            }
+            // Check P2SH for CLTV/CSV
+            else if script_pubkey.starts_with("a914")
+                && script_pubkey.len() == 46
+                && script_pubkey.ends_with("87")
+            {
+                // Extract potential redeem script (placeholder: in real impl, lookup from storage)
+                if let Some(redeem) = Self::extract_redeem_from_scriptsig(script_pubkey) {
+                    let redeem_bytes =
+                        hex::decode(&redeem).map_err(|_| "Invalid redeem hex".to_string())?;
+                    let ops = TransactionPool::parse_script_ops(&redeem_bytes); // Assume TransactionPool in scope or move fn
+                    if let Ok(info) = TransactionPool::get_script_info(&ops) {
+                        match info {
+                            ScriptInfo::Cltv {
+                                lock,
+                                pubkey_hash: ph,
+                            } if ph == *pubkey_hash && current_time >= lock => {
+                                can_spend = true;
+                                redeem_script = Some(redeem);
+                                is_cltv = true;
+                                lock_value = lock;
+                            }
+                            ScriptInfo::Csv {
+                                lock,
+                                pubkey_hash: ph,
+                            } if ph == *pubkey_hash && current_height >= lock as u64 => {
+                                can_spend = true;
+                                redeem_script = Some(redeem);
+                                lock_value = lock;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
+            }
+
+            if can_spend {
+                inputs.push((txid.clone(), *vout, redeem_script, utxo.out.value));
+                total_input += utxo.out.value;
             }
         }
 
-        if total_input < value + fee {
-            return Err("Insufficient funds".to_string());
+        if total_input < target_amount {
+            return Err(format!(
+                "Insufficient funds: need {}, available {}",
+                target_amount, total_input
+            ));
         }
 
-        let vin: Vec<TxInput> = selected
-            .into_iter()
-            .map(|(txid, vout, _)| TxInput {
-                txid,
-                vout,
-                script_sig: "".to_string(),
-                sequence: 0xffffffff,
-            })
-            .collect();
-        let vout = vec![
-            TxOutput {
-                value,
-                script_pubkey: Self::create_p2pkh_script(&ChainUtil::pubkey_hash_from_address(
-                    to_address,
-                )?),
-            },
-            TxOutput {
-                value: total_input - value - fee,
-                script_pubkey: sender_script,
-            },
-        ];
+        // Create outputs
+        let to_pubkey_hash = ChainUtil::pubkey_hash_from_address(to_address)
+            .map_err(|e| format!("Invalid to_address: {}", e))?;
+        let mut vout = vec![TxOutput {
+            value,
+            script_pubkey: Self::create_p2pkh_script(&to_pubkey_hash),
+        }];
 
-        let tx = Self::new(version, locktime, vin, vout, None);
+        let change = total_input - target_amount;
+        if change > 0 {
+            vout.push(TxOutput {
+                value: change,
+                script_pubkey: expected_p2pkh_script.clone(),
+            });
+        }
+
+        // Create inputs with sequence/locktime prep
+        let mut vin = vec![];
+        let mut tx_locktime = 0u32;
+        for (txid, vout_idx, redeem, input_value) in inputs {
+            let mut input_seq = 0xffffffffu32;
+            if let Some(r) = redeem {
+                let redeem_bytes = hex::decode(&r).unwrap();
+                let ops = TransactionPool::parse_script_ops(&redeem_bytes);
+                if let Ok(info) = TransactionPool::get_script_info(&ops) {
+                    match info {
+                        ScriptInfo::Cltv { lock, .. } => {
+                            tx_locktime = tx_locktime.max(lock);
+                        }
+                        ScriptInfo::Csv { lock, .. } => {
+                            input_seq = lock;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            vin.push(TxInput {
+                txid,
+                vout: vout_idx,
+                script_sig: String::new(),
+                sequence: input_seq,
+            });
+        }
+
+        let mut tx = Self::new(1, tx_locktime, vin, vout, None);
+
         Ok(tx)
     }
-
     pub fn create_new_multisig_txn(
         wallet: &Wallet,
         utxo_set: &UtxoSet,
@@ -602,6 +691,7 @@ impl Transaction {
         value: u64,
         sighash_type: u32,
     ) -> Vec<u8> {
+        println!("compute sighash called");
         let mut vin = self.vin.clone();
         for i in 0..vin.len() {
             vin[i].script_sig = if i == input_index {

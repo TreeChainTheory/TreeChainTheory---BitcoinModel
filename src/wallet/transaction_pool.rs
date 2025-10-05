@@ -1,5 +1,7 @@
 use crate::chain_util::ChainUtil;
 use crate::config::{CHILDREN, SIGHASH_ALL, USER_TXN_FREERATE};
+use crate::treechain;
+use crate::treechain::treechain::TreeChain;
 use crate::wallet::transaction::{Transaction, TxInput, TxOutput};
 use crate::wallet::utxo::{Utxo, UtxoSet};
 use crate::wallet::wallet::Wallet;
@@ -17,7 +19,7 @@ pub const DEFAULT_MIN_FEE_RATE: u64 = USER_TXN_FREERATE; // satoshis per vB
 pub const MAX_TX_SIZE: usize = 100_000; // Bitcoin's max tx size (vB)
 
 #[derive(Debug)]
-enum Op {
+pub enum Op {
     Push(Vec<u8>),
     Code(u8),
 }
@@ -33,7 +35,7 @@ impl Op {
 }
 
 #[derive(Debug)]
-enum ScriptInfo {
+pub enum ScriptInfo {
     P2pkh { pubkey_hash: String },
     Multisig { m: u8, pubkeys: Vec<String>, n: u8 },
     Cltv { lock: u32, pubkey_hash: String },
@@ -102,96 +104,64 @@ impl TransactionPool {
     //             tx.locktime, current_time
     //         ));
     //     }
-
+    //     println!("validate transaction here 1");
     //     // Verify inputs are unspent and calculate total input value
     //     let mut input_value = 0;
     //     let mut depends = HashSet::new();
+    //     let mut utxos = vec![];
     //     for input in &tx.vin {
     //         let utxo = utxt_set
     //             .get_utxo(&input.txid, input.vout)
     //             .or_else(|| self.utxo_set.get_utxo(&input.txid, input.vout))
     //             .ok_or(format!("UTXO not found: {}:{}", input.txid, input.vout))?;
     //         input_value += utxo.out.value;
+    //         utxos.push(utxo.clone());
 
     //         if self.pool.contains_key(&input.txid) {
     //             depends.insert(input.txid.clone());
     //         }
+    //     }
+    //     println!("validate transaction here 2");
 
-    //         let input_index = tx.vin.iter().position(|x| x == input).unwrap();
-    //         if tx.witnesses.is_none() {
-    //             let sighash = tx.compute_sighash(
-    //                 input_index,
-    //                 &utxo.out.script_pubkey,
-    //                 utxo.out.value,
-    //                 SIGHASH_ALL,
-    //             );
-    //             let (sig_hex, pubkey_hex) =
-    //                 Self::parse_script_sig(&input.script_sig).map_err(|e| {
-    //                     format!("Script_sig error for {}:{}: {}", input.txid, input.vout, e)
-    //                 })?;
-    //             if !Self::verify_signature(&sighash, &sig_hex, &pubkey_hex) {
-    //                 return Err(format!(
-    //                     "Invalid signature for input {}:{}",
-    //                     input.txid, input.vout
-    //                 ));
-    //             }
-    //         } else {
-    //             let witnesses = tx.witnesses.as_ref().unwrap();
-    //             let witness = witnesses.get(input_index).ok_or(format!(
-    //                 "Missing witness data for {}:{}",
-    //                 input.txid, input.vout
-    //             ))?;
-    //             if witness.len() < 2 {
-    //                 return Err(format!(
-    //                     "Invalid witness format for {}:{}",
-    //                     input.txid, input.vout
-    //                 ));
-    //             }
-    //             let sighash = tx.compute_segwit_sighash(
-    //                 input_index,
-    //                 utxo.out.value,
-    //                 &utxo.out.script_pubkey,
-    //                 SIGHASH_ALL,
-    //             );
-    //             if !Self::verify_signature(&sighash, &witness[0], &witness[1]) {
-    //                 return Err(format!(
-    //                     "Invalid witness signature for input {}:{}",
-    //                     input.txid, input.vout
-    //                 ));
-    //             }
-    //         }
+    //     // Verify signatures and scripts for all inputs
+    //     let witnesses = tx.witnesses.as_ref();
+    //     for (i, input) in tx.vin.iter().enumerate() {
+    //         let utxo = &utxos[i];
+    //         println!("validate transaction here 3");
+    //         Self::verify_input(
+    //             tx,
+    //             i,
+    //             input,
+    //             utxo,
+    //             utxo.out.value,
+    //             current_time,
+    //             witnesses.and_then(|w| w.get(i)),
+    //         )?;
     //     }
 
-    //     let output_value: u64 = tx.vout.iter().map(|out| out.value).sum();
+    //     // Check outputs
+    //     let mut output_value = 0;
+    //     for output in &tx.vout {
+    //         if output.value == 0 {
+    //             return Err("Output value must be positive".to_string());
+    //         }
+    //         output_value += output.value;
+    //     }
+
     //     if output_value > input_value {
     //         return Err(format!(
-    //             "Output value {} exceeds input value {}",
+    //             "Outputs {} exceed inputs {}",
     //             output_value, input_value
     //         ));
     //     }
-    //     let fee = input_value - output_value;
 
+    //     let fee = input_value - output_value;
     //     let fee_rate = fee as f64 / vsize as f64;
     //     if fee_rate < min_fee_rate {
     //         return Err(format!(
-    //             "Fee rate {} sat/vB below minimum {}",
+    //             "Fee rate {} below minimum {}",
     //             fee_rate, min_fee_rate
     //         ));
-    //     }
-    //     // println!("self.pool values: {:?}", self.pool.values());
-    //     for input in &tx.vin {
-    //         if self.pool.values().any(|entry| {
-    //             entry
-    //                 .tx
-    //                 .vin
-    //                 .iter()
-    //                 .any(|in_| in_.txid == input.txid && in_.vout == input.vout)
-    //         }) {
-    //             return Err(format!(
-    //                 "Double-spend detected for {}:{}",
-    //                 input.txid, input.vout
-    //             ));
-    //         }
     //     }
 
     //     Ok((fee, vsize, fee_rate, depends))
@@ -201,12 +171,13 @@ impl TransactionPool {
         &self,
         tx: &Transaction,
         min_fee_rate: f64,
-        utxt_set: &UtxoSet,
+        utxo_set: &UtxoSet,
+        treechain: &TreeChain,
     ) -> Result<(u64, usize, f64, HashSet<String>), String> {
-        //check txid and hash
+        // Check txid and hash
         if !Transaction::check_txid_and_hash(tx) {
             return Err(format!(
-                "Transaction txid and hash dosnt match calculation: {}",
+                "Transaction txid and hash doesn't match calculation: {}",
                 tx.txid
             ));
         }
@@ -216,7 +187,7 @@ impl TransactionPool {
             return Err(format!("Transaction too large: {} vB", vsize));
         }
 
-        // Check locktime first
+        // Check locktime first (global txn locktime)
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -228,12 +199,13 @@ impl TransactionPool {
             ));
         }
         println!("validate transaction here 1");
+
         // Verify inputs are unspent and calculate total input value
-        let mut input_value = 0;
+        let mut input_value = 0u64;
         let mut depends = HashSet::new();
         let mut utxos = vec![];
         for input in &tx.vin {
-            let utxo = utxt_set
+            let utxo = utxo_set
                 .get_utxo(&input.txid, input.vout)
                 .or_else(|| self.utxo_set.get_utxo(&input.txid, input.vout))
                 .ok_or(format!("UTXO not found: {}:{}", input.txid, input.vout))?;
@@ -246,11 +218,86 @@ impl TransactionPool {
         }
         println!("validate transaction here 2");
 
-        // Verify signatures and scripts for all inputs
+        // Current height for CSV checks
+        let current_height = treechain.get_max_queue_index();
+
+        // Verify signatures, scripts, and timelocks for all inputs
         let witnesses = tx.witnesses.as_ref();
         for (i, input) in tx.vin.iter().enumerate() {
             let utxo = &utxos[i];
             println!("validate transaction here 3");
+
+            let script_pubkey = &utxo.out.script_pubkey;
+
+            // Timelock checks ONLY for CLTV/CSV P2SH inputs (skip for multisig or other P2SH)
+            if script_pubkey.starts_with("a914") && script_pubkey.ends_with("87") {
+                let redeem_opt = Transaction::extract_redeem_from_scriptsig(&input.script_sig);
+                let redeem = match redeem_opt {
+                    Some(r) => r,
+                    None => {
+                        return Err(format!(
+                            "Missing redeem in script_sig for P2SH input {}:{}",
+                            input.txid, input.vout
+                        ));
+                    }
+                };
+                let redeem_bytes = match hex::decode(&redeem) {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return Err(format!(
+                            "Invalid redeem hex for input {}:{}",
+                            input.txid, input.vout
+                        ));
+                    }
+                };
+                let ops = Self::parse_script_ops(&redeem_bytes);
+                if let Ok(info) = Self::get_script_info(&ops) {
+                    match info {
+                        ScriptInfo::Cltv { lock, .. } => {
+                            println!("info {:?}", info);
+                            if tx.locktime < lock as u32 {
+                                return Err(format!(
+                                    "CLTV not met for input {}:{}: locktime {} < lock {}",
+                                    input.txid, input.vout, tx.locktime, lock
+                                ));
+                            }
+                            if tx.version < 2 || input.sequence >= 0xFFFFFFFE {
+                                return Err(format!(
+                                    "Invalid version/sequence for CLTV input {}:{}",
+                                    input.txid, input.vout
+                                ));
+                            }
+                        }
+                        ScriptInfo::Csv { lock, .. } => {
+                            println!("info {:?}", info);
+                            let blocks_since =
+                                current_height.saturating_sub(utxo.queue_index as u64);
+                            if blocks_since < lock as u64 {
+                                return Err(format!(
+                                    "CSV not met for input {}:{}: {} blocks < lock {} (created at {})",
+                                    input.txid, input.vout, blocks_since, lock, utxo.queue_index
+                                ));
+                            }
+                            if tx.version < 2 {
+                                return Err(format!(
+                                    "Invalid version for CSV input {}:{}",
+                                    input.txid, input.vout
+                                ));
+                            }
+                        }
+                        ScriptInfo::Multisig { .. } => {
+                            println!("info {:?}", info);
+
+                            // No additional timelock checks for multisig; proceed to full verification
+                        }
+                        _ => {
+                            println!("info {:?}", info);
+                        } // Other scripts OK, no timelock
+                    }
+                }
+            }
+
+            // Full script and signature verification for ALL inputs (handles P2PKH, P2SH multisig, timelock, etc.)
             Self::verify_input(
                 tx,
                 i,
@@ -263,7 +310,7 @@ impl TransactionPool {
         }
 
         // Check outputs
-        let mut output_value = 0;
+        let mut output_value = 0u64;
         for output in &tx.vout {
             if output.value == 0 {
                 return Err("Output value must be positive".to_string());
@@ -285,6 +332,22 @@ impl TransactionPool {
                 "Fee rate {} below minimum {}",
                 fee_rate, min_fee_rate
             ));
+        }
+
+        // Double-spend check in mempool
+        for input in &tx.vin {
+            if self.pool.values().any(|entry| {
+                entry
+                    .tx
+                    .vin
+                    .iter()
+                    .any(|in_| in_.txid == input.txid && in_.vout == input.vout)
+            }) {
+                return Err(format!(
+                    "Double-spend detected for {}:{}",
+                    input.txid, input.vout
+                ));
+            }
         }
 
         Ok((fee, vsize, fee_rate, depends))
@@ -478,7 +541,8 @@ impl TransactionPool {
             }
             ScriptInfo::Multisig { m, n, pubkeys } => {
                 println!("verify script called here 1");
-                if stack.len() != (m as usize + 1) || !stack[0].is_empty() {
+                if stack.len() < (m as usize + 1) || !stack[0].is_empty() {
+                    println!("stack: {:?}", stack);
                     // Expect empty for OP_0
                     return Err("Invalid stack for multisig".to_string());
                 }
@@ -563,7 +627,7 @@ impl TransactionPool {
         Ok(items)
     }
 
-    fn parse_script_ops(bytes: &[u8]) -> Vec<Op> {
+    pub fn parse_script_ops(bytes: &[u8]) -> Vec<Op> {
         println!("called parse script ops");
         let mut ops = vec![];
         let mut pos = 0;
@@ -585,7 +649,8 @@ impl TransactionPool {
         ops
     }
 
-    fn get_script_info(ops: &[Op]) -> Result<ScriptInfo, String> {
+    pub fn get_script_info(ops: &[Op]) -> Result<ScriptInfo, String> {
+        println!("called get script info");
         if ops.len() == 5
             && matches!(ops[0], Op::Code(0x76))
             && matches!(ops[1], Op::Code(0xa9))
@@ -726,11 +791,48 @@ impl TransactionPool {
     //     Ok(())
     // }
 
-    pub fn add_transaction(&mut self, tx: Transaction, utxo_set: &UtxoSet) -> Result<(), String> {
+    pub fn add_transaction(
+        &mut self,
+        tx: Transaction,
+        utxo_set: &UtxoSet,
+        treechain: &TreeChain,
+    ) -> Result<(), String> {
         println!("add transaction called");
+
         let (fee, vsize, fee_rate, depends) =
-            self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)?;
+            self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set, treechain)?;
         println!("validated txn");
+
+        let current_height = treechain.get_max_queue_index(); // Assume this method exists
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u32;
+
+        // Check if this is a normal/CSV txn (locktime=0, all sequences=max) or CLTV funding (locktime>0)
+        let is_normal_or_csv =
+            tx.locktime == 0 && tx.vin.iter().all(|input| input.sequence == 0xffffffff);
+        if !is_normal_or_csv {
+            // Assume CLTV funding: enforce maturity on txn locktime
+            let is_time_based = tx.locktime >= 500_000_000;
+            let current = if is_time_based {
+                current_time
+            } else {
+                current_height as u32
+            };
+            if current < tx.locktime {
+                return Err(format!(
+                    "⛔ CLTV funding txn not mature: locktime {} > current {}",
+                    tx.locktime, current
+                ));
+            }
+            println!(
+                "✅ CLTV funding txn mature: locktime {} <= current {}",
+                tx.locktime, current
+            );
+        } else {
+            println!("✅ Normal/CSV txn: no maturity check needed");
+        }
 
         let entry_size = tx.serialize_non_witness().len();
         if self.total_size + entry_size > MAX_MEMPOOL_SIZE {
@@ -813,10 +915,11 @@ impl TransactionPool {
         &mut self,
         new_tx: Transaction,
         utxo_set: &UtxoSet,
+        treechain: &TreeChain,
     ) -> Result<(), String> {
         // Validate new transaction first
         let (new_fee, _, new_fee_rate, _) =
-            self.validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)?;
+            self.validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set, treechain)?;
 
         // Find conflicting transactions (same inputs)
         let mut replaced_txids = HashSet::new();
@@ -876,7 +979,7 @@ impl TransactionPool {
         }
 
         // Add new transaction
-        self.add_transaction(new_tx, utxo_set)
+        self.add_transaction(new_tx, utxo_set, treechain)
     }
 
     // pub fn remove_transaction(&mut self, txid: &str) {
@@ -1025,11 +1128,12 @@ impl TransactionPool {
         &mut self,
         new_tx: Transaction,
         utxo_set: &UtxoSet,
+        treechain: &TreeChain,
     ) -> Result<(), String> {
         println!("replace_transaction called for txid: {}", new_tx.txid);
         // Validate new transaction
         let (new_fee, new_vsize, new_fee_rate, new_depends) = self
-            .validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)
+            .validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set, treechain)
             .map_err(|e| format!("Validation failed for txid {}: {}", new_tx.txid, e))?;
 
         // Check if it replaces an existing transaction
@@ -1095,7 +1199,7 @@ impl TransactionPool {
         }
 
         // Add new transaction
-        self.add_transaction(new_tx, utxo_set)
+        self.add_transaction(new_tx, utxo_set, treechain)
     }
 
     pub fn parse_script_sig(script_sig: &str) -> Result<(String, String), String> {
@@ -1175,12 +1279,15 @@ impl TransactionPool {
             .collect()
     }
 
-    pub fn reorg(&mut self, utxo_set: &UtxoSet) {
+    pub fn reorg(&mut self, utxo_set: &UtxoSet, treechain: &TreeChain) {
         let mut invalid_txids = Vec::new();
         for (txid, entry) in &self.pool {
-            if let Err(_) =
-                self.validate_transaction(&entry.tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set)
-            {
+            if let Err(_) = self.validate_transaction(
+                &entry.tx,
+                DEFAULT_MIN_FEE_RATE as f64,
+                utxo_set,
+                treechain,
+            ) {
                 invalid_txids.push(txid.clone());
             }
         }

@@ -40,12 +40,12 @@ async fn main() {
         val
     }
 
-    let wallet = Wallet::new();
+    let wallet = Arc::new(Mutex::new(Wallet::new()));
 
     let http_port = env::var("HTTP_PORT").unwrap_or_else(|_| "3001".into());
     let p2p_port = env::var("P2P_PORT").unwrap_or_else(|_| "5001".into());
     let peers = env::var("PEERS").unwrap_or_else(|_| "".into());
-    let miner_address = wallet.clone().address;
+    let miner_address = wallet.lock().await.clone().address;
     let align = get_align();
 
     println!("Starting HTTP server on http://localhost:{}", http_port);
@@ -82,7 +82,7 @@ async fn main() {
                 Arc::clone(&p2p_server),
                 Arc::clone(&current_mining_position),
                 Arc::clone(&abort_mining),
-                wallet.clone(),
+                Arc::clone(&wallet),
                 align,
                 Arc::clone(&chain_length),
                 Arc::clone(&utxo_set),

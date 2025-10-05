@@ -1,6 +1,8 @@
 use crate::chain_util::ChainUtil;
 use crate::config::SIGHASH_ALL;
+use crate::treechain::treechain::TreeChain;
 use crate::wallet::transaction::Transaction;
+use crate::wallet::transaction_pool::{ScriptInfo, TransactionPool};
 use crate::wallet::utxo::Utxo;
 use crate::wallet::utxo::UtxoSet;
 use k256::EncodedPoint;
@@ -9,6 +11,7 @@ use k256::ecdsa::signature::Signer;
 use k256::ecdsa::signature::Verifier;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
+use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Wallet {
@@ -72,38 +75,183 @@ impl Wallet {
         verifying_key.verify(data, &signature).is_ok()
     }
 
-    pub fn get_balance(address: &str, utxo_set: &UtxoSet) -> u64 {
-        // Get the public key hash from the address
+    // pub fn get_balance(address: &str, utxo_set: &UtxoSet) -> u64 {
+    //     // Get the public key hash from the address
+    //     let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
+    //         Ok(hash) => hash,
+    //         Err(_) => {
+    //             println!("❌ Invalid address: {}", address);
+    //             return 0;
+    //         }
+    //     };
+
+    //     // Calculate the expected P2PKH script_pubkey for this address
+    //     let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
+
+    //     // Sum the value of all UTXOs with matching script_pubkey
+    //     let balance = utxo_set
+    //         .utxos
+    //         .values()
+    //         .filter(|utxo| utxo.out.script_pubkey == expected_script)
+    //         .map(|utxo| utxo.out.value)
+    //         .sum::<u64>();
+
+    //     println!(
+    //         "✅ Balance for address {} (pkhash: {}): {} satoshis",
+    //         address, pubkey_hash, balance
+    //     );
+
+    //     balance
+    // }
+
+    pub fn get_balance(
+        &self,
+        address: &str,
+        utxo_set: &UtxoSet,
+        treechain: &TreeChain,
+    ) -> (u64, u64, u64) {
         let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
             Ok(hash) => hash,
             Err(_) => {
                 println!("❌ Invalid address: {}", address);
-                return 0;
+                return (0, 0, 0);
             }
         };
 
-        // Calculate the expected P2PKH script_pubkey for this address
-        let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
+        let expected_p2pkh_script = Transaction::create_p2pkh_script(&pubkey_hash);
 
-        // Sum the value of all UTXOs with matching script_pubkey
-        let balance = utxo_set
-            .utxos
+        let mut total_balance = 0u64;
+        let mut unlocked_balance = 0u64;
+        let mut locked_balance = 0u64;
+
+        // Compute current height as max queue_index
+        let current_height = treechain
+            .blocks
             .values()
-            .filter(|utxo| utxo.out.script_pubkey == expected_script)
-            .map(|utxo| utxo.out.value)
-            .sum::<u64>();
+            .map(|b| b.pqp_entry.queue_index as u64)
+            .max()
+            .unwrap_or(0);
+
+        // Compute current time as unix seconds
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u64;
+        for ((txid, vout), utxo) in &utxo_set.utxos {
+            let script = &utxo.out.script_pubkey;
+            if *script == expected_p2pkh_script {
+                unlocked_balance += utxo.out.value;
+            } else if script.starts_with("a914") && script.ends_with("87") {
+                println!("🧐 utxo scipt: {}", script);
+                // P2SH: Extract script_hash (hex positions 4 to 44)
+                let script_hash = script[4..44].to_string();
+                // Find the originating block by queue_index
+                let originating_block_opt = treechain
+                    .blocks
+                    .values()
+                    .find(|b| b.pqp_entry.queue_index == utxo.queue_index);
+                if let Some(originating_block) = originating_block_opt {
+                    // Find the originating transaction by txid
+                    let originating_tx_opt = originating_block.tx.iter().find(|t| t.txid == *txid);
+                    if let Some(originating_tx) = originating_tx_opt {
+                        // Verify the output at vout matches the script_pubkey
+                        if let Some(output) = originating_tx.vout.get(*vout as usize) {
+                            if output.script_pubkey == *script {
+                                let locktime = originating_tx.locktime as u64;
+                                let is_cltv = locktime != 0;
+                                let mut is_csv = false;
+                                let mut required_height = 0u64;
+                                if !is_cltv {
+                                    let txn_inputs = &originating_tx.vin;
+                                    for input in txn_inputs {
+                                        if input.sequence != 4294967295u32 {
+                                            is_csv = true;
+                                            let relative_lock =
+                                                ((input.sequence & 0x0000FFFF) as u64);
+
+                                            let parent_height = utxo.queue_index as u64;
+                                            let min_height_i =
+                                                parent_height.saturating_add(relative_lock);
+                                            if min_height_i > required_height {
+                                                required_height = min_height_i;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let mut is_mature = true;
+                                if is_cltv {
+                                    let lock_u64 = locktime as u64;
+                                    is_mature = if lock_u64 >= 500_000_000 {
+                                        // Time-based CLTV
+                                        current_time >= lock_u64
+                                    } else {
+                                        // Height-based CLTV
+                                        current_height >= lock_u64
+                                    };
+                                }
+                                if is_csv {
+                                    is_mature = current_height >= required_height;
+                                }
+                                // else: no lock, mature
+
+                                if is_mature {
+                                    unlocked_balance += utxo.out.value;
+                                } else {
+                                    locked_balance += utxo.out.value;
+                                }
+                                println!(
+                                    "🔓/🔒 Mature: {}, UTXO: script_hash={}, value={}, is_cltv={}, locktime={}, is_csv={}, required_height={}, blocks_since={} (current_height={})",
+                                    if is_mature { "Yes" } else { "No" },
+                                    script_hash,
+                                    utxo.out.value,
+                                    is_cltv,
+                                    locktime,
+                                    is_csv,
+                                    required_height,
+                                    current_height.saturating_sub(utxo.queue_index as u64),
+                                    current_height
+                                );
+                            } else {
+                                println!(
+                                    "⚠️ Script mismatch for UTXO {}:{} in block {}",
+                                    txid, vout, originating_block.hash
+                                );
+                            }
+                        } else {
+                            println!(
+                                "⚠️ Invalid vout {} for txid {} in block {}",
+                                vout, txid, originating_block.hash
+                            );
+                        }
+                    } else {
+                        println!(
+                            "⚠️ Originating tx {} not found in block for queue_index {}",
+                            txid, utxo.queue_index
+                        );
+                    }
+                } else {
+                    println!(
+                        "⚠️ Originating block not found for queue_index {}",
+                        utxo.queue_index
+                    );
+                }
+            }
+        }
+        total_balance = unlocked_balance + locked_balance;
 
         println!(
-            "✅ Balance for address {} (pkhash: {}): {} satoshis",
-            address, pubkey_hash, balance
+            "✅ Balance for address {} (pkhash: {}): total {} satoshis (unlocked: {}, locked: {})",
+            address, pubkey_hash, total_balance, unlocked_balance, locked_balance
         );
 
-        balance
+        (total_balance, unlocked_balance, locked_balance)
     }
 
     pub fn get_utxos_for_address<'a>(
         address: &'a str,
         utxo_set: &'a UtxoSet,
+        treechain: &'a TreeChain,
     ) -> Vec<(String, u32, &'a Utxo)> {
         let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
             Ok(hash) => hash,
@@ -115,14 +263,121 @@ impl Wallet {
 
         let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
 
-        let utxos = utxo_set
-            .utxos
-            .iter()
-            .filter(|((_, _), utxo)| utxo.out.script_pubkey == expected_script)
-            .map(|((txid, vout), utxo)| (txid.clone(), *vout, utxo))
-            .collect::<Vec<_>>();
+        // Compute current height as max queue_index
+        let current_height = treechain
+            .blocks
+            .values()
+            .map(|b| b.pqp_entry.queue_index as u64)
+            .max()
+            .unwrap_or(0);
 
-        println!("✅ Found {} UTXOs for address {}", utxos.len(), address);
+        // Compute current time as unix seconds
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u64;
+
+        let mut utxos = Vec::new();
+
+        for ((txid, vout), utxo) in &utxo_set.utxos {
+            let script = &utxo.out.script_pubkey;
+            let mut is_mature = true;
+            if *script == expected_script {
+                // P2PKH: always mature
+            } else if script.starts_with("a914") && script.ends_with("87") {
+                // P2SH
+                let script_hash = script[4..44].to_string();
+                // Find the originating block by queue_index
+                let originating_block_opt = treechain
+                    .blocks
+                    .values()
+                    .find(|b| b.pqp_entry.queue_index == utxo.queue_index);
+                if let Some(originating_block) = originating_block_opt {
+                    // Find the originating transaction by txid
+                    let originating_tx_opt = originating_block.tx.iter().find(|t| t.txid == *txid);
+                    if let Some(originating_tx) = originating_tx_opt {
+                        // Verify the output at vout matches the script_pubkey
+                        if let Some(output) = originating_tx.vout.get(*vout as usize) {
+                            if output.script_pubkey == *script {
+                                let locktime = originating_tx.locktime;
+                                let is_cltv = locktime != 0;
+                                let mut is_csv = false;
+                                let mut required_height = 0u64;
+                                if !is_cltv {
+                                    let txn_inputs = &originating_tx.vin;
+                                    for input in txn_inputs {
+                                        if input.sequence != 4294967295u32 {
+                                            is_csv = true;
+                                            let relative_lock =
+                                                ((input.sequence & 0x0000FFFF) as u64);
+
+                                            let parent_height = utxo.queue_index as u64;
+                                            let min_height_i =
+                                                parent_height.saturating_add(relative_lock);
+                                            if min_height_i > required_height {
+                                                required_height = min_height_i;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                is_mature = if is_cltv {
+                                    let lock_u64 = locktime as u64;
+                                    if lock_u64 >= 500_000_000 {
+                                        // Time-based CLTV
+                                        current_time >= lock_u64
+                                    } else {
+                                        // Height-based CLTV
+                                        current_height >= lock_u64
+                                    }
+                                } else if is_csv {
+                                    current_height >= required_height
+                                } else {
+                                    true
+                                };
+                            } else {
+                                println!(
+                                    "⚠️ Script mismatch for UTXO {}:{} in block {}",
+                                    txid, vout, originating_block.hash
+                                );
+                                continue;
+                            }
+                        } else {
+                            println!(
+                                "⚠️ Invalid vout {} for txid {} in block {}",
+                                vout, txid, originating_block.hash
+                            );
+                            continue;
+                        }
+                    } else {
+                        println!(
+                            "⚠️ Originating tx {} not found in block for queue_index {}",
+                            txid, utxo.queue_index
+                        );
+                        continue;
+                    }
+                } else {
+                    println!(
+                        "⚠️ Originating block not found for queue_index {}",
+                        utxo.queue_index
+                    );
+                    continue;
+                }
+            } else {
+                // Non-matching script, skip
+                continue;
+            }
+
+            if is_mature {
+                utxos.push((txid.clone(), *vout, utxo));
+            }
+        }
+
+        println!(
+            "✅ Found {} mature UTXOs for address {}",
+            utxos.len(),
+            address
+        );
 
         utxos
     }

@@ -6,6 +6,7 @@
 //6th terminal ALIGN=3 HTTP_PORT=3006 P2P_PORT=5006 cargo run --bin TreeChainTheorey
 
 use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
+use crate::treechain;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::ParentQueueEntry;
 use crate::treechain::treechain::{PQP, TreeChain};
@@ -1366,7 +1367,9 @@ impl P2PServer {
                                             {
                                                 let mut txn_pool = self.txn_pool.lock().await;
                                                 let utxo_set = self.utxo_set.lock().await;
-                                                txn_pool.add_transaction(txn, &utxo_set);
+                                                let treechain = self.treechain.lock().await;
+                                                txn_pool
+                                                    .add_transaction(txn, &utxo_set, &treechain);
                                                 drop(txn_pool);
                                                 drop(utxo_set);
                                             }

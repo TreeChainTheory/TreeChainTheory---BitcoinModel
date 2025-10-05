@@ -2,10 +2,11 @@ use crate::chain_util::ChainUtil;
 use crate::config::SIGHASH_ALL;
 use crate::miner::p2p_server;
 use crate::p2p_server::P2PServer;
+use crate::treechain;
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
 use crate::wallet::transaction::{Transaction, TxInput, TxOutput};
-use crate::wallet::transaction_pool::TransactionPool;
+use crate::wallet::transaction_pool::{ScriptInfo, TransactionPool};
 use crate::wallet::utxo::UtxoSet;
 use crate::wallet::wallet::Wallet;
 use actix_web::{HttpResponse, Responder, get, post, web};
@@ -23,7 +24,7 @@ async fn start_mining(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -37,7 +38,7 @@ async fn start_mining(
         p2p_server,
         current_mining_position,
         abort_mining,
-        wallet,
+        wallet_arc,
         align,
         chain_length,
         utxo_set,
@@ -51,14 +52,13 @@ async fn start_mining(
             Arc::clone(&d.3),
             Arc::clone(&d.4),
             Arc::clone(&d.5),
-            d.6.clone(),
+            Arc::clone(&d.6),
             d.7,
             Arc::clone(&d.8),
             Arc::clone(&d.9),
             Arc::clone(&d.10),
         )
     };
-
     {
         let mut mining = mining_flag.lock().await;
         if *mining {
@@ -70,6 +70,10 @@ async fn start_mining(
         *mining = true;
     }
 
+    let wallet = {
+        let guard = wallet_arc.lock().await;
+        guard.clone()
+    };
     let treechain = Arc::clone(&treechain);
     let pqp = Arc::clone(&pqp);
     let mining_flag = Arc::clone(&mining_flag);
@@ -257,7 +261,7 @@ async fn stop_mining(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -290,7 +294,7 @@ async fn get_blocks(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -322,7 +326,7 @@ async fn get_pqp(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -347,7 +351,7 @@ async fn verify_tree(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -375,7 +379,7 @@ async fn verify_pqp(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -409,6 +413,7 @@ struct CreateSimpleTxnRequest {
 
 #[post("/create_txn")]
 async fn create_txn(
+    body: web::Json<CreateSimpleTxnRequest>,
     data: web::Data<(
         Arc<Mutex<TreeChain>>,
         Arc<Mutex<PQP>>,
@@ -416,147 +421,115 @@ async fn create_txn(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
         Arc<Mutex<TransactionPool>>,
     )>,
-    payload: web::Json<CreateSimpleTxnRequest>,
 ) -> impl Responder {
-    let (_, _, _, p2p_server, _, _, wallet, _, _, utxo_set, txn_pool) = data.as_ref();
+    let (tree_chain, _, _, p2p_server, _, _, wallet, _, _, utxo_set, txn_pool) = data.as_ref();
+    let mut wallet_guard = wallet.lock().await;
+    let mut treechain_guard = tree_chain.lock().await;
 
-    // Validate required fields
-    if payload.value == 0 {
-        return HttpResponse::BadRequest()
-            .content_type("application/json")
-            .json(serde_json::json!({
-                "success": false,
-                "error": "Missing 'value' field (satoshis to send)"
-            }));
+    let to_address = body.to_address.clone();
+    let value = body.value;
+    let fee: u64 = body.fee.unwrap_or(1_000_000);
+
+    // Validate inputs
+    if value == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "Value must be positive"
+        }));
     }
 
-    if payload.to_address.is_empty() {
-        return HttpResponse::BadRequest()
-            .content_type("application/json")
-            .json(serde_json::json!({
-                "success": false,
-                "error": "Missing 'to_address' field (recipient address)"
-            }));
+    if ChainUtil::pubkey_hash_from_address(&to_address).is_err() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "Invalid to_address"
+        }));
     }
 
-    let fee = payload.fee.unwrap_or(1000); //will be changed
-
-    // Validate recipient address
-    if ChainUtil::pubkey_hash_from_address(&payload.to_address).is_err() {
-        return HttpResponse::BadRequest()
-            .content_type("application/json")
-            .json(serde_json::json!({
-                "success": false,
-                "error": format!("Invalid recipient address: {}", payload.to_address)
-            }));
-    }
-
-    // Lock UTXO set for reading
     let utxo_set_guard = utxo_set.lock().await;
 
-    // Check wallet balance first
-    let wallet_balance = Wallet::get_balance(&wallet.address, &utxo_set_guard);
-    if wallet_balance < payload.value + fee {
-        return HttpResponse::BadRequest()
-            .content_type("application/json")
-            .json(serde_json::json!({
-                "success": false,
-                "error": format!(
-                    "Insufficient funds: need {}, available: {} satoshis",
-                    payload.value + fee, wallet_balance
-                )
-            }));
+    // Get current time and height for timelock checks
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as u32;
+    let treechain_guard = data.0.lock().await; // Get TreeChain for current height
+    let current_height = treechain_guard.get_max_queue_index(); // Assume TreeChain has get_current_height()
+
+    let (total_balance, unlocked_balance, locked_balance) =
+        wallet_guard.get_balance(&wallet_guard.address, &utxo_set_guard, &treechain_guard);
+    let available_balance = unlocked_balance + locked_balance; // Both can be spent if conditions met
+
+    if available_balance < value + fee {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": format!(
+                "Insufficient funds: need {}, available {} (unlocked: {}, locked: {})",
+                value + fee, available_balance, unlocked_balance, locked_balance
+            )
+        }));
     }
 
-    // Create the transaction
-    match Transaction::create_new_transaction(
-        &wallet.clone(),
+    // Create transaction (handles timelocked UTXOs automatically)
+    let mut tx = match Transaction::create_new_transaction(
+        &wallet_guard,
         &utxo_set_guard,
-        payload.value,
+        value,
         fee,
-        &payload.to_address,
+        &to_address,
+        current_time,
+        current_height,
     ) {
-        Ok(mut tx) => {
-            let input_data: Vec<(String, u32, String, u64)> = tx
-                .vin
-                .iter()
-                .map(|input| {
-                    let utxo = utxo_set_guard
-                        .get_utxo(&input.txid, input.vout)
-                        .expect("UTXO should exist as it was just selected");
-                    (
-                        input.txid.clone(),
-                        input.vout,
-                        utxo.out.script_pubkey.clone(),
-                        utxo.out.value,
-                    )
-                })
-                .collect();
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to create transaction: {}", e)
+            }));
+        }
+    };
 
-            // Now sign using the collected data
-            tx.clone()
-                .sign_transaction(&wallet, &mut tx, &utxo_set_guard);
-
-            // Lock transaction pool for adding
-            let mut txn_pool_guard = txn_pool.lock().await;
-
-            // Add transaction to mempool
-            match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard) {
-                Ok(()) => {
-                    println!(
-                        "✅ Created and added normal txn to pool: {} ({} satoshis to {})",
-                        tx.txid, payload.value, payload.to_address
-                    );
-
-                    // Return transaction details as JSON
-                    let response = serde_json::json!({
-                        "success": true,
-                        "txid": tx.txid,
-                        "from_address": wallet.clone().address,
-                        "to_address": payload.to_address,
-                        "value": payload.value,
-                        "fee": fee,
-                        "total_input": payload.value + fee,
-                        "wallet_balance": wallet_balance,
-                        "transaction": tx
-                    });
-                    println!("sening broadcast txn");
-                    p2p_server.clone().broadcast_transaction(tx.clone()).await;
-
-                    HttpResponse::Ok()
-                        .content_type("application/json")
-                        .json(response)
-                }
-                Err(e) => {
-                    println!("❌ Failed to add transaction to pool: {}", e);
-                    HttpResponse::BadRequest()
-                        .content_type("application/json")
-                        .json(serde_json::json!({
-                            "success": false,
-                            "error": format!("Failed to add to mempool: {}", e),
-                            "transaction": tx
-                        }))
-                }
-            }
+    // Sign the transaction (assumes sign_transaction handles P2SH/redeem)
+    tx = tx
+        .clone()
+        .sign_transaction(&wallet_guard, &mut tx, &utxo_set_guard);
+    // Add to mempool
+    let mut txn_pool_guard = txn_pool.lock().await;
+    match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard, &treechain_guard) {
+        Ok(_) => {
+            drop(treechain_guard);
+            p2p_server.broadcast_transaction(tx.clone()).await;
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "txid": tx.txid,
+                "from_address": wallet_guard.address,
+                "to_address": to_address,
+                "value": value,
+                "fee": fee,
+                "total_input": value + fee,
+                "wallet_balance": {
+                    "total": total_balance,
+                    "unlocked": unlocked_balance,
+                    "locked": locked_balance
+                },
+                "transaction": tx
+            }))
         }
         Err(e) => {
-            println!("❌ Failed to create transaction: {}", e);
-            HttpResponse::BadRequest()
-                .content_type("application/json")
-                .json(serde_json::json!({
-                    "success": false,
-                    "error": format!("Failed to create transaction: {}", e)
-                }))
+            drop(treechain_guard);
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to add to mempool: {}", e),
+                "transaction": tx
+            }))
         }
     }
 }
-
 #[get("/transaction_pool")]
 async fn transaction_pool(
     data: web::Data<(
@@ -566,7 +539,7 @@ async fn transaction_pool(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -712,117 +685,73 @@ async fn wallet_details(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (_, _, _, _, _, _, wallet, _, _, utxo_set, _) = data.as_ref();
+    let wallet = data.6.clone();
+    let mut wallet_guard = wallet.lock().await;
+    let utxo_set_guard = data.9.lock().await;
+    let treechain_guard = data.0.lock().await;
 
-    // Lock UTXO set for reading
-    let utxo_set_guard = utxo_set.lock().await;
+    let address = &wallet_guard.address;
+    let pubkey_hash = &wallet_guard.public_key_hash;
+    let pubkey = &wallet_guard.public_key;
 
-    // Get wallet balance and UTXOs
-    let balance = Wallet::get_balance(&wallet.address, &utxo_set_guard);
-    let utxos = Wallet::get_utxos_for_address(&wallet.address, &utxo_set_guard);
+    let (total_balance, unlocked_balance, locked_balance) =
+        wallet_guard.get_balance(address, &utxo_set_guard, &treechain_guard);
+    let utxos = Wallet::get_utxos_for_address(address, &utxo_set_guard, &treechain_guard); // Update to include timelocked if needed
 
-    // Calculate total UTXO count and value distribution
-    let utxo_count = utxos.len();
-    let utxo_details: Vec<serde_json::Value> = utxos
-        .iter()
-        .map(|(txid, vout, utxo)| {
-            serde_json::json!({
-                "txid": txid.clone(),
-                "vout": *vout,
-                "value_satoshis": utxo.out.value,
-                "value_btc": format!("{:.8}", utxo.out.value as f64 / 100_000_000.0),
-                "script_pubkey": utxo.out.script_pubkey.clone(),
-                "is_coinbase": utxo.f_coinbase,
-                "confirmations": 1, // Simplified - you'd calculate based on block depth
-                "block_queue_index": utxo.queue_index
-            })
-        })
-        .collect();
+    let mut total_received_estimate = 0;
+    for (_, _, u) in &utxos {
+        total_received_estimate += u.out.value;
+    }
 
-    // Get private key as hex (WARNING: This is sensitive information!)
-    let private_key_bytes = wallet.key_pair.to_bytes();
-    let private_key_hex = hex::encode(&private_key_bytes);
+    let address_pubkey_hash = ChainUtil::pubkey_hash_from_address(address).unwrap_or_default();
+    let derived_pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(pubkey);
 
-    // Get public key details
-    let public_key_bytes = hex::decode(&wallet.public_key).unwrap_or_default();
-    let public_key_compressed = public_key_bytes.len() == 33;
-    let public_key_uncompressed = public_key_bytes.len() == 65;
-
-    // Verify address derivation (for security audit)
-    let derived_pubkey_hash = ChainUtil::pubkey_hash_from_pubkey(&wallet.public_key);
-    let address_pubkey_hash =
-        ChainUtil::pubkey_hash_from_address(&wallet.address).unwrap_or_default();
-
-    let address_verification = if derived_pubkey_hash == address_pubkey_hash {
-        "valid"
+    let address_verification = if address_pubkey_hash == derived_pubkey_hash {
+        "valid".to_string()
     } else {
-        "invalid - address doesn't match public key!"
+        "invalid".to_string()
     };
 
-    // Calculate network stats (simplified)
-    let total_sent_estimate = 0u64; // You'd track this in a real wallet
-    let total_received_estimate = balance; // Simplified
-
     let response = serde_json::json!({
-        "success": true,
         "wallet": {
-            "address": wallet.address.clone(),
-            "public_key": {
-                "hex": wallet.public_key.clone(),
-                "length_bytes": public_key_bytes.len(),
-                "format": if public_key_compressed { "compressed" } else if public_key_uncompressed { "uncompressed" } else { "unknown" },
-                "bytes": public_key_bytes
+            "address": address,
+            "public_key": pubkey,
+            "public_key_hash": pubkey_hash,
+            "balance_satoshis": {
+                "total": total_balance,
+                "unlocked": unlocked_balance,
+                "locked": locked_balance
             },
-            "public_key_hash": wallet.public_key_hash.clone(),
-            "private_key": {
-                "hex": private_key_hex,
-                "length_bytes": private_key_bytes.len(),
-                "warning": "⚠️  This is sensitive information! Never share your private key.",
-                "bytes": private_key_bytes.as_slice().to_vec()
-            },
-            "network": {
-                "mainnet": true, // Assuming mainnet for this implementation
-                "testnet": false
-            }
-        },
-        "balance": {
-            "satoshis": balance,
-            "btc": format!("{:.8}", balance as f64 / 100_000_000.0),
-            "confirmed": balance,
-            "unconfirmed": 0
+            "balance_btc": format!("{:.8}", total_balance as f64 / 100_000_000.0)
         },
         "utxos": {
-            "count": utxo_count,
-            "total_value_satoshis": utxos.iter().map(|(_, _, u)| u.out.value).sum::<u64>(),
-            "total_value_btc": format!("{:.8}", utxos.iter().map(|(_, _, u)| u.out.value).sum::<u64>() as f64 / 100_000_000.0),
-            "details": utxo_details,
-            "largest_utxo": utxos.iter().map(|(_, _, u)| u.out.value).max().unwrap_or(0),
-            "smallest_utxo": utxos.iter().map(|(_, _, u)| u.out.value).min().unwrap_or(0),
-            "dust_utxos": utxos.iter().filter(|(_, _, u)| u.out.value < 546).count() // Dust threshold
+            "count": utxos.len(),
+            "total_value_satoshis": total_received_estimate,
+            "dust_utxos": utxos.iter().filter(|(_, _, u)| u.out.value < 546).count()
         },
         "transaction_stats": {
             "total_received_satoshis": total_received_estimate,
             "total_received_btc": format!("{:.8}", total_received_estimate as f64 / 100_000_000.0),
-            "total_sent_satoshis": total_sent_estimate,
-            "total_sent_btc": format!("{:.8}", total_sent_estimate as f64 / 100_000_000.0),
-            "net_balance_satoshis": total_received_estimate.saturating_sub(total_sent_estimate)
+            "total_sent_satoshis": 0, // Placeholder
+            "total_sent_btc": "0.00000000",
+            "net_balance_satoshis": total_balance
         },
         "security": {
             "address_verification": address_verification,
             "derived_pubkey_hash": derived_pubkey_hash,
             "expected_pubkey_hash": address_pubkey_hash,
-            "wallet_format": "hd" // or "simple" - you'd extend this for HD wallets
+            "wallet_format": "simple"
         },
         "metadata": {
             "timestamp": chrono::Utc::now().to_rfc3339(),
-            "node_version": "0.1.0", // You'd get this from your app config
+            "node_version": "0.1.0",
             "utxo_set_height": utxo_set_guard.utxos.len()
         },
         "warnings": if address_verification != "valid" {
@@ -836,7 +765,6 @@ async fn wallet_details(
         .content_type("application/json")
         .json(response)
 }
-
 #[get("/utxo_set")]
 async fn utxo_set_details(
     data: web::Data<(
@@ -846,7 +774,7 @@ async fn utxo_set_details(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -903,7 +831,7 @@ async fn create_multisig_txn(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -911,9 +839,9 @@ async fn create_multisig_txn(
     )>,
 ) -> impl Responder {
     let p2p_server = data.3.clone();
-    let wallet = data.6.clone();
+    let wallet_arc = data.6.clone();
     let utxo_set = data.9.clone();
-
+    let wallet = wallet_arc.lock().await;
     let pubkeys = body.pubkeys.clone();
     let m = body.m;
     let value = body.value;
@@ -963,7 +891,7 @@ async fn create_spending_multisig_tx(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -1076,15 +1004,18 @@ async fn spend_multisig_txn(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
+    let treechain = data.0.clone();
+    let treechain_guard = treechain.lock().await;
     let p2p_server = data.3.clone();
-    let wallet = data.6.clone();
+    let wallet_arc = data.6.clone();
+    let wallet = wallet_arc.lock().await;
     let utxo_set = data.9.clone();
     let txn_pool = data.10.clone();
 
@@ -1157,12 +1088,12 @@ async fn spend_multisig_txn(
             }));
     }
 
-    // Find if current wallet can sign
-    if let Some(my_index) = pubkeys.iter().position(|p| p == &wallet.public_key) {
-        if sigs[my_index].is_none() {
-            let sighash = spending_tx.compute_sighash(0, &redeem, input_value, SIGHASH_ALL);
-            let sig = wallet.sign_data(&sighash);
-            sigs[my_index] = Some(sig);
+    if pubkeys.iter().any(|p| p == &wallet.public_key) {
+        let sighash = spending_tx.compute_sighash(0, &redeem, input_value, SIGHASH_ALL);
+        let sig = wallet.sign_data(&sighash);
+
+        if !sigs.contains(&Some(sig.clone())) {
+            sigs.push(Some(sig));
         }
     }
 
@@ -1191,8 +1122,10 @@ async fn spend_multisig_txn(
         // Lock transaction pool for adding
         let mut txn_pool_guard = txn_pool.lock().await;
 
-        match txn_pool_guard.add_transaction(spending_tx.clone(), &utxo_set_guard) {
+        match txn_pool_guard.add_transaction(spending_tx.clone(), &utxo_set_guard, &treechain_guard)
+        {
             Ok(()) => {
+                drop(treechain_guard);
                 println!(
                     "✅ Added multisig spending txn to pool: {} (input {}:{})",
                     spending_tx.txid, txid, vout
@@ -1219,6 +1152,7 @@ async fn spend_multisig_txn(
                     .json(response)
             }
             Err(e) => {
+                drop(treechain_guard);
                 println!(
                     "❌ Failed to add multisig spending transaction to pool: {}",
                     e
@@ -1265,14 +1199,15 @@ async fn sign_multisig(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let wallet = data.6.clone();
+    let wallet_arc = data.6.clone();
+    let wallet = wallet_arc.lock().await;
     let utxo_set = data.9.lock().await;
 
     let txid = body.txid.clone();
@@ -1301,18 +1236,19 @@ async fn sign_multisig(
 }
 
 //cration and handling the timelocked txn
+
 #[derive(Deserialize)]
-struct CreateTimelockedTxnBody {
-    txn_type: String, // "cltv" or "csv"
+struct CreateTimelockedBody {
+    is_cltv: bool,
     lock: u32,
     value: u64,
     fee: u64,
     to_address: String,
 }
-
+//   sequence: if req.is_cltv { 0 } else { req.lock },
 #[post("/create_timelocked_txn")]
 async fn create_timelocked_txn(
-    body: web::Json<CreateTimelockedTxnBody>,
+    req: web::Json<CreateTimelockedBody>,
     data: web::Data<(
         Arc<Mutex<TreeChain>>,
         Arc<Mutex<PQP>>,
@@ -1320,100 +1256,143 @@ async fn create_timelocked_txn(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>,
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let p2p_server = data.3.clone();
-    let wallet = data.6.clone();
-    let utxo_set = data.9.clone();
-    let txn_pool = data.10.clone();
+    let (
+        _treechain,
+        _pqp,
+        _mining_flag,
+        _p2p_server,
+        _current_mining_position,
+        _abort_mining,
+        wallet_arc,
+        _align,
+        _chain_length,
+        utxo_set,
+        _txn_pool,
+    ) = {
+        let d = data.as_ref();
+        (
+            Arc::clone(&d.0),
+            Arc::clone(&d.1),
+            Arc::clone(&d.2),
+            Arc::clone(&d.3),
+            Arc::clone(&d.4),
+            Arc::clone(&d.5),
+            Arc::clone(&d.6),
+            d.7,
+            Arc::clone(&d.8),
+            Arc::clone(&d.9),
+            Arc::clone(&d.10),
+        )
+    };
 
-    let txn_type = body.txn_type.clone();
-    let lock = body.lock;
-    let value = body.value;
-    let fee = body.fee;
-    let to_address = body.to_address.clone();
-
-    // Validate required fields
-    if value == 0 {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": "Value must be positive"
-        }));
-    }
-
-    if to_address.is_empty() {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": "To address is required"
-        }));
-    }
-
-    if txn_type != "cltv" && txn_type != "csv" {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": "Invalid txn_type, must be 'cltv' or 'csv'"
-        }));
-    }
+    let wallet = {
+        let guard = wallet_arc.lock().await;
+        guard.clone()
+    };
 
     let utxo_set_guard = utxo_set.lock().await;
+    let treechain_guard = _treechain.lock().await;
 
-    let mut tx = if txn_type == "cltv" {
-        Transaction::create_new_timelocked_cltv_txn(
-            &wallet,
-            &utxo_set_guard,
-            value,
-            fee,
-            lock,
-            &to_address,
-        )
-    } else {
-        Transaction::create_new_timelocked_csv_txn(
-            &wallet,
-            &utxo_set_guard,
-            value,
-            fee,
-            lock,
-            &to_address,
-        )
+    // Find a suitable UTXO (simplified: use first available with enough value)
+    let available_utxos =
+        Wallet::get_utxos_for_address(&wallet.address, &utxo_set_guard, &treechain_guard);
+    let total_available: u64 = available_utxos.iter().map(|(_, _, u)| u.out.value).sum();
+    if total_available < req.value + req.fee {
+        drop(utxo_set_guard);
+        drop(treechain_guard);
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": format!("Insufficient balance: available {} < required {}", total_available, req.value + req.fee)
+        }));
     }
-    .expect("Failed to create timelocked transaction");
 
-    tx = tx
-        .clone()
-        .sign_transaction(&wallet, &mut tx, &utxo_set_guard);
+    // For simplicity, assume we select one UTXO with enough value (in production, select optimally)
+    let selected_utxo = available_utxos
+        .iter()
+        .find(|(_, _, u)| u.out.value >= req.value + req.fee)
+        .expect("UTXO selection logic should ensure this");
 
-    let mut txn_pool_guard = txn_pool.lock().await;
+    let input = TxInput {
+        txid: selected_utxo.0.clone(),
+        vout: selected_utxo.1,
+        script_sig: "".to_string(), // Will be filled during signing
+        sequence: if req.is_cltv { 0 } else { req.lock }, // Max sequence for funding tx (CSV enforced on spending input)
+    };
 
-    let add_result = txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard);
+    // Create redeem script for timelock (proper: push lock + opcode + drop + P2PKH)
+    let to_pubkey_hash =
+        ChainUtil::pubkey_hash_from_address(&req.to_address).expect("Invalid to_address");
+    let p2pkh_script = format!("76a914{}88ac", to_pubkey_hash);
 
-    let status_message = match add_result {
-        Ok(_) => {
-            p2p_server.broadcast_transaction(tx.clone()).await;
-            "Transaction added to mempool and broadcasted"
-        }
-        Err(e) if e.contains("locktime not yet reached") => {
-            "Transaction created but locktime in future - broadcast later when condition met"
-        }
+    // Lock as 4 LE bytes hex (e.g., 110 = "0000006e")
+    let lock_bytes = req.lock.to_le_bytes();
+    let lock_hex = format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
+    );
+    let opcode = if req.is_cltv { "b1" } else { "b2" }; // b1=OP_CLTV, b2=OP_CSV
+
+    let redeem_script = format!("04{}{}75{}", lock_hex, opcode, p2pkh_script);
+
+    let redeem_bytes = match hex::decode(&redeem_script) {
+        Ok(bytes) => bytes,
         Err(e) => {
-            return HttpResponse::BadRequest().json(serde_json::json!({
+            drop(utxo_set_guard);
+            return HttpResponse::InternalServerError().json(serde_json::json!({
                 "status": "error",
-                "message": e
+                "message": format!("Failed to decode redeem script '{}': {}", redeem_script, e)
             }));
         }
     };
 
+    let redeem_hash = ChainUtil::hash160(&redeem_bytes);
+    let script_pubkey = format!("a914{}87", redeem_hash); // P2SH
+
+    let mut outputs = vec![TxOutput {
+        value: req.value,
+        script_pubkey,
+    }];
+
+    // Add change output if needed
+    let input_value = selected_utxo.2.out.value;
+    if input_value > req.value + req.fee {
+        let change_value = input_value - req.value - req.fee;
+        let change_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+        outputs.push(TxOutput {
+            value: change_value,
+            script_pubkey: change_script,
+        });
+    }
+
+    let locktime = if req.is_cltv { req.lock } else { 0 }; // CLTV uses tx.locktime; CSV does not
+    let mut tx = Transaction::new(
+        2, // Version 2 for timelocks
+        locktime,
+        vec![input],
+        outputs,
+        None,
+    );
+    tx = tx
+        .clone()
+        .sign_transaction(&wallet, &mut tx, &utxo_set_guard);
+    drop(utxo_set_guard);
+    let redeem_script_hex = hex::encode(redeem_bytes);
+
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
-        "message": status_message,
-        "transaction": tx
+        "message": format!("Timelocked txn created to address {}. Broadcast when conditions met.", req.to_address),
+        "transaction": tx,
+        "script_hash": redeem_hash,
+        "redeem_script": redeem_script_hex
     }))
 }
-
 #[derive(Deserialize)]
 struct BroadcastTxnBody {
     transaction: Transaction,
@@ -1429,7 +1408,7 @@ async fn broadcast_txn(
         Arc<P2PServer>,
         Arc<SyncMutex<Option<String>>>,
         Arc<SyncMutex<bool>>,
-        Wallet,
+        Arc<Mutex<Wallet>>, // Updated for mutability
         u8,
         Arc<SyncMutex<u64>>,
         Arc<Mutex<UtxoSet>>,
@@ -1439,28 +1418,172 @@ async fn broadcast_txn(
     let p2p_server = data.3.clone();
     let utxo_set = data.9.clone();
     let txn_pool = data.10.clone();
-
+    let treechain = data.0.clone();
     let tx = body.transaction.clone();
 
     let utxo_set_guard = utxo_set.lock().await;
-    let mut txn_pool_guard = txn_pool.lock().await;
+    let treechain_guard = treechain.lock().await;
+    let current_height = treechain_guard.get_max_queue_index(); // Assume this method exists
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as u32;
 
-    match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard) {
+    // Check if this is a normal/CSV txn (locktime=0, all sequences=max) or CLTV funding (locktime>0)
+    let is_normal_or_csv =
+        tx.locktime == 0 && tx.vin.iter().all(|input| input.sequence == 0xffffffff);
+    if !is_normal_or_csv {
+        // Assume CLTV funding: enforce maturity on txn locktime
+        let is_time_based = tx.locktime >= 500_000_000;
+        let current = if is_time_based {
+            current_time
+        } else {
+            current_height as u32
+        };
+        if current < tx.locktime {
+            drop(treechain_guard);
+            drop(utxo_set_guard);
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "status": "error",
+                "message": format!("CLTV funding txn immature: current {} < locktime {}", current, tx.locktime)
+            }));
+        }
+        println!(
+            "✅ CLTV funding txn mature: locktime {} <= current {}",
+            tx.locktime, current
+        );
+    } else {
+        println!("✅ Normal/CSV txn: no maturity check needed");
+    }
+
+    // Existing input-side timelock checks (for spending P2SH UTXOs)
+    for (i, input) in tx.vin.iter().enumerate() {
+        let utxo = match utxo_set_guard.get_utxo(&input.txid, input.vout) {
+            Some(u) => u,
+            None => {
+                drop(treechain_guard);
+                drop(utxo_set_guard);
+                return HttpResponse::BadRequest().json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("UTXO not found: {}:{}", input.txid, input.vout)
+                }));
+            }
+        };
+
+        let script_pubkey = &utxo.out.script_pubkey;
+        if script_pubkey.starts_with("a914") && script_pubkey.ends_with("87") {
+            let redeem_opt = Transaction::extract_redeem_from_scriptsig(&input.script_sig);
+            let redeem = match redeem_opt {
+                Some(r) => {
+                    println!("redeem opt :{}", r.clone());
+                    r
+                }
+                None => {
+                    drop(treechain_guard);
+                    drop(utxo_set_guard);
+                    return HttpResponse::BadRequest().json(serde_json::json!({
+                        "status": "error",
+                        "message": format!("No redeem in script_sig for {}:{}", input.txid, input.vout)
+                    }));
+                }
+            };
+
+            let redeem_bytes = match hex::decode(&redeem) {
+                Ok(b) => b,
+                Err(_) => {
+                    drop(treechain_guard);
+                    drop(utxo_set_guard);
+                    return HttpResponse::BadRequest().json(serde_json::json!({
+                        "status": "error",
+                        "message": "Invalid redeem hex"
+                    }));
+                }
+            };
+
+            let ops = TransactionPool::parse_script_ops(&redeem_bytes);
+            if let Ok(info) = TransactionPool::get_script_info(&ops) {
+                match info {
+                    ScriptInfo::Cltv { lock, .. } => {
+                        println!("Script info :{:?}", info);
+                        let effective_lock = lock as u32;
+                        if tx.locktime < effective_lock {
+                            drop(treechain_guard);
+                            drop(utxo_set_guard);
+                            return HttpResponse::BadRequest().json(serde_json::json!({
+                                "status": "error",
+                                "message": format!("CLTV tx.locktime {} < redeem lock {}", tx.locktime, effective_lock)
+                            }));
+                        }
+                        // Additional maturity check: ensure current time/height >= tx.locktime
+                        let is_time_based = effective_lock >= 500_000_000;
+                        let current = if is_time_based {
+                            current_time
+                        } else {
+                            current_height as u32
+                        };
+                        if current < tx.locktime {
+                            drop(treechain_guard);
+                            drop(utxo_set_guard);
+                            return HttpResponse::BadRequest().json(serde_json::json!({
+                                "status": "error",
+                                "message": format!("CLTV maturity not met: current {} < tx.locktime {}", current, tx.locktime)
+                            }));
+                        }
+                    }
+                    ScriptInfo::Csv { lock, .. } => {
+                        println!("Script info :{:?}", info);
+                        // Check input sequence >= lock
+                        if input.sequence < lock as u32 {
+                            drop(treechain_guard);
+                            drop(utxo_set_guard);
+                            return HttpResponse::BadRequest().json(serde_json::json!({
+                                "status": "error",
+                                "message": format!("CSV input.sequence {} < lock {}", input.sequence, lock)
+                            }));
+                        }
+                        let blocks_since = current_height.saturating_sub(utxo.queue_index as u64);
+                        if blocks_since < lock as u64 {
+                            drop(treechain_guard);
+
+                            return HttpResponse::BadRequest().json(serde_json::json!({
+                                "status": "error",
+                                "message": format!("CSV not met: {} blocks < lock {} (queue_index: {}, current: {})", blocks_since, lock, utxo.queue_index, current_height)
+                            }));
+                        }
+                    }
+                    _ => {
+                        println!("Script info :{:?}", info);
+                    }
+                }
+            }
+        }
+    }
+
+    // If checks pass, add to mempool and broadcast
+    let mut txn_pool_guard = txn_pool.lock().await;
+    match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard, &treechain_guard) {
         Ok(_) => {
+            drop(treechain_guard);
+            drop(utxo_set_guard);
+            drop(txn_pool_guard);
             p2p_server.broadcast_transaction(tx.clone()).await;
             HttpResponse::Ok().json(serde_json::json!({
                 "status": "success",
-                "message": "Transaction added to mempool and broadcasted",
+                "message": "Conditions met, added to mempool and broadcasted",
                 "txid": tx.txid
             }))
         }
-        Err(e) => HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": e
-        })),
+        Err(e) => {
+            drop(treechain_guard);
+            drop(utxo_set_guard);
+            drop(txn_pool_guard);
+            HttpResponse::BadRequest().json(serde_json::json!({
+                "status": "error",
+                "message": e
+            }))
+        }
     }
 }
-
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);

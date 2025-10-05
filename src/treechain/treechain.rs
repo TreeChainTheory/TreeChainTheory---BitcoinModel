@@ -657,30 +657,6 @@ impl PQP {
                     Some(last) // default: use last
                 };
                 println!("prev_parent: {:?}", prev_parent);
-                // let sibling_aligns: Vec<u8> = self
-                //     .pool
-                //     .iter()
-                //     .rev()
-                //     .take(CHILDREN as usize)
-                //     .filter(|e| e.parent_hash == current_parent.block_hash)
-                //     .filter_map(|e| treechain.get_block(&e.block_hash)) // to be rechecked
-                //     .map(|block| block.align)
-                //     .collect();
-
-                // println!(
-                //     "sibling_aligns contain: {}",
-                //     sibling_aligns.contains(&align)
-                // );
-                // if sibling_aligns.contains(&align) {
-                //     // align already taken
-                //     let prev_pqp =
-                //         self.pool.iter().rev().find(|e| {
-                //             e.parent_hash == current_parent.block_hash && e.align == align
-                //         });
-                //     return prev_pqp
-                //         .map(|e| e.pqp_commitment.clone())
-                //         .unwrap_or_default();
-                // }
 
                 if let Some(prev_parent) = prev_parent {
                     let prev_pqp = self.pool.iter().rev().find(|e| e.align == align.clone());
@@ -698,26 +674,6 @@ impl PQP {
                     return prev_pqp
                         .map(|e| e.pqp_commitment.clone())
                         .unwrap_or_default();
-                    //here what if there is no align in the current pqp condition should be checked
-                    //and also if not present at all then it should return genisis
-
-                    // let siblings: Vec<&ParentQueueEntry> = self
-                    //     .pool
-                    //     .iter()
-                    //     .rev()
-                    //     .take(10)
-                    //     .filter(|e| e.parent_hash == prev_parent.parent_hash && e.align == align)
-                    //     .collect();
-
-                    // // exact align match
-                    // if let Some(sibling) = siblings.iter().find(|s| s.align == align) {
-                    //     return sibling.pqp_commitment.clone();
-                    // }
-
-                    // // fallback: latest sibling
-                    // if let Some(last_sibling) = siblings.iter().max_by_key(|e| e.queue_index) {
-                    //     return last_sibling.pqp_commitment.clone();
-                    // }
                 }
             }
         }
@@ -881,6 +837,20 @@ impl TreeChain {
     }
     pub fn get_block_by_queueindex(&self, index: usize) -> Option<&Block> {
         self.blocks.values().nth(index)
+    }
+    pub fn get_max_queue_index(&self) -> u64 {
+        self.blocks
+            .iter()
+            .rev()
+            .find_map(|(_, block)| {
+                if !block.position.is_empty() {
+                    Some(block.pqp_entry.queue_index)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+            .into()
     }
     pub fn get_children(&self, parent_hash: &str) -> Option<&Vec<String>> {
         self.children_map.get(parent_hash)
@@ -1813,7 +1783,7 @@ impl TreeChain {
 
         // Validate non-coinbase transactions
         for tx in &block.tx[1..] {
-            if let Err(e) = txn_pool.validate_transaction(tx, 0.0, utxo_set) {
+            if let Err(e) = txn_pool.validate_transaction(tx, 0.0, utxo_set, &self) {
                 println!(
                     "❌ Transaction validation failed in block {}: {}",
                     block.hash, e
@@ -1861,7 +1831,7 @@ impl TreeChain {
         } else {
             println!("adding back the txns because block didnt get added");
             for txn in removed_txns {
-                txn_pool.add_transaction(txn.clone(), utxo_set);
+                txn_pool.add_transaction(txn.clone(), utxo_set, &self);
             }
         }
 
