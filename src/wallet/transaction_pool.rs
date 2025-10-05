@@ -306,6 +306,7 @@ impl TransactionPool {
                 utxo.out.value,
                 current_time,
                 witnesses.and_then(|w| w.get(i)),
+                treechain,
             )?;
         }
 
@@ -361,6 +362,7 @@ impl TransactionPool {
         input_value: u64,
         current_time: u32,
         witness: Option<&Vec<String>>,
+        treechain: &TreeChain,
     ) -> Result<(), String> {
         println!("called verify input");
         let script_pubkey = &utxo.out.script_pubkey;
@@ -369,6 +371,11 @@ impl TransactionPool {
         println!("verify input here 1");
         let is_segwit = witness.is_some();
         let stack: Vec<String>;
+
+        // let current_height = treechain.get_max_queue_index();
+        // if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 100) {
+        //     return Err("Coinbase UTXO not mature".to_string());
+        // }
 
         if is_segwit {
             stack = witness.unwrap().clone();
@@ -438,6 +445,8 @@ impl TransactionPool {
                 input_stack,
                 current_time,
                 false,
+                utxo,
+                treechain,
             )?;
         } else if script_pubkey_bytes.len() == 22
             && script_pubkey_bytes[0] == 0x00
@@ -489,6 +498,8 @@ impl TransactionPool {
                 input_stack,
                 current_time,
                 true,
+                utxo,
+                treechain,
             )?;
         } else {
             return Err("Unsupported script type".to_string());
@@ -506,6 +517,8 @@ impl TransactionPool {
         stack: &[String],
         current_time: u32,
         is_segwit: bool,
+        utxo: &Utxo,
+        treechain: &TreeChain,
     ) -> Result<(), String> {
         println!("called verify script");
         let script_bytes =
@@ -573,10 +586,26 @@ impl TransactionPool {
                 if computed_hash != pubkey_hash {
                     return Err("Pubkey hash mismatch in CLTV".to_string());
                 }
-                if tx.locktime < lock {
+                let current_height = treechain
+                    .blocks
+                    .values()
+                    .map(|b| b.pqp_entry.queue_index as u64)
+                    .max()
+                    .unwrap_or(0);
+                let current_time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let lock_u64 = lock as u64;
+                let is_mature = if lock_u64 >= 500_000_000 {
+                    current_time >= lock_u64
+                } else {
+                    current_height >= lock_u64
+                };
+                if !is_mature {
                     return Err(format!(
-                        "CLTV lock not satisfied: {} < {}",
-                        tx.locktime, lock
+                        "CLTV lock not satisfied: current_height {} / current_time {} < lock {}",
+                        current_height, current_time, lock
                     ));
                 }
                 if !Self::verify_signature(&sighash, sig_hex, pubkey_hex) {
@@ -593,11 +622,28 @@ impl TransactionPool {
                 if computed_hash != pubkey_hash {
                     return Err("Pubkey hash mismatch in CSV".to_string());
                 }
-                if input.sequence < lock {
-                    return Err(format!(
-                        "CSV lock not satisfied: {} < {}",
-                        input.sequence, lock
-                    ));
+                let mut required_height = 0u64;
+                let mut is_csv = false;
+                for inp in &tx.vin {
+                    if inp.sequence != 4294967295u32 {
+                        is_csv = true;
+                        let relative_lock = (inp.sequence & 0x0000FFFF) as u64;
+
+                        let parent_height = utxo.queue_index as u64;
+                        let min_height_i = parent_height.saturating_add(relative_lock);
+                        if min_height_i > required_height {
+                            required_height = min_height_i;
+                        }
+                    }
+                }
+                if is_csv {
+                    let current_height = treechain.get_max_queue_index();
+                    if current_height < required_height {
+                        return Err(format!(
+                            "CSV lock not satisfied: current_height {} < required {} (lock: {})",
+                            current_height, required_height, lock
+                        ));
+                    }
                 }
                 if !Self::verify_signature(&sighash, sig_hex, pubkey_hex) {
                     return Err("Signature verification failed in CSV".to_string());

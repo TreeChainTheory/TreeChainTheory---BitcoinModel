@@ -1,4 +1,6 @@
 use crate::chain_util::ChainUtil;
+use crate::treechain;
+use crate::treechain::treechain::TreeChain;
 use crate::wallet::transaction_pool::{ScriptInfo, TransactionPool};
 use crate::wallet::utxo::{Utxo, UtxoSet};
 use crate::wallet::wallet::Wallet;
@@ -357,8 +359,7 @@ impl Transaction {
         value: u64,
         fee: u64,
         to_address: &str,
-        current_time: u32,
-        current_height: u64,
+        treechain: &TreeChain,
     ) -> Result<Transaction, String> {
         let pubkey_hash = &wallet.public_key_hash;
         let expected_p2pkh_script = Self::create_p2pkh_script(pubkey_hash);
@@ -366,62 +367,17 @@ impl Transaction {
         let mut inputs = vec![];
         let mut total_input = 0u64;
         let target_amount = value + fee;
-
+        let utxos = Wallet::get_utxos_for_address(&wallet.address, utxo_set, &treechain);
         // Collect spendable UTXOs (P2PKH + unlocked CLTV/CSV P2SH)
-        for ((txid, vout), utxo) in &utxo_set.utxos {
+        for (txid, vout, utxo) in utxos {
             if total_input >= target_amount {
                 break;
             }
 
-            let script_pubkey = &utxo.out.script_pubkey;
-            let mut can_spend = false;
-            let mut redeem_script: Option<String> = None;
-            let mut is_cltv = false;
-            let mut lock_value = 0u32;
+            let redeem_script: String = utxo.out.script_pubkey.clone();
 
-            // Check P2PKH
-            if script_pubkey == &expected_p2pkh_script {
-                can_spend = true;
-            }
-            // Check P2SH for CLTV/CSV
-            else if script_pubkey.starts_with("a914")
-                && script_pubkey.len() == 46
-                && script_pubkey.ends_with("87")
-            {
-                // Extract potential redeem script (placeholder: in real impl, lookup from storage)
-                if let Some(redeem) = Self::extract_redeem_from_scriptsig(script_pubkey) {
-                    let redeem_bytes =
-                        hex::decode(&redeem).map_err(|_| "Invalid redeem hex".to_string())?;
-                    let ops = TransactionPool::parse_script_ops(&redeem_bytes); // Assume TransactionPool in scope or move fn
-                    if let Ok(info) = TransactionPool::get_script_info(&ops) {
-                        match info {
-                            ScriptInfo::Cltv {
-                                lock,
-                                pubkey_hash: ph,
-                            } if ph == *pubkey_hash && current_time >= lock => {
-                                can_spend = true;
-                                redeem_script = Some(redeem);
-                                is_cltv = true;
-                                lock_value = lock;
-                            }
-                            ScriptInfo::Csv {
-                                lock,
-                                pubkey_hash: ph,
-                            } if ph == *pubkey_hash && current_height >= lock as u64 => {
-                                can_spend = true;
-                                redeem_script = Some(redeem);
-                                lock_value = lock;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-
-            if can_spend {
-                inputs.push((txid.clone(), *vout, redeem_script, utxo.out.value));
-                total_input += utxo.out.value;
-            }
+            inputs.push((txid.clone(), vout, redeem_script, utxo.out.value));
+            total_input += utxo.out.value;
         }
 
         if total_input < target_amount {
@@ -449,24 +405,9 @@ impl Transaction {
 
         // Create inputs with sequence/locktime prep
         let mut vin = vec![];
-        let mut tx_locktime = 0u32;
+        let tx_locktime = 0u32;
         for (txid, vout_idx, redeem, input_value) in inputs {
-            let mut input_seq = 0xffffffffu32;
-            if let Some(r) = redeem {
-                let redeem_bytes = hex::decode(&r).unwrap();
-                let ops = TransactionPool::parse_script_ops(&redeem_bytes);
-                if let Ok(info) = TransactionPool::get_script_info(&ops) {
-                    match info {
-                        ScriptInfo::Cltv { lock, .. } => {
-                            tx_locktime = tx_locktime.max(lock);
-                        }
-                        ScriptInfo::Csv { lock, .. } => {
-                            input_seq = lock;
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            let input_seq = 0xffffffffu32;
             vin.push(TxInput {
                 txid,
                 vout: vout_idx,
@@ -475,7 +416,7 @@ impl Transaction {
             });
         }
 
-        let mut tx = Self::new(1, tx_locktime, vin, vout, None);
+        let tx = Self::new(1, tx_locktime, vin, vout, None);
 
         Ok(tx)
     }
@@ -486,6 +427,7 @@ impl Transaction {
         pubkeys_hex: Vec<String>,
         value: u64,
         fee: u64,
+        treechain: &TreeChain,
     ) -> Result<Self, String> {
         let version = 1;
         let locktime = 0;
@@ -496,14 +438,25 @@ impl Transaction {
         let mut selected = vec![];
         let mut total_input = 0;
 
-        for ((txid, vout), utxo) in utxo_set.utxos.iter() {
-            if utxo.out.script_pubkey == sender_script {
-                selected.push((txid.clone(), *vout, utxo));
-                total_input += utxo.out.value;
-                if total_input >= value + fee {
-                    break;
-                }
+        let target_amount = value + fee;
+        let utxos = Wallet::get_utxos_for_address(&wallet.address, utxo_set, &treechain);
+        // Collect spendable UTXOs (P2PKH + unlocked CLTV/CSV P2SH)
+        for (txid, vout, utxo) in utxos {
+            if total_input >= target_amount {
+                break;
             }
+
+            let redeem_script: String = utxo.out.script_pubkey.clone();
+
+            selected.push((txid.clone(), vout, redeem_script, utxo.out.value));
+            total_input += utxo.out.value;
+        }
+
+        if total_input < target_amount {
+            return Err(format!(
+                "Insufficient funds: need {}, available {}",
+                target_amount, total_input
+            ));
         }
 
         if total_input < value + fee {
@@ -517,7 +470,7 @@ impl Transaction {
         // Create final vin
         let vin: Vec<TxInput> = selected
             .into_iter()
-            .map(|(txid, vout, _)| TxInput {
+            .map(|(txid, vout, _, _)| TxInput {
                 txid,
                 vout,
                 script_sig: "".to_string(),
@@ -553,6 +506,7 @@ impl Transaction {
         fee: u64,
         cltv_lock_time: u32,
         to_address: &str,
+        treechain: &TreeChain,
     ) -> Result<Self, String> {
         let version = 1;
         let locktime = cltv_lock_time;
@@ -563,14 +517,25 @@ impl Transaction {
         let mut selected = vec![];
         let mut total_input = 0;
 
-        for ((txid, vout), utxo) in utxo_set.utxos.iter() {
-            if utxo.out.script_pubkey == sender_script {
-                selected.push((txid.clone(), *vout, utxo));
-                total_input += utxo.out.value;
-                if total_input >= value + fee {
-                    break;
-                }
+        let target_amount = value + fee;
+        let utxos = Wallet::get_utxos_for_address(&wallet.address, utxo_set, &treechain);
+        // Collect spendable UTXOs (P2PKH + unlocked CLTV/CSV P2SH)
+        for (txid, vout, utxo) in utxos {
+            if total_input >= target_amount {
+                break;
             }
+
+            let redeem_script: String = utxo.out.script_pubkey.clone();
+
+            selected.push((txid.clone(), vout, redeem_script, utxo.out.value));
+            total_input += utxo.out.value;
+        }
+
+        if total_input < target_amount {
+            return Err(format!(
+                "Insufficient funds: need {}, available {}",
+                target_amount, total_input
+            ));
         }
 
         if total_input < value + fee {
@@ -584,7 +549,7 @@ impl Transaction {
         // Create final vin
         let vin: Vec<TxInput> = selected
             .into_iter()
-            .map(|(txid, vout, _)| TxInput {
+            .map(|(txid, vout, _, _)| TxInput {
                 txid,
                 vout,
                 script_sig: "".to_string(),
@@ -622,6 +587,7 @@ impl Transaction {
         fee: u64,
         csv_lock_blocks: u32,
         to_address: &str,
+        treechain: &TreeChain,
     ) -> Result<Self, String> {
         let version = 1;
         let locktime = 0;
@@ -632,14 +598,18 @@ impl Transaction {
         let mut selected = vec![];
         let mut total_input = 0;
 
-        for ((txid, vout), utxo) in utxo_set.utxos.iter() {
-            if utxo.out.script_pubkey == sender_script {
-                selected.push((txid.clone(), *vout, utxo));
-                total_input += utxo.out.value;
-                if total_input >= value + fee {
-                    break;
-                }
+        let target_amount = value + fee;
+        let utxos = Wallet::get_utxos_for_address(&wallet.address, utxo_set, &treechain);
+        // Collect spendable UTXOs (P2PKH + unlocked CLTV/CSV P2SH)
+        for (txid, vout, utxo) in utxos {
+            if total_input >= target_amount {
+                break;
             }
+
+            let redeem_script: String = utxo.out.script_pubkey.clone();
+
+            selected.push((txid.clone(), vout, redeem_script, utxo.out.value));
+            total_input += utxo.out.value;
         }
 
         if total_input < value + fee {
@@ -653,7 +623,7 @@ impl Transaction {
         // Create final vin
         let vin: Vec<TxInput> = selected
             .into_iter()
-            .map(|(txid, vout, _)| TxInput {
+            .map(|(txid, vout, _, _)| TxInput {
                 txid,
                 vout,
                 script_sig: "".to_string(),

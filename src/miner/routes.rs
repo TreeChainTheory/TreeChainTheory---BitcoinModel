@@ -428,9 +428,8 @@ async fn create_txn(
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (tree_chain, _, _, p2p_server, _, _, wallet, _, _, utxo_set, txn_pool) = data.as_ref();
-    let mut wallet_guard = wallet.lock().await;
-    let mut treechain_guard = tree_chain.lock().await;
+    let (_, _, _, p2p_server, _, _, wallet, _, _, utxo_set, txn_pool) = data.as_ref();
+    let wallet_guard = wallet.lock().await;
 
     let to_address = body.to_address.clone();
     let value = body.value;
@@ -453,13 +452,7 @@ async fn create_txn(
 
     let utxo_set_guard = utxo_set.lock().await;
 
-    // Get current time and height for timelock checks
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as u32;
     let treechain_guard = data.0.lock().await; // Get TreeChain for current height
-    let current_height = treechain_guard.get_max_queue_index(); // Assume TreeChain has get_current_height()
 
     let (total_balance, unlocked_balance, locked_balance) =
         wallet_guard.get_balance(&wallet_guard.address, &utxo_set_guard, &treechain_guard);
@@ -482,8 +475,7 @@ async fn create_txn(
         value,
         fee,
         &to_address,
-        current_time,
-        current_height,
+        &treechain_guard,
     ) {
         Ok(t) => t,
         Err(e) => {
@@ -838,6 +830,7 @@ async fn create_multisig_txn(
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
+    let treechain_guard = data.0.lock().await;
     let p2p_server = data.3.clone();
     let wallet_arc = data.6.clone();
     let utxo_set = data.9.clone();
@@ -855,9 +848,16 @@ async fn create_multisig_txn(
     }
 
     let utxo_set_guard = utxo_set.lock().await;
-    let mut txn =
-        Transaction::create_new_multisig_txn(&wallet, &utxo_set_guard, m, pubkeys, value, fee)
-            .expect("Failed to create multisig transaction");
+    let mut txn = Transaction::create_new_multisig_txn(
+        &wallet,
+        &utxo_set_guard,
+        m,
+        pubkeys,
+        value,
+        fee,
+        &treechain_guard,
+    )
+    .expect("Failed to create multisig transaction");
     txn = txn
         .clone()
         .sign_transaction(&wallet, &mut txn, &utxo_set_guard);
@@ -1383,6 +1383,7 @@ async fn create_timelocked_txn(
         .clone()
         .sign_transaction(&wallet, &mut tx, &utxo_set_guard);
     drop(utxo_set_guard);
+    drop(treechain_guard);
     let redeem_script_hex = hex::encode(redeem_bytes);
 
     HttpResponse::Ok().json(serde_json::json!({
