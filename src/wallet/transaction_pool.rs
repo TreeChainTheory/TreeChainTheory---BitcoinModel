@@ -369,13 +369,20 @@ impl TransactionPool {
         let script_pubkey_bytes =
             hex::decode(script_pubkey).map_err(|e| format!("Invalid script_pubkey hex: {}", e))?;
         println!("verify input here 1");
+
+        let current_height = treechain
+            .blocks
+            .values()
+            .map(|b| b.pqp_entry.queue_index as u64)
+            .max()
+            .unwrap_or(0);
+
+        // if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 100) {
+        //     return Err("Coinbase UTXO not mature (requires 100 confirmations)".to_string());
+        // }
+
         let is_segwit = witness.is_some();
         let stack: Vec<String>;
-
-        // let current_height = treechain.get_max_queue_index();
-        // if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 100) {
-        //     return Err("Coinbase UTXO not mature".to_string());
-        // }
 
         if is_segwit {
             stack = witness.unwrap().clone();
@@ -420,34 +427,185 @@ impl TransactionPool {
                 return Err("Empty stack for P2SH".to_string());
             }
             let redeem = stack.last().unwrap().clone();
-            let redeem_bytes =
-                hex::decode(&redeem).map_err(|e| format!("Invalid redeem hex: {}", e))?;
-            let mut hasher = Sha256::new();
-            hasher.update(&redeem_bytes);
-            let hash1 = hasher.finalize();
-            let ripemd_hash = Ripemd160::digest(hash1);
-            let expected_hash = hex::encode(&script_pubkey_bytes[2..22]);
-            // let redeem_bytes = hex::decode(redeem).expect("Invalid redeem script hex");
-            // let script_hash = ChainUtil::hash160(&redeem_bytes);
-            if hex::encode(ripemd_hash) != expected_hash {
-                println!("verify input here 4");
-                return Err("Redeem script hash mismatch for P2SH".to_string());
+
+            // Ownership and maturity check for timelock P2SH
+            if stack.len() != 3 {
+                // Fall back to general P2SH (e.g., multisig)
+                let input_stack = &stack[0..stack.len() - 1];
+                println!("verify input here 5");
+                Self::verify_script(
+                    tx,
+                    input_index,
+                    input,
+                    input_value,
+                    &redeem,
+                    input_stack,
+                    current_time,
+                    false,
+                    utxo,
+                    treechain,
+                )?;
+                return Ok(());
             }
-            let script_code = redeem.clone();
-            let input_stack = &stack[0..stack.len() - 1];
-            println!("verify input here 5");
-            Self::verify_script(
-                tx,
-                input_index,
-                input,
-                input_value,
-                &redeem,
-                input_stack,
-                current_time,
-                false,
-                utxo,
-                treechain,
-            )?;
+            let sig_hex = stack[0].clone();
+            let pubkey_hex = stack[1].clone();
+            let pubkey_hash = match ChainUtil::pubkey_hash_from_address(&pubkey_hex) {
+                Ok(hash) => hash,
+                Err(_) => {
+                    println!("❌ Invalid pubkey_hex: {}", pubkey_hex);
+                    return Err("Invalid pubkey_hex".to_string());
+                }
+            };
+            let extracted_script_hash = hex::encode(&script_pubkey_bytes[2..22]);
+            let current_time_check = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as u64;
+            // Find the originating block by queue_index
+            if let Some((_, originating_block_opt)) = treechain
+                .blocks
+                .get_index(utxo.queue_index.try_into().unwrap())
+            {
+                let originating_block = originating_block_opt;
+                // Find the originating transaction by txid
+                let originating_tx_opt = originating_block.tx.iter().find(|t| t.txid == input.txid);
+                if let Some(originating_tx) = originating_tx_opt {
+                    // Verify the output at vout matches the script_pubkey
+                    if let Some(output) = originating_tx.vout.get(input.vout as usize) {
+                        if output.script_pubkey != *script_pubkey {
+                            println!(
+                                "⚠️ Script mismatch for UTXO {}:{} in block {}",
+                                input.txid, input.vout, originating_block.hash
+                            );
+                            return Err("Script mismatch for P2SH".to_string());
+                        }
+                        let locktime = originating_tx.locktime;
+                        let is_cltv = locktime != 0;
+                        let mut lock: u32 = 0;
+                        let mut is_csv_detected = false;
+                        if is_cltv {
+                            lock = locktime;
+                        } else {
+                            // For CSV, find max relative lock from inputs' sequences
+                            let mut max_relative = 0u32;
+                            for inp in &originating_tx.vin {
+                                if inp.sequence != 4294967295u32 {
+                                    is_csv_detected = true;
+                                    let relative = inp.sequence & 0x0000FFFF;
+                                    if relative > max_relative {
+                                        max_relative = relative;
+                                    }
+                                }
+                            }
+                            if is_csv_detected {
+                                lock = max_relative;
+                            } else {
+                                // Not a timelock P2SH, fall back
+                                let input_stack = &stack[0..stack.len() - 1];
+                                Self::verify_script(
+                                    tx,
+                                    input_index,
+                                    input,
+                                    input_value,
+                                    &redeem,
+                                    input_stack,
+                                    current_time,
+                                    false,
+                                    utxo,
+                                    treechain,
+                                )?;
+                                return Ok(());
+                            }
+                        }
+
+                        // Construct p2pkh_script for this pubkey
+                        let p2pkh_script = format!("76a914{}88ac", pubkey_hash);
+                        // Lock as 4 LE bytes hex
+                        let lock_bytes = lock.to_le_bytes();
+                        let lock_hex = format!(
+                            "{:02x}{:02x}{:02x}{:02x}",
+                            lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
+                        );
+                        let opcode = if is_cltv { "b1" } else { "b2" };
+                        let expected_redeem = format!("04{}{}75{}", lock_hex, opcode, p2pkh_script);
+                        let expected_redeem_bytes = match hex::decode(&expected_redeem) {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                println!(
+                                    "⚠️ Failed to decode expected redeem script '{}': {}",
+                                    expected_redeem, e
+                                );
+                                return Err("Invalid expected redeem script".to_string());
+                            }
+                        };
+                        // Compute expected_hash = hash160(expected_redeem_bytes)
+                        let expected_hash = ChainUtil::hash160(&expected_redeem_bytes);
+                        if expected_hash != extracted_script_hash {
+                            println!(
+                                "⚠️ P2SH hash mismatch for UTXO {}:{} (expected: {}, got: {})",
+                                input.txid, input.vout, expected_hash, extracted_script_hash
+                            );
+                            return Err("P2SH ownership mismatch".to_string());
+                        }
+                        // Check maturity (policy)
+                        let lock_u64 = lock as u64;
+                        let is_mature = if is_cltv {
+                            if lock_u64 >= 500_000_000 {
+                                current_time_check >= lock_u64
+                            } else {
+                                current_height >= lock_u64
+                            }
+                        } else {
+                            let blocks_since =
+                                current_height.saturating_sub(utxo.queue_index as u64);
+                            blocks_since >= lock_u64
+                        };
+                        if !is_mature {
+                            println!(
+                                "🔒 Immature P2SH UTXO {}:{} (is_cltv={}, lock={}, blocks_since={})",
+                                input.txid,
+                                input.vout,
+                                is_cltv,
+                                lock,
+                                current_height.saturating_sub(utxo.queue_index as u64)
+                            );
+                            return Err("P2SH timelock not mature".to_string());
+                        }
+                        // Verify signature directly (inner P2PKH)
+                        let script_code = redeem.clone();
+                        let sighash =
+                            tx.compute_sighash(input_index, &script_code, input_value, SIGHASH_ALL);
+                        if !Self::verify_signature(&sighash, &sig_hex, &pubkey_hex) {
+                            return Err(
+                                "Signature verification failed for P2SH timelock".to_string()
+                            );
+                        }
+                        println!(
+                            "✅ P2SH timelock verified for input {}:{}",
+                            input.txid, input.vout
+                        );
+                        return Ok(());
+                    } else {
+                        println!(
+                            "⚠️ Invalid vout {} for txid {} in block {}",
+                            input.vout, input.txid, originating_block.hash
+                        );
+                        return Err("Invalid vout for P2SH".to_string());
+                    }
+                } else {
+                    println!(
+                        "⚠️ Originating tx {} not found in block for queue_index {}",
+                        input.txid, utxo.queue_index
+                    );
+                    return Err("Originating tx not found".to_string());
+                }
+            } else {
+                println!(
+                    "⚠️ Originating block not found for queue_index {}",
+                    utxo.queue_index
+                );
+                return Err("Originating block not found".to_string());
+            }
         } else if script_pubkey_bytes.len() == 22
             && script_pubkey_bytes[0] == 0x00
             && script_pubkey_bytes[1] == 0x14
@@ -473,7 +631,7 @@ impl TransactionPool {
             && script_pubkey_bytes[0] == 0x00
             && script_pubkey_bytes[1] == 0x20
         {
-            // P2WSH
+            // P2WSH (similar to P2SH but with witness and SHA256)
             if stack.is_empty() {
                 return Err("Empty witness for P2WSH".to_string());
             }
@@ -487,20 +645,190 @@ impl TransactionPool {
             if ws_hash != expected_hash {
                 return Err("Witness script hash mismatch for P2WSH".to_string());
             }
-            let script_code = witness_script.clone();
-            let input_stack = &stack[0..stack.len() - 1];
-            Self::verify_script(
-                tx,
-                input_index,
-                input,
-                input_value,
-                &witness_script,
-                input_stack,
-                current_time,
-                true,
-                utxo,
-                treechain,
-            )?;
+
+            // Ownership and maturity check for timelock P2WSH
+            if stack.len() != 3 {
+                // Fall back to general P2WSH (e.g., multisig)
+                let input_stack = &stack[0..stack.len() - 1];
+                Self::verify_script(
+                    tx,
+                    input_index,
+                    input,
+                    input_value,
+                    &witness_script,
+                    input_stack,
+                    current_time,
+                    true,
+                    utxo,
+                    treechain,
+                )?;
+                return Ok(());
+            }
+            let sig_hex = stack[0].clone();
+            let pubkey_hex = stack[1].clone();
+            let pubkey_hash = match ChainUtil::pubkey_hash_from_address(&pubkey_hex) {
+                Ok(hash) => hash,
+                Err(_) => {
+                    println!("❌ Invalid pubkey_hex: {}", pubkey_hex);
+                    return Err("Invalid pubkey_hex".to_string());
+                }
+            };
+            let extracted_script_hash = hex::encode(&script_pubkey_bytes[2..34]);
+            let current_time_check = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as u64;
+            // Find the originating block by queue_index
+            if let Some((_, originating_block_opt)) = treechain
+                .blocks
+                .get_index(utxo.queue_index.try_into().unwrap())
+            {
+                let originating_block = originating_block_opt;
+                // Find the originating transaction by txid
+                let originating_tx_opt = originating_block.tx.iter().find(|t| t.txid == input.txid);
+                if let Some(originating_tx) = originating_tx_opt {
+                    // Verify the output at vout matches the script_pubkey
+                    if let Some(output) = originating_tx.vout.get(input.vout as usize) {
+                        if output.script_pubkey != *script_pubkey {
+                            println!(
+                                "⚠️ Script mismatch for UTXO {}:{} in block {}",
+                                input.txid, input.vout, originating_block.hash
+                            );
+                            return Err("Script mismatch for P2WSH".to_string());
+                        }
+                        let locktime = originating_tx.locktime;
+                        let is_cltv = locktime != 0;
+                        let mut lock: u32 = 0;
+                        let mut is_csv_detected = false;
+                        if is_cltv {
+                            lock = locktime;
+                        } else {
+                            // For CSV, find max relative lock from inputs' sequences
+                            let mut max_relative = 0u32;
+                            for inp in &originating_tx.vin {
+                                if inp.sequence != 4294967295u32 {
+                                    is_csv_detected = true;
+                                    let relative = inp.sequence & 0x0000FFFF;
+                                    if relative > max_relative {
+                                        max_relative = relative;
+                                    }
+                                }
+                            }
+                            if is_csv_detected {
+                                lock = max_relative;
+                            } else {
+                                // Not a timelock P2WSH, fall back
+                                let input_stack = &stack[0..stack.len() - 1];
+                                Self::verify_script(
+                                    tx,
+                                    input_index,
+                                    input,
+                                    input_value,
+                                    &witness_script,
+                                    input_stack,
+                                    current_time,
+                                    true,
+                                    utxo,
+                                    treechain,
+                                )?;
+                                return Ok(());
+                            }
+                        }
+
+                        // Construct p2pkh_script for this pubkey
+                        let p2pkh_script = format!("76a914{}88ac", pubkey_hash);
+                        // Lock as 4 LE bytes hex
+                        let lock_bytes = lock.to_le_bytes();
+                        let lock_hex = format!(
+                            "{:02x}{:02x}{:02x}{:02x}",
+                            lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
+                        );
+                        let opcode = if is_cltv { "b1" } else { "b2" };
+                        let expected_redeem = format!("04{}{}75{}", lock_hex, opcode, p2pkh_script);
+                        let expected_redeem_bytes = match hex::decode(&expected_redeem) {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                println!(
+                                    "⚠️ Failed to decode expected redeem script '{}': {}",
+                                    expected_redeem, e
+                                );
+                                return Err("Invalid expected redeem script".to_string());
+                            }
+                        };
+                        // Compute expected_hash = SHA256(expected_redeem_bytes)
+                        let mut hasher = Sha256::new();
+                        hasher.update(&expected_redeem_bytes);
+                        let expected_hash = hex::encode(hasher.finalize());
+                        if expected_hash != extracted_script_hash {
+                            println!(
+                                "⚠️ P2WSH hash mismatch for UTXO {}:{} (expected: {}, got: {})",
+                                input.txid, input.vout, expected_hash, extracted_script_hash
+                            );
+                            return Err("P2WSH ownership mismatch".to_string());
+                        }
+                        // Check maturity (policy)
+                        let lock_u64 = lock as u64;
+                        let is_mature = if is_cltv {
+                            if lock_u64 >= 500_000_000 {
+                                current_time_check >= lock_u64
+                            } else {
+                                current_height >= lock_u64
+                            }
+                        } else {
+                            let blocks_since =
+                                current_height.saturating_sub(utxo.queue_index as u64);
+                            blocks_since >= lock_u64
+                        };
+                        if !is_mature {
+                            println!(
+                                "🔒 Immature P2WSH UTXO {}:{} (is_cltv={}, lock={}, blocks_since={})",
+                                input.txid,
+                                input.vout,
+                                is_cltv,
+                                lock,
+                                current_height.saturating_sub(utxo.queue_index as u64)
+                            );
+                            return Err("P2WSH timelock not mature".to_string());
+                        }
+                        // Verify signature directly (inner P2PKH, SegWit sighash)
+                        let script_code = witness_script.clone();
+                        let sighash = tx.compute_segwit_sighash(
+                            input_index,
+                            input_value,
+                            &script_code,
+                            SIGHASH_ALL,
+                        );
+                        if !Self::verify_signature(&sighash, &sig_hex, &pubkey_hex) {
+                            return Err(
+                                "Signature verification failed for P2WSH timelock".to_string()
+                            );
+                        }
+                        println!(
+                            "✅ P2WSH timelock verified for input {}:{}",
+                            input.txid, input.vout
+                        );
+                        return Ok(());
+                    } else {
+                        println!(
+                            "⚠️ Invalid vout {} for txid {} in block {}",
+                            input.vout, input.txid, originating_block.hash
+                        );
+                        return Err("Invalid vout for P2WSH".to_string());
+                    }
+                } else {
+                    println!(
+                        "⚠️ Originating tx {} not found in block for queue_index {}",
+                        input.txid, utxo.queue_index
+                    );
+                    return Err("Originating tx not found".to_string());
+                }
+            } else {
+                println!(
+                    "⚠️ Originating block not found for queue_index {}",
+                    utxo.queue_index
+                );
+                return Err("Originating block not found".to_string());
+            }
         } else {
             return Err("Unsupported script type".to_string());
         }
@@ -526,8 +854,6 @@ impl TransactionPool {
         println!("verify script here 0.1");
         let ops = Self::parse_script_ops(&script_bytes);
         println!("verify script here 0.2");
-        // let err = Self::get_script_info(&ops).unwrap_err();
-        // println!("Error: {}", err);
         let script_info = Self::get_script_info(&ops)?;
         println!("verify script here 0.3");
 
@@ -552,7 +878,7 @@ impl TransactionPool {
                     return Err("Signature verification failed in P2PKH script".to_string());
                 }
             }
-            ScriptInfo::Multisig { m, n, pubkeys } => {
+            ScriptInfo::Multisig { m, pubkeys, n: _ } => {
                 println!("verify script called here 1");
                 if stack.len() < (m as usize + 1) || !stack[0].is_empty() {
                     println!("stack: {:?}", stack);
@@ -564,12 +890,17 @@ impl TransactionPool {
                     return Err("Incorrect number of signatures for multisig".to_string());
                 }
                 let mut valid_sigs = 0;
-                for sig in sigs {
+                for sig in &sigs[0..m as usize] {
+                    let mut matched = false;
                     for pubk in &pubkeys {
                         println!("verify script called here 2");
                         if Self::verify_signature(&sighash, sig, pubk) {
-                            valid_sigs += 1;
+                            matched = true;
+                            break;
                         }
+                    }
+                    if matched {
+                        valid_sigs += 1;
                     }
                 }
                 if valid_sigs < m as usize {
@@ -577,6 +908,21 @@ impl TransactionPool {
                 }
             }
             ScriptInfo::Cltv { lock, pubkey_hash } => {
+                if tx.version < 2 {
+                    return Err("Transaction version must be at least 2 for CLTV".to_string());
+                }
+                if tx.locktime < lock as u32 {
+                    return Err(format!(
+                        "CLTV locktime {} < required lock {}",
+                        tx.locktime, lock
+                    ));
+                }
+                if input.sequence >= 0xFFFFFFFEu32 {
+                    return Err(
+                        "Input sequence must be less than 0xFFFFFFFE to enable CLTV enforcement"
+                            .to_string(),
+                    );
+                }
                 if stack.len() != 2 {
                     return Err("Invalid stack for CLTV".to_string());
                 }
@@ -586,33 +932,26 @@ impl TransactionPool {
                 if computed_hash != pubkey_hash {
                     return Err("Pubkey hash mismatch in CLTV".to_string());
                 }
-                let current_height = treechain
-                    .blocks
-                    .values()
-                    .map(|b| b.pqp_entry.queue_index as u64)
-                    .max()
-                    .unwrap_or(0);
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let lock_u64 = lock as u64;
-                let is_mature = if lock_u64 >= 500_000_000 {
-                    current_time >= lock_u64
-                } else {
-                    current_height >= lock_u64
-                };
-                if !is_mature {
-                    return Err(format!(
-                        "CLTV lock not satisfied: current_height {} / current_time {} < lock {}",
-                        current_height, current_time, lock
-                    ));
-                }
                 if !Self::verify_signature(&sighash, sig_hex, pubkey_hex) {
                     return Err("Signature verification failed in CLTV".to_string());
                 }
             }
             ScriptInfo::Csv { lock, pubkey_hash } => {
+                if tx.version < 2 {
+                    return Err("Transaction version must be at least 2 for CSV".to_string());
+                }
+                let sequence_relative = (input.sequence & 0x0000FFFFu32) as u64;
+                let sequence_is_time = (input.sequence & 0x00010000) != 0;
+                let lock_is_time = lock >= 500_000_000u32;
+                if sequence_is_time != lock_is_time {
+                    return Err("CSV locktime type mismatch (time vs block)".to_string());
+                }
+                if sequence_relative < lock as u64 {
+                    return Err(format!(
+                        "CSV sequence relative lock {} < required {}",
+                        sequence_relative, lock
+                    ));
+                }
                 if stack.len() != 2 {
                     return Err("Invalid stack for CSV".to_string());
                 }
@@ -622,29 +961,6 @@ impl TransactionPool {
                 if computed_hash != pubkey_hash {
                     return Err("Pubkey hash mismatch in CSV".to_string());
                 }
-                let mut required_height = 0u64;
-                let mut is_csv = false;
-                for inp in &tx.vin {
-                    if inp.sequence != 4294967295u32 {
-                        is_csv = true;
-                        let relative_lock = (inp.sequence & 0x0000FFFF) as u64;
-
-                        let parent_height = utxo.queue_index as u64;
-                        let min_height_i = parent_height.saturating_add(relative_lock);
-                        if min_height_i > required_height {
-                            required_height = min_height_i;
-                        }
-                    }
-                }
-                if is_csv {
-                    let current_height = treechain.get_max_queue_index();
-                    if current_height < required_height {
-                        return Err(format!(
-                            "CSV lock not satisfied: current_height {} < required {} (lock: {})",
-                            current_height, required_height, lock
-                        ));
-                    }
-                }
                 if !Self::verify_signature(&sighash, sig_hex, pubkey_hex) {
                     return Err("Signature verification failed in CSV".to_string());
                 }
@@ -652,7 +968,6 @@ impl TransactionPool {
         }
         Ok(())
     }
-
     fn parse_stack(bytes: &[u8]) -> Result<Vec<String>, String> {
         let mut items = vec![];
         let mut pos = 0;
@@ -694,20 +1009,22 @@ impl TransactionPool {
         }
         ops
     }
-
     pub fn get_script_info(ops: &[Op]) -> Result<ScriptInfo, String> {
+        println!("ops at get_script_info: {:?}", ops);
         println!("called get script info");
+        // P2PKH: OP_DUP OP_HASH160 <20-byte hash> OP_EQUALVERIFY OP_CHECKSIG
         if ops.len() == 5
-            && matches!(ops[0], Op::Code(0x76))
-            && matches!(ops[1], Op::Code(0xa9))
-            && matches!(ops[2], Op::Push(ref data) if data.len() == 20)
-            && matches!(ops[3], Op::Code(0x88))
-            && matches!(ops[4], Op::Code(0xac))
+        && matches!(ops[0], Op::Code(0x76))
+        && matches!(ops[1], Op::Code(0xa6))  // Fixed: OP_HASH160 (0xa6), not OP_EQUAL (0xa9)
+        && matches!(ops[2], Op::Push(ref data) if data.len() == 20)
+        && matches!(ops[3], Op::Code(0x88))
+        && matches!(ops[4], Op::Code(0xac))
         {
             return Ok(ScriptInfo::P2pkh {
                 pubkey_hash: hex::encode(&ops[2].as_push().unwrap()),
             });
         }
+        // Multisig: <m> <pubkey>* <n> OP_CHECKMULTISIG (unchanged)
         if ops.len() >= 4 {
             let m_op = &ops[0];
             let n_op = &ops[ops.len() - 2];
@@ -733,51 +1050,50 @@ impl TransactionPool {
                 }
             }
         }
-        if ops.len() == 6
-            && matches!(ops[0], Op::Push(_))
-            && matches!(ops[1], Op::Code(0xb1))
-            && matches!(ops[2], Op::Code(0x76))
-            && matches!(ops[3], Op::Code(0xa9))
-            && matches!(ops[4], Op::Push(ref data) if data.len() == 20)
-            && matches!(ops[5], Op::Code(0x88))
+        // CLTV: <lock-push> OP_CLTV OP_DROP OP_DUP OP_HASH160 <20-byte hash> OP_EQUALVERIFY OP_CHECKSIG
+        if ops.len() == 8
+        && matches!(ops[0], Op::Push(ref data) if data.len() <= 4)
+        && matches!(ops[1], Op::Code(0xb1))
+        && matches!(ops[2], Op::Code(0x75))  // Fixed: OP_DROP
+        && matches!(ops[3], Op::Code(0x76))  // OP_DUP
+        && matches!(ops[4], Op::Code(0xa6))  // Fixed: OP_HASH160
+        && matches!(ops[5], Op::Push(ref data) if data.len() == 20)
+        && matches!(ops[6], Op::Code(0x88))
+        && matches!(ops[7], Op::Code(0xac))
         {
             let lock_bytes = ops[0].as_push().unwrap();
-            let lock = if lock_bytes.len() <= 4 {
-                let mut bytes = [0u8; 4];
-                bytes[..lock_bytes.len()].copy_from_slice(lock_bytes);
-                u32::from_le_bytes(bytes)
-            } else {
-                return Err("Invalid CLTV locktime length".to_string());
-            };
+            let mut bytes_arr = [0u8; 4];
+            let copy_len = lock_bytes.len().min(4);
+            bytes_arr[0..copy_len].copy_from_slice(&lock_bytes[0..copy_len]);
+            let lock = u32::from_le_bytes(bytes_arr);
             return Ok(ScriptInfo::Cltv {
                 lock,
-                pubkey_hash: hex::encode(&ops[4].as_push().unwrap()),
+                pubkey_hash: hex::encode(&ops[5].as_push().unwrap()), // Fixed index
             });
         }
-        if ops.len() == 6
-            && matches!(ops[0], Op::Push(_))
-            && matches!(ops[1], Op::Code(0xb2))
-            && matches!(ops[2], Op::Code(0x76))
-            && matches!(ops[3], Op::Code(0xa9))
-            && matches!(ops[4], Op::Push(ref data) if data.len() == 20)
-            && matches!(ops[5], Op::Code(0x88))
+        // CSV: <lock-push> OP_CSV OP_DROP OP_DUP OP_HASH160 <20-byte hash> OP_EQUALVERIFY OP_CHECKSIG
+        if ops.len() == 8
+        && matches!(ops[0], Op::Push(ref data) if data.len() <= 4)
+        && matches!(ops[1], Op::Code(0xb2))
+        && matches!(ops[2], Op::Code(0x75))  // Fixed: OP_DROP
+        && matches!(ops[3], Op::Code(0x76))  // OP_DUP
+        && matches!(ops[4], Op::Code(0xa6))  // Fixed: OP_HASH160
+        && matches!(ops[5], Op::Push(ref data) if data.len() == 20)
+        && matches!(ops[6], Op::Code(0x88))
+        && matches!(ops[7], Op::Code(0xac))
         {
             let lock_bytes = ops[0].as_push().unwrap();
-            let lock = if lock_bytes.len() <= 4 {
-                let mut bytes = [0u8; 4];
-                bytes[..lock_bytes.len()].copy_from_slice(lock_bytes);
-                u32::from_le_bytes(bytes)
-            } else {
-                return Err("Invalid CSV locktime length".to_string());
-            };
+            let mut bytes_arr = [0u8; 4];
+            let copy_len = lock_bytes.len().min(4);
+            bytes_arr[0..copy_len].copy_from_slice(&lock_bytes[0..copy_len]);
+            let lock = u32::from_le_bytes(bytes_arr);
             return Ok(ScriptInfo::Csv {
                 lock,
-                pubkey_hash: hex::encode(&ops[4].as_push().unwrap()),
+                pubkey_hash: hex::encode(&ops[5].as_push().unwrap()), // Fixed index
             });
         }
         Err("Unsupported script info".to_string())
     }
-
     fn bytes_to_u32(bytes: &[u8]) -> u32 {
         let mut arr = [0u8; 4];
         let len = bytes.len().min(4);

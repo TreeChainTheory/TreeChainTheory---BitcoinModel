@@ -454,16 +454,14 @@ async fn create_txn(
 
     let treechain_guard = data.0.lock().await; // Get TreeChain for current height
 
-    let (total_balance, unlocked_balance, locked_balance) =
-        wallet_guard.get_balance(&wallet_guard.address, &utxo_set_guard, &treechain_guard);
-    let available_balance = unlocked_balance + locked_balance; // Both can be spent if conditions met
+    let total_balance = Wallet::get_balance(&wallet_guard.address, &utxo_set_guard);
 
-    if available_balance < value + fee {
+    if total_balance < value + fee {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "success": false,
             "error": format!(
-                "Insufficient funds: need {}, available {} (unlocked: {}, locked: {})",
-                value + fee, available_balance, unlocked_balance, locked_balance
+                "Insufficient funds: need {}, available {}",
+                value + fee, total_balance
             )
         }));
     }
@@ -506,8 +504,6 @@ async fn create_txn(
                 "total_input": value + fee,
                 "wallet_balance": {
                     "total": total_balance,
-                    "unlocked": unlocked_balance,
-                    "locked": locked_balance
                 },
                 "transaction": tx
             }))
@@ -693,8 +689,7 @@ async fn wallet_details(
     let pubkey_hash = &wallet_guard.public_key_hash;
     let pubkey = &wallet_guard.public_key;
 
-    let (total_balance, unlocked_balance, locked_balance) =
-        wallet_guard.get_balance(address, &utxo_set_guard, &treechain_guard);
+    let total_balance = Wallet::get_balance(address, &utxo_set_guard);
     let utxos = Wallet::get_utxos_for_address(address, &utxo_set_guard, &treechain_guard); // Update to include timelocked if needed
 
     let mut total_received_estimate = 0;
@@ -718,8 +713,7 @@ async fn wallet_details(
             "public_key_hash": pubkey_hash,
             "balance_satoshis": {
                 "total": total_balance,
-                "unlocked": unlocked_balance,
-                "locked": locked_balance
+
             },
             "balance_btc": format!("{:.8}", total_balance as f64 / 100_000_000.0)
         },
@@ -1235,20 +1229,13 @@ async fn sign_multisig(
     }
 }
 
-//cration and handling the timelocked txn
-
 #[derive(Deserialize)]
-struct CreateTimelockedBody {
-    is_cltv: bool,
-    lock: u32,
-    value: u64,
-    fee: u64,
-    to_address: String,
+struct BalanceQuery {
+    address: String,
 }
-//   sequence: if req.is_cltv { 0 } else { req.lock },
-#[post("/create_timelocked_txn")]
-async fn create_timelocked_txn(
-    req: web::Json<CreateTimelockedBody>,
+#[get("/balance")]
+async fn get_balance_route(
+    query: web::Query<BalanceQuery>,
     data: web::Data<(
         Arc<Mutex<TreeChain>>,
         Arc<Mutex<PQP>>,
@@ -1263,328 +1250,30 @@ async fn create_timelocked_txn(
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let (
-        _treechain,
-        _pqp,
-        _mining_flag,
-        _p2p_server,
-        _current_mining_position,
-        _abort_mining,
-        wallet_arc,
-        _align,
-        _chain_length,
-        utxo_set,
-        _txn_pool,
-    ) = {
-        let d = data.as_ref();
-        (
-            Arc::clone(&d.0),
-            Arc::clone(&d.1),
-            Arc::clone(&d.2),
-            Arc::clone(&d.3),
-            Arc::clone(&d.4),
-            Arc::clone(&d.5),
-            Arc::clone(&d.6),
-            d.7,
-            Arc::clone(&d.8),
-            Arc::clone(&d.9),
-            Arc::clone(&d.10),
-        )
-    };
+    let address = query.address.clone();
+    let (_treechain, _, _, _, _, _, _wallet_arc, _, _, utxo_set, _) = data.as_ref();
 
-    let wallet = {
-        let guard = wallet_arc.lock().await;
-        guard.clone()
-    };
-
-    let utxo_set_guard = utxo_set.lock().await;
-    let treechain_guard = _treechain.lock().await;
-
-    // Find a suitable UTXO (simplified: use first available with enough value)
-    let available_utxos =
-        Wallet::get_utxos_for_address(&wallet.address, &utxo_set_guard, &treechain_guard);
-    let total_available: u64 = available_utxos.iter().map(|(_, _, u)| u.out.value).sum();
-    if total_available < req.value + req.fee {
-        drop(utxo_set_guard);
-        drop(treechain_guard);
+    if ChainUtil::pubkey_hash_from_address(&address).is_err() {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "status": "error",
-            "message": format!("Insufficient balance: available {} < required {}", total_available, req.value + req.fee)
+            "message": "Invalid address format"
         }));
     }
 
-    // For simplicity, assume we select one UTXO with enough value (in production, select optimally)
-    let selected_utxo = available_utxos
-        .iter()
-        .find(|(_, _, u)| u.out.value >= req.value + req.fee)
-        .expect("UTXO selection logic should ensure this");
+    let utxo_set_guard = utxo_set.lock().await;
 
-    let input = TxInput {
-        txid: selected_utxo.0.clone(),
-        vout: selected_utxo.1,
-        script_sig: "".to_string(), // Will be filled during signing
-        sequence: if req.is_cltv { 0 } else { req.lock }, // Max sequence for funding tx (CSV enforced on spending input)
-    };
-
-    // Create redeem script for timelock (proper: push lock + opcode + drop + P2PKH)
-    let to_pubkey_hash =
-        ChainUtil::pubkey_hash_from_address(&req.to_address).expect("Invalid to_address");
-    let p2pkh_script = format!("76a914{}88ac", to_pubkey_hash);
-
-    // Lock as 4 LE bytes hex (e.g., 110 = "0000006e")
-    let lock_bytes = req.lock.to_le_bytes();
-    let lock_hex = format!(
-        "{:02x}{:02x}{:02x}{:02x}",
-        lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
-    );
-    let opcode = if req.is_cltv { "b1" } else { "b2" }; // b1=OP_CLTV, b2=OP_CSV
-
-    let redeem_script = format!("04{}{}75{}", lock_hex, opcode, p2pkh_script);
-
-    let redeem_bytes = match hex::decode(&redeem_script) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            drop(utxo_set_guard);
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "status": "error",
-                "message": format!("Failed to decode redeem script '{}': {}", redeem_script, e)
-            }));
-        }
-    };
-
-    let redeem_hash = ChainUtil::hash160(&redeem_bytes);
-    let script_pubkey = format!("a914{}87", redeem_hash); // P2SH
-
-    let mut outputs = vec![TxOutput {
-        value: req.value,
-        script_pubkey,
-    }];
-
-    // Add change output if needed
-    let input_value = selected_utxo.2.out.value;
-    if input_value > req.value + req.fee {
-        let change_value = input_value - req.value - req.fee;
-        let change_script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
-        outputs.push(TxOutput {
-            value: change_value,
-            script_pubkey: change_script,
-        });
-    }
-
-    let locktime = if req.is_cltv { req.lock } else { 0 }; // CLTV uses tx.locktime; CSV does not
-    let mut tx = Transaction::new(
-        2, // Version 2 for timelocks
-        locktime,
-        vec![input],
-        outputs,
-        None,
-    );
-    tx = tx
-        .clone()
-        .sign_transaction(&wallet, &mut tx, &utxo_set_guard);
-    drop(utxo_set_guard);
-    drop(treechain_guard);
-    let redeem_script_hex = hex::encode(redeem_bytes);
+    let total = Wallet::get_balance(&address, &utxo_set_guard);
 
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
-        "message": format!("Timelocked txn created to address {}. Broadcast when conditions met.", req.to_address),
-        "transaction": tx,
-        "script_hash": redeem_hash,
-        "redeem_script": redeem_script_hex
+        "address": address,
+        "balance": {
+            "total_satoshis": total,
+            "total_btc": format!("{:.8}", total as f64 / 100_000_000.0),
+        }
     }))
 }
-#[derive(Deserialize)]
-struct BroadcastTxnBody {
-    transaction: Transaction,
-}
 
-#[post("/broadcast_txn")]
-async fn broadcast_txn(
-    body: web::Json<BroadcastTxnBody>,
-    data: web::Data<(
-        Arc<Mutex<TreeChain>>,
-        Arc<Mutex<PQP>>,
-        Arc<Mutex<bool>>,
-        Arc<P2PServer>,
-        Arc<SyncMutex<Option<String>>>,
-        Arc<SyncMutex<bool>>,
-        Arc<Mutex<Wallet>>, // Updated for mutability
-        u8,
-        Arc<SyncMutex<u64>>,
-        Arc<Mutex<UtxoSet>>,
-        Arc<Mutex<TransactionPool>>,
-    )>,
-) -> impl Responder {
-    let p2p_server = data.3.clone();
-    let utxo_set = data.9.clone();
-    let txn_pool = data.10.clone();
-    let treechain = data.0.clone();
-    let tx = body.transaction.clone();
-
-    let utxo_set_guard = utxo_set.lock().await;
-    let treechain_guard = treechain.lock().await;
-    let current_height = treechain_guard.get_max_queue_index(); // Assume this method exists
-    let current_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as u32;
-
-    // Check if this is a normal/CSV txn (locktime=0, all sequences=max) or CLTV funding (locktime>0)
-    let is_normal_or_csv =
-        tx.locktime == 0 && tx.vin.iter().all(|input| input.sequence == 0xffffffff);
-    if !is_normal_or_csv {
-        // Assume CLTV funding: enforce maturity on txn locktime
-        let is_time_based = tx.locktime >= 500_000_000;
-        let current = if is_time_based {
-            current_time
-        } else {
-            current_height as u32
-        };
-        if current < tx.locktime {
-            drop(treechain_guard);
-            drop(utxo_set_guard);
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "status": "error",
-                "message": format!("CLTV funding txn immature: current {} < locktime {}", current, tx.locktime)
-            }));
-        }
-        println!(
-            "✅ CLTV funding txn mature: locktime {} <= current {}",
-            tx.locktime, current
-        );
-    } else {
-        println!("✅ Normal/CSV txn: no maturity check needed");
-    }
-
-    // Existing input-side timelock checks (for spending P2SH UTXOs)
-    for (i, input) in tx.vin.iter().enumerate() {
-        let utxo = match utxo_set_guard.get_utxo(&input.txid, input.vout) {
-            Some(u) => u,
-            None => {
-                drop(treechain_guard);
-                drop(utxo_set_guard);
-                return HttpResponse::BadRequest().json(serde_json::json!({
-                    "status": "error",
-                    "message": format!("UTXO not found: {}:{}", input.txid, input.vout)
-                }));
-            }
-        };
-
-        let script_pubkey = &utxo.out.script_pubkey;
-        if script_pubkey.starts_with("a914") && script_pubkey.ends_with("87") {
-            let redeem_opt = Transaction::extract_redeem_from_scriptsig(&input.script_sig);
-            let redeem = match redeem_opt {
-                Some(r) => {
-                    println!("redeem opt :{}", r.clone());
-                    r
-                }
-                None => {
-                    drop(treechain_guard);
-                    drop(utxo_set_guard);
-                    return HttpResponse::BadRequest().json(serde_json::json!({
-                        "status": "error",
-                        "message": format!("No redeem in script_sig for {}:{}", input.txid, input.vout)
-                    }));
-                }
-            };
-
-            let redeem_bytes = match hex::decode(&redeem) {
-                Ok(b) => b,
-                Err(_) => {
-                    drop(treechain_guard);
-                    drop(utxo_set_guard);
-                    return HttpResponse::BadRequest().json(serde_json::json!({
-                        "status": "error",
-                        "message": "Invalid redeem hex"
-                    }));
-                }
-            };
-
-            let ops = TransactionPool::parse_script_ops(&redeem_bytes);
-            if let Ok(info) = TransactionPool::get_script_info(&ops) {
-                match info {
-                    ScriptInfo::Cltv { lock, .. } => {
-                        println!("Script info :{:?}", info);
-                        let effective_lock = lock as u32;
-                        if tx.locktime < effective_lock {
-                            drop(treechain_guard);
-                            drop(utxo_set_guard);
-                            return HttpResponse::BadRequest().json(serde_json::json!({
-                                "status": "error",
-                                "message": format!("CLTV tx.locktime {} < redeem lock {}", tx.locktime, effective_lock)
-                            }));
-                        }
-                        // Additional maturity check: ensure current time/height >= tx.locktime
-                        let is_time_based = effective_lock >= 500_000_000;
-                        let current = if is_time_based {
-                            current_time
-                        } else {
-                            current_height as u32
-                        };
-                        if current < tx.locktime {
-                            drop(treechain_guard);
-                            drop(utxo_set_guard);
-                            return HttpResponse::BadRequest().json(serde_json::json!({
-                                "status": "error",
-                                "message": format!("CLTV maturity not met: current {} < tx.locktime {}", current, tx.locktime)
-                            }));
-                        }
-                    }
-                    ScriptInfo::Csv { lock, .. } => {
-                        println!("Script info :{:?}", info);
-                        // Check input sequence >= lock
-                        if input.sequence < lock as u32 {
-                            drop(treechain_guard);
-                            drop(utxo_set_guard);
-                            return HttpResponse::BadRequest().json(serde_json::json!({
-                                "status": "error",
-                                "message": format!("CSV input.sequence {} < lock {}", input.sequence, lock)
-                            }));
-                        }
-                        let blocks_since = current_height.saturating_sub(utxo.queue_index as u64);
-                        if blocks_since < lock as u64 {
-                            drop(treechain_guard);
-
-                            return HttpResponse::BadRequest().json(serde_json::json!({
-                                "status": "error",
-                                "message": format!("CSV not met: {} blocks < lock {} (queue_index: {}, current: {})", blocks_since, lock, utxo.queue_index, current_height)
-                            }));
-                        }
-                    }
-                    _ => {
-                        println!("Script info :{:?}", info);
-                    }
-                }
-            }
-        }
-    }
-
-    // If checks pass, add to mempool and broadcast
-    let mut txn_pool_guard = txn_pool.lock().await;
-    match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard, &treechain_guard) {
-        Ok(_) => {
-            drop(treechain_guard);
-            drop(utxo_set_guard);
-            drop(txn_pool_guard);
-            p2p_server.broadcast_transaction(tx.clone()).await;
-            HttpResponse::Ok().json(serde_json::json!({
-                "status": "success",
-                "message": "Conditions met, added to mempool and broadcasted",
-                "txid": tx.txid
-            }))
-        }
-        Err(e) => {
-            drop(treechain_guard);
-            drop(utxo_set_guard);
-            drop(txn_pool_guard);
-            HttpResponse::BadRequest().json(serde_json::json!({
-                "status": "error",
-                "message": e
-            }))
-        }
-    }
-}
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
@@ -1600,6 +1289,5 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(create_spending_multisig_tx);
     cfg.service(sign_multisig);
     cfg.service(spend_multisig_txn);
-    cfg.service(create_timelocked_txn);
-    cfg.service(broadcast_txn);
+    cfg.service(get_balance_route);
 }

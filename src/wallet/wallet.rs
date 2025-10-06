@@ -75,211 +75,211 @@ impl Wallet {
         verifying_key.verify(data, &signature).is_ok()
     }
 
-    // pub fn get_balance(address: &str, utxo_set: &UtxoSet) -> u64 {
-    //     // Get the public key hash from the address
-    //     let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
-    //         Ok(hash) => hash,
-    //         Err(_) => {
-    //             println!("❌ Invalid address: {}", address);
-    //             return 0;
-    //         }
-    //     };
-
-    //     // Calculate the expected P2PKH script_pubkey for this address
-    //     let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
-
-    //     // Sum the value of all UTXOs with matching script_pubkey
-    //     let balance = utxo_set
-    //         .utxos
-    //         .values()
-    //         .filter(|utxo| utxo.out.script_pubkey == expected_script)
-    //         .map(|utxo| utxo.out.value)
-    //         .sum::<u64>();
-
-    //     println!(
-    //         "✅ Balance for address {} (pkhash: {}): {} satoshis",
-    //         address, pubkey_hash, balance
-    //     );
-
-    //     balance
-    // }
-
-    pub fn get_balance(
-        &self,
-        address: &str,
-        utxo_set: &UtxoSet,
-        treechain: &TreeChain,
-    ) -> (u64, u64, u64) {
+    pub fn get_balance(address: &str, utxo_set: &UtxoSet) -> u64 {
+        // Get the public key hash from the address
         let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
             Ok(hash) => hash,
             Err(_) => {
                 println!("❌ Invalid address: {}", address);
-                return (0, 0, 0);
+                return 0;
             }
         };
 
-        let expected_p2pkh_script = Transaction::create_p2pkh_script(&pubkey_hash);
+        // Calculate the expected P2PKH script_pubkey for this address
+        let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
 
-        let mut total_balance = 0u64;
-        let mut unlocked_balance = 0u64;
-        let mut locked_balance = 0u64;
-
-        // Compute current height as max queue_index
-        let current_height = treechain
-            .blocks
+        // Sum the value of all UTXOs with matching script_pubkey
+        let balance = utxo_set
+            .utxos
             .values()
-            .map(|b| b.pqp_entry.queue_index as u64)
-            .max()
-            .unwrap_or(0);
-
-        // Compute current time as unix seconds
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as u64;
-        for ((txid, vout), utxo) in &utxo_set.utxos {
-            let script = &utxo.out.script_pubkey;
-            if *script == expected_p2pkh_script {
-                unlocked_balance += utxo.out.value;
-                continue;
-            } else if script.starts_with("a914") && script.ends_with("87") {
-                println!("🧐 utxo script: {}", script);
-                // P2SH: Extract script_hash (hex positions 4 to 44)
-                let extracted_script_hash = &script[4..44];
-                // Find the originating block by queue_index
-                let originating_block_opt = treechain
-                    .blocks
-                    .values()
-                    .find(|b| b.pqp_entry.queue_index == utxo.queue_index);
-                if let Some(originating_block) = originating_block_opt {
-                    // Find the originating transaction by txid
-                    let originating_tx_opt = originating_block.tx.iter().find(|t| t.txid == *txid);
-                    if let Some(originating_tx) = originating_tx_opt {
-                        // Verify the output at vout matches the script_pubkey
-                        if let Some(output) = originating_tx.vout.get(*vout as usize) {
-                            if output.script_pubkey != *script {
-                                println!(
-                                    "⚠️ Script mismatch for UTXO {}:{} in block {}",
-                                    txid, vout, originating_block.hash
-                                );
-                                continue;
-                            }
-                            let locktime = originating_tx.locktime;
-                            let is_cltv = locktime != 0;
-                            let mut lock: u32 = 0;
-                            let mut is_csv = false;
-                            if is_cltv {
-                                lock = locktime;
-                            } else {
-                                // For CSV, find max relative lock from inputs' sequences
-                                let mut max_relative = 0u32;
-                                for input in &originating_tx.vin {
-                                    if input.sequence != 4294967295u32 {
-                                        is_csv = true;
-                                        let relative = input.sequence & 0x0000FFFF;
-                                        if relative > max_relative {
-                                            max_relative = relative;
-                                        }
-                                    }
-                                }
-                                if is_csv {
-                                    lock = max_relative;
-                                } else {
-                                    continue;
-                                }
-                            }
-                            // Construct p2pkh_script for this wallet
-                            let p2pkh_script = format!("76a914{}88ac", self.public_key_hash);
-                            // Lock as 4 LE bytes hex
-                            let lock_bytes = lock.to_le_bytes();
-                            let lock_hex = format!(
-                                "{:02x}{:02x}{:02x}{:02x}",
-                                lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
-                            );
-                            let opcode = if is_cltv { "b1" } else { "b2" };
-                            let redeem_script =
-                                format!("04{}{}75{}", lock_hex, opcode, p2pkh_script);
-                            let redeem_bytes = match hex::decode(&redeem_script) {
-                                Ok(bytes) => bytes,
-                                Err(e) => {
-                                    println!(
-                                        "⚠️ Failed to decode redeem script '{}': {}",
-                                        redeem_script, e
-                                    );
-                                    continue;
-                                }
-                            };
-                            // Compute redeem_hash = hash160(redeem_bytes)
-                            let redeem_hash = ChainUtil::hash160(&redeem_bytes);
-                            let expected_script_hash = &redeem_hash;
-                            if expected_script_hash != extracted_script_hash {
-                                println!(
-                                    "⚠️ Script hash mismatch for UTXO {}:{} (expected: {}, got: {})",
-                                    txid, vout, expected_script_hash, extracted_script_hash
-                                );
-                                continue;
-                            }
-                            // Check maturity
-                            let lock_u64 = lock as u64;
-                            let mut is_mature = true;
-                            if is_cltv {
-                                is_mature = if lock_u64 >= 500_000_000 {
-                                    // Time-based CLTV
-                                    current_time >= lock_u64
-                                } else {
-                                    // Height-based CLTV
-                                    current_height >= lock_u64
-                                };
-                            } else if is_csv {
-                                // CSV: blocks since confirmation >= lock
-                                let blocks_since =
-                                    current_height.saturating_sub(utxo.queue_index as u64);
-                                is_mature = blocks_since >= lock_u64;
-                            }
-                            if is_mature {
-                                unlocked_balance += utxo.out.value;
-                            } else {
-                                locked_balance += utxo.out.value;
-                            }
-                            println!(
-                                "🔓/🔒 Mature: {}, UTXO: script_hash={}, value={}, is_cltv={}, lock={}, blocks_since={} (current_height={})",
-                                if is_mature { "Yes" } else { "No" },
-                                extracted_script_hash,
-                                utxo.out.value,
-                                is_cltv,
-                                lock,
-                                current_height.saturating_sub(utxo.queue_index as u64),
-                                current_height
-                            );
-                        } else {
-                            println!(
-                                "⚠️ Invalid vout {} for txid {} in block {}",
-                                vout, txid, originating_block.hash
-                            );
-                        }
-                    } else {
-                        println!(
-                            "⚠️ Originating tx {} not found in block for queue_index {}",
-                            txid, utxo.queue_index
-                        );
-                    }
-                } else {
-                    println!(
-                        "⚠️ Originating block not found for queue_index {}",
-                        utxo.queue_index
-                    );
-                }
-            }
-        }
-        total_balance = unlocked_balance + locked_balance;
+            .filter(|utxo| utxo.out.script_pubkey == expected_script)
+            .map(|utxo| utxo.out.value)
+            .sum::<u64>();
 
         println!(
-            "✅ Balance for address {} (pkhash: {}): total {} satoshis (unlocked: {}, locked: {})",
-            address, pubkey_hash, total_balance, unlocked_balance, locked_balance
+            "✅ Balance for address {} (pkhash: {}): {} satoshis",
+            address, pubkey_hash, balance
         );
 
-        (total_balance, unlocked_balance, locked_balance)
+        balance
     }
+
+    // pub fn get_balance(
+    //     &self,
+    //     address: &str,
+    //     utxo_set: &UtxoSet,
+    //     treechain: &TreeChain,
+    // ) -> (u64, u64, u64) {
+    //     let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
+    //         Ok(hash) => hash,
+    //         Err(_) => {
+    //             println!("❌ Invalid address: {}", address);
+    //             return (0, 0, 0);
+    //         }
+    //     };
+
+    //     let expected_p2pkh_script = Transaction::create_p2pkh_script(&pubkey_hash);
+
+    //     let mut total_balance = 0u64;
+    //     let mut unlocked_balance = 0u64;
+    //     let mut locked_balance = 0u64;
+
+    //     // Compute current height as max queue_index
+    //     let current_height = treechain
+    //         .blocks
+    //         .values()
+    //         .map(|b| b.pqp_entry.queue_index as u64)
+    //         .max()
+    //         .unwrap_or(0);
+
+    //     // Compute current time as unix seconds
+    //     let current_time = std::time::SystemTime::now()
+    //         .duration_since(std::time::UNIX_EPOCH)
+    //         .unwrap_or_default()
+    //         .as_secs() as u64;
+    //     for ((txid, vout), utxo) in &utxo_set.utxos {
+    //         let script = &utxo.out.script_pubkey;
+    //         if *script == expected_p2pkh_script {
+    //             unlocked_balance += utxo.out.value;
+    //             continue;
+    //         } else if script.starts_with("a914") && script.ends_with("87") {
+    //             println!("🧐 utxo script: {}", script);
+    //             // P2SH: Extract script_hash (hex positions 4 to 44)
+    //             let extracted_script_hash = &script[4..44];
+    //             // Find the originating block by queue_index
+    //             if let Some((originating_block_hash, originating_block_opt)) = treechain
+    //                 .blocks
+    //                 .get_index(utxo.queue_index.try_into().unwrap())
+    //             {
+    //                 let originating_block = originating_block_opt;
+    //                 let originating_tx_opt = originating_block.tx.iter().find(|t| t.txid == *txid);
+    //                 if let Some(originating_tx) = originating_tx_opt {
+    //                     // Verify the output at vout matches the script_pubkey
+    //                     if let Some(output) = originating_tx.vout.get(*vout as usize) {
+    //                         if output.script_pubkey != *script {
+    //                             println!(
+    //                                 "⚠️ Script mismatch for UTXO {}:{} in block {}",
+    //                                 txid, vout, originating_block.hash
+    //                             );
+    //                             continue;
+    //                         }
+    //                         let locktime = originating_tx.locktime;
+    //                         let is_cltv = locktime != 0;
+    //                         let mut lock: u32 = 0;
+    //                         let mut is_csv = false;
+    //                         if is_cltv {
+    //                             lock = locktime;
+    //                         } else {
+    //                             // For CSV, find max relative lock from inputs' sequences
+    //                             let mut max_relative = 0u32;
+    //                             for input in &originating_tx.vin {
+    //                                 if input.sequence != 4294967295u32 {
+    //                                     is_csv = true;
+    //                                     let relative = input.sequence & 0x0000FFFF;
+    //                                     if relative > max_relative {
+    //                                         max_relative = relative;
+    //                                     }
+    //                                 }
+    //                             }
+    //                             if is_csv {
+    //                                 lock = max_relative;
+    //                             } else {
+    //                                 continue;
+    //                             }
+    //                         }
+    //                         // Construct p2pkh_script for this wallet
+    //                         let p2pkh_script = format!("76a914{}88ac", self.public_key_hash);
+    //                         // Lock as 4 LE bytes hex
+    //                         let lock_bytes = lock.to_le_bytes();
+    //                         let lock_hex = format!(
+    //                             "{:02x}{:02x}{:02x}{:02x}",
+    //                             lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
+    //                         );
+    //                         let opcode = if is_cltv { "b1" } else { "b2" };
+    //                         let redeem_script =
+    //                             format!("04{}{}75{}", lock_hex, opcode, p2pkh_script);
+    //                         let redeem_bytes = match hex::decode(&redeem_script) {
+    //                             Ok(bytes) => bytes,
+    //                             Err(e) => {
+    //                                 println!(
+    //                                     "⚠️ Failed to decode redeem script '{}': {}",
+    //                                     redeem_script, e
+    //                                 );
+    //                                 continue;
+    //                             }
+    //                         };
+    //                         // Compute redeem_hash = hash160(redeem_bytes)
+    //                         let redeem_hash = ChainUtil::hash160(&redeem_bytes);
+    //                         let expected_script_hash = &redeem_hash;
+    //                         if expected_script_hash != extracted_script_hash {
+    //                             println!(
+    //                                 "⚠️ Script hash mismatch for UTXO {}:{} (expected: {}, got: {})",
+    //                                 txid, vout, expected_script_hash, extracted_script_hash
+    //                             );
+    //                             continue;
+    //                         }
+    //                         // Check maturity
+    //                         let lock_u64 = lock as u64;
+    //                         let mut is_mature = true;
+    //                         if is_cltv {
+    //                             is_mature = if lock_u64 >= 500_000_000 {
+    //                                 // Time-based CLTV
+    //                                 current_time >= lock_u64
+    //                             } else {
+    //                                 // Height-based CLTV
+    //                                 current_height >= lock_u64
+    //                             };
+    //                         } else if is_csv {
+    //                             // CSV: blocks since confirmation >= lock
+    //                             let blocks_since =
+    //                                 current_height.saturating_sub(utxo.queue_index as u64);
+    //                             is_mature = blocks_since >= lock_u64;
+    //                         }
+    //                         if is_mature {
+    //                             unlocked_balance += utxo.out.value;
+    //                         } else {
+    //                             locked_balance += utxo.out.value;
+    //                         }
+    //                         println!(
+    //                             "🔓/🔒 Mature: {}, UTXO: script_hash={}, value={}, is_cltv={}, lock={}, blocks_since={} (current_height={})",
+    //                             if is_mature { "Yes" } else { "No" },
+    //                             extracted_script_hash,
+    //                             utxo.out.value,
+    //                             is_cltv,
+    //                             lock,
+    //                             current_height.saturating_sub(utxo.queue_index as u64),
+    //                             current_height
+    //                         );
+    //                     } else {
+    //                         println!(
+    //                             "⚠️ Invalid vout {} for txid {} in block {}",
+    //                             vout, txid, originating_block.hash
+    //                         );
+    //                     }
+    //                 } else {
+    //                     println!(
+    //                         "⚠️ Originating tx {} not found in block for queue_index {}",
+    //                         txid, utxo.queue_index
+    //                     );
+    //                 }
+    //             } else {
+    //                 println!(
+    //                     "⚠️ Originating block not found for queue_index {}",
+    //                     utxo.queue_index
+    //                 );
+    //                 continue;
+    //             }
+    //         }
+    //     }
+    //     total_balance = unlocked_balance + locked_balance;
+
+    //     println!(
+    //         "✅ Balance for address {} (pkhash: {}): total {} satoshis (unlocked: {}, locked: {})",
+    //         address, pubkey_hash, total_balance, unlocked_balance, locked_balance
+    //     );
+
+    //     (total_balance, unlocked_balance, locked_balance)
+    // }
 
     pub fn get_utxos_for_address<'a>(
         address: &'a str,
@@ -313,132 +313,7 @@ impl Wallet {
 
         for ((txid, vout), utxo) in &utxo_set.utxos {
             let script = &utxo.out.script_pubkey;
-            let mut is_mature = true;
             if *script == expected_script {
-                // P2PKH: always mature
-            } else if script.starts_with("a914") && script.ends_with("87") {
-                // P2SH
-                let extracted_script_hash = &script[4..44];
-                // Find the originating block by queue_index
-                let originating_block_opt = treechain
-                    .blocks
-                    .values()
-                    .find(|b| b.pqp_entry.queue_index == utxo.queue_index);
-                if let Some(originating_block) = originating_block_opt {
-                    // Find the originating transaction by txid
-                    let originating_tx_opt = originating_block.tx.iter().find(|t| t.txid == *txid);
-                    if let Some(originating_tx) = originating_tx_opt {
-                        // Verify the output at vout matches the script_pubkey
-                        if let Some(output) = originating_tx.vout.get(*vout as usize) {
-                            if output.script_pubkey != *script {
-                                println!(
-                                    "⚠️ Script mismatch for UTXO {}:{} in block {}",
-                                    txid, vout, originating_block.hash
-                                );
-                                continue;
-                            }
-                            let locktime = originating_tx.locktime;
-                            let is_cltv = locktime != 0;
-                            let mut lock: u32 = 0;
-                            let mut is_csv = false;
-                            if is_cltv {
-                                lock = locktime;
-                            } else {
-                                // For CSV, find max relative lock from inputs' sequences
-                                let mut max_relative = 0u32;
-                                for input in &originating_tx.vin {
-                                    if input.sequence != 4294967295u32 {
-                                        is_csv = true;
-                                        let relative = input.sequence & 0x0000FFFF;
-                                        if relative > max_relative {
-                                            max_relative = relative;
-                                        }
-                                    }
-                                }
-                                if is_csv {
-                                    lock = max_relative;
-                                } else {
-                                    continue;
-                                }
-                            }
-
-                            let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
-                                Ok(hash) => hash,
-                                Err(_) => {
-                                    println!("❌ Invalid address: {}", address);
-                                    continue;
-                                }
-                            };
-                            // Construct p2pkh_script for this wallet
-                            let p2pkh_script = format!("76a914{}88ac", pubkey_hash);
-                            // Lock as 4 LE bytes hex
-                            let lock_bytes = lock.to_le_bytes();
-                            let lock_hex = format!(
-                                "{:02x}{:02x}{:02x}{:02x}",
-                                lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
-                            );
-                            let opcode = if is_cltv { "b1" } else { "b2" };
-                            let redeem_script =
-                                format!("04{}{}75{}", lock_hex, opcode, p2pkh_script);
-                            let redeem_bytes = match hex::decode(&redeem_script) {
-                                Ok(bytes) => bytes,
-                                Err(e) => {
-                                    println!(
-                                        "⚠️ Failed to decode redeem script '{}': {}",
-                                        redeem_script, e
-                                    );
-                                    continue;
-                                }
-                            };
-                            // Compute redeem_hash = hash160(redeem_bytes)
-                            let redeem_hash = ChainUtil::hash160(&redeem_bytes);
-                            let expected_script_hash = &redeem_hash;
-                            if expected_script_hash != extracted_script_hash {
-                                println!("⚠️ Script hash mismatch for UTXO {}:{}", txid, vout);
-                                continue;
-                            }
-                            // Check maturity
-                            let lock_u64 = lock as u64;
-                            is_mature = if is_cltv {
-                                if lock_u64 >= 500_000_000 {
-                                    current_time >= lock_u64
-                                } else {
-                                    current_height >= lock_u64
-                                }
-                            } else if is_csv {
-                                let blocks_since =
-                                    current_height.saturating_sub(utxo.queue_index as u64);
-                                blocks_since >= lock_u64
-                            } else {
-                                true
-                            };
-                        } else {
-                            println!(
-                                "⚠️ Invalid vout {} for txid {} in block {}",
-                                vout, txid, originating_block.hash
-                            );
-                            continue;
-                        }
-                    } else {
-                        println!(
-                            "⚠️ Originating tx {} not found in block for queue_index {}",
-                            txid, utxo.queue_index
-                        );
-                        continue;
-                    }
-                } else {
-                    println!(
-                        "⚠️ Originating block not found for queue_index {}",
-                        utxo.queue_index
-                    );
-                    continue;
-                }
-            } else {
-                // Non-matching script, skip
-                continue;
-            }
-
-            if is_mature {
                 utxos.push((txid.clone(), *vout, utxo));
             }
         }

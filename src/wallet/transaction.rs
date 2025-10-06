@@ -320,7 +320,6 @@ impl Transaction {
 
         return tx.clone();
     }
-
     pub fn extract_redeem_from_scriptsig(script_sig: &str) -> Option<String> {
         let bytes = match hex::decode(script_sig) {
             Ok(b) => b,
@@ -328,20 +327,22 @@ impl Transaction {
         };
         let mut offset = 0;
         let mut last_push_end = 0;
+        let mut last_length = 0;
         while offset < bytes.len() {
             if offset >= bytes.len() {
                 break;
             }
-            let len = bytes[offset] as usize;
+            let current_len = bytes[offset] as usize;
             offset += 1;
-            if offset + len > bytes.len() {
+            if offset + current_len > bytes.len() {
                 return None; // Invalid push
             }
-            last_push_end = offset + len;
-            offset += len;
+            last_push_end = offset + current_len;
+            last_length = current_len;
+            offset += current_len;
         }
-        if last_push_end > 0 {
-            let redeem_start = last_push_end - (bytes[last_push_end - 1] as usize); // Backtrack to last len
+        if last_push_end > 0 && last_length > 0 {
+            let redeem_start = last_push_end - last_length;
             Some(hex::encode(&bytes[redeem_start..last_push_end]))
         } else {
             None

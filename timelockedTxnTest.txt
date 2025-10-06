@@ -2,39 +2,39 @@
 Body:
 {
   "is_cltv": false,
-  "lock": 50,
-  "value": 1950000000,
+  "lock": 20,
+  "value": 1730001200,
   "fee": 1000000,
-  "to_address": "1CQ5cAHgnRx6jgLisDQBfrsJQhG6W54vtJ"
+  "to_address": "1HLZZfHPU3Wp7pjx6YZYdDerYXLLYrwUyi"
 }
 
 Result:
 {
-    "message": "Timelocked txn created to address 1CQ5cAHgnRx6jgLisDQBfrsJQhG6W54vtJ. Broadcast when conditions met.",
-    "redeem_script": "0432000000b27576a9147d06cbba5e232006f2f72d65b81f03f5d221a00488ac",
-    "script_hash": "36f2b37300347327e147ad62ee5fc537a068799b",
+    "message": "Timelocked txn created to address 1HLZZfHPU3Wp7pjx6YZYdDerYXLLYrwUyi. Broadcast when conditions met.",
+    "redeem_script": "0414000000b27576a914b335191eb73d07736247bffafbacdc9719851d6188ac",
+    "script_hash": "e0badc27d48791bb037b9837035ed0b944c479e3",
     "status": "success",
     "transaction": {
-        "hash": "5b3b264c3bd851d4793dcf3b5b5c881782fdd925e951786e1c54a8a4420e575f",
+        "hash": "e887889e0f67dd211c07b39b2aba6933721d486b9f96b7549d197e49ecc6531c",
         "locktime": 0,
-        "txid": "5b3b264c3bd851d4793dcf3b5b5c881782fdd925e951786e1c54a8a4420e575f",
+        "txid": "e887889e0f67dd211c07b39b2aba6933721d486b9f96b7549d197e49ecc6531c",
         "version": 2,
         "vin": [
             {
-                "script_sig": "473045022100d2716274614cb64230a9f117df01edf7b3742379fae7052f6c1d892ab2d5bcb802206255754f24f00db2d6a417cabf5125df56641a66bd2ea21a73edc8e9db1372de2103e28f9d13f3d2e05000856c59d0551d0deb92c16224efd649f765a9c6f955c745",
-                "sequence": 50,
-                "txid": "ed93a10f1b81ed2e492c6303ffcf6f4b860f7b097ea5e704384382d0f81b7aeb",
+                "script_sig": "463044022031c75ef75dd0c87b3789bdcace04d7c5f9ff703c9fb6d7f8b55bb1efb3d0c99e02200bae175f740eb8f191d659fc83789d06e14835424d49d9c92a6e40669e9d921f2102a2c7d6f5834c5d75a2e27eda2809875dfe9e9559b984ef369b6be5905d11180f",
+                "sequence": 20,
+                "txid": "71b5a106a7f6d9583f7306e7afca5011522918da8c43305b679ef5eb4f3ef1b5",
                 "vout": 0
             }
         ],
         "vout": [
             {
-                "script_pubkey": "a91436f2b37300347327e147ad62ee5fc537a068799b87",
-                "value": 1950000000
+                "script_pubkey": "a914e0badc27d48791bb037b9837035ed0b944c479e387",
+                "value": 1730001200
             },
             {
-                "script_pubkey": "76a914baceafa59c458642fabf328cca7207ff59a6ce5c88ac",
-                "value": 3049000000
+                "script_pubkey": "76a914aab59e2b3ac0169a996968a288b5d231bb9db19d88ac",
+                "value": 3268998800
             }
         ],
         "witnesses": null
@@ -50,7 +50,10 @@ Result:
 {
     "message": "Conditions met, added to mempool and broadcasted",
     "status": "success",
-    "txid": "5b3b264c3bd851d4793dcf3b5b5c881782fdd925e951786e1c54a8a4420e575f"
+    "txid": "e887889e0f67dd211c07b39b2aba6933721d486b9f96b7549d197e49ecc6531c"
 }
 
+
+create_txn_from that timelocked balance wallet
+after unlock
 
