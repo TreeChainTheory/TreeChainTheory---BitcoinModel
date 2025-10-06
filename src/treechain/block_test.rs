@@ -8,10 +8,71 @@ use num_bigint::BigUint;
 #[test]
 fn test_block_genesis_block() {
     let g = Block::genesis();
+    println!("Genesis Block: {:?}", g);
     assert_eq!(g.level, 0);
     assert_eq!(g.position, "0");
     assert_eq!(g.tx.len(), 0);
     assert_eq!(g.pqp_commitment.len(), 64);
+}
+
+#[test]
+fn test_mine_genesis_block() {
+    // Start with a genesis template (all fields as in genesis(), but nonce=0, hash="", pqp_commitment="")
+    let mut genesis_template = Block::new(
+        "".to_string(), // hash
+        "".to_string(), // pqp_commitment
+        0,
+        "0".to_string(),
+        1,
+        "00".repeat(32),
+        "00".repeat(32),
+        0,
+        Block::genesis().bits, // initial bits
+        0,                     // start nonce at 0
+        0,
+        PQPEntry {
+            queue_index: 0,
+            miner_address: "GENISIS_LEADER_HEX".to_string(),
+            prev_pqp_commitment: "00".repeat(32),
+            signature: "".repeat(64),
+        },
+        0,
+        vec![],
+    );
+
+    let target = Block::calculate_target(Block::genesis().bits).unwrap();
+    let mut nonce = 0u32;
+    let mut found = false;
+    let mut iterations = 0u64;
+
+    loop {
+        genesis_template.nonce = nonce;
+        Block::calculate_hash_and_pqp_commitment(&mut genesis_template);
+
+        let hash_bytes = hex::decode(&genesis_template.hash).unwrap_or_default();
+        let hash_int = BigUint::from_bytes_be(&hash_bytes);
+
+        if hash_int < target {
+            found = true;
+            println!(
+                "✅ Mined genesis block! Nonce: {}, Hash: {}, Iterations: {}",
+                nonce, genesis_template.hash, iterations
+            );
+            println!("Genesis Block: {:?}", genesis_template);
+            break;
+        }
+
+        nonce = nonce.wrapping_add(1);
+        iterations += 1;
+    }
+
+    assert!(found);
+    // Verify it matches the hardcoded genesis
+    assert_eq!(
+        genesis_template.hash,
+        "000011428da0831df234bd3a0f404f575cf14c9c630f9f6b1c54820a9e2e65ed"
+    );
+    assert_eq!(genesis_template.pqp_commitment.len(), 64);
 }
 
 #[test]

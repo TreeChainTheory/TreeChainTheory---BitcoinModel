@@ -377,9 +377,9 @@ impl TransactionPool {
             .max()
             .unwrap_or(0);
 
-        // if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 100) {
-        //     return Err("Coinbase UTXO not mature (requires 100 confirmations)".to_string());
-        // }
+        if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 50) {
+            return Err("Coinbase UTXO not mature (requires 50 confirmations)".to_string());
+        }
 
         let is_segwit = witness.is_some();
         let stack: Vec<String>;

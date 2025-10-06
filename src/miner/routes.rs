@@ -1,5 +1,5 @@
 use crate::chain_util::ChainUtil;
-use crate::config::SIGHASH_ALL;
+use crate::config::{BITS, CHILDREN, EXPECTED_TIME, MINING_RATE, SIGHASH_ALL};
 use crate::miner::p2p_server;
 use crate::p2p_server::P2PServer;
 use crate::treechain;
@@ -12,6 +12,7 @@ use crate::wallet::wallet::Wallet;
 use actix_web::{HttpResponse, Responder, get, post, web};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
+use sha2::digest::typenum::bit;
 use std::sync::{Arc, Mutex as SyncMutex};
 use tokio::sync::Mutex;
 
@@ -135,6 +136,46 @@ async fn start_mining(
 
                 // CONCATENATE signature with wallet.public_key
                 let combined_signature = format!("{}{}", signature, wallet.public_key);
+                let num = EXPECTED_TIME as u32 / MINING_RATE as u32;
+                let mut bits_to_use = if let Some(bits) = treechain
+                    .lock()
+                    .await
+                    .find_bits(queue_index.saturating_sub(CHILDREN as u32))
+                {
+                    bits
+                } else {
+                    BITS.to_string()
+                };
+
+                //here suppose the blocks are upto 299 , and now its time for 300 , 301 , 302 then they calculate (CHILDREN =3)
+                if (queue_index % (num * CHILDREN as u32) < CHILDREN as u32)
+                    && queue_index >= num * CHILDREN as u32
+                {
+                    // Lock tree for read to compute adjustment
+                    let remainder = queue_index % (CHILDREN as u32);
+                    let tree_read = treechain.lock().await;
+                    let target_first =
+                        queue_index.saturating_sub(num * CHILDREN as u32 - remainder);
+                    let target_last = queue_index.saturating_sub(1);
+                    if let (Some(ft), Some(lt)) = (
+                        tree_read.find_timestamp_for_queue_le(target_first),
+                        tree_read.find_timestamp_for_queue_le(target_last),
+                    ) {
+                        if lt > ft {
+                            // Get prev_bits from parent (consistent with verify)
+                            if let Some(new_bits) = Block::adjust_bits(&bits_to_use, ft, lt) {
+                                bits_to_use = new_bits.clone();
+                                println!(
+                                    "🔧 Adjusted bits for queue_index {}: {} (time span: {}s)",
+                                    queue_index,
+                                    bits_to_use.clone(),
+                                    (lt - ft) as i128
+                                );
+                            }
+                        }
+                    }
+                    drop(tree_read);
+                }
 
                 let block_template_opt;
                 {
@@ -151,7 +192,9 @@ async fn start_mining(
                         tag.to_string(),
                         &utxo_set,
                         &txn_pool,
+                        bits_to_use.clone(),
                     );
+                    println!("Prepared block template: {:?}", block_template_opt);
                 }
 
                 if let Some(mut block_template) = block_template_opt {

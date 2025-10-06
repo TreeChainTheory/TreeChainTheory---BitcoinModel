@@ -17,7 +17,7 @@ use k256::elliptic_curve::bigint::U64;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -72,6 +72,7 @@ pub struct P2PServer {
     pub ibd_or_online_state: Arc<Mutex<bool>>,
     pub chain_length: Arc<SyncMutex<u64>>,
     pending_blocks: Arc<Mutex<HashMap<String, Block>>>, // New: Store blocks with missing parents
+    recently_processed_blocks: Arc<Mutex<VecDeque<String>>>,
 }
 
 impl P2PServer {
@@ -102,6 +103,8 @@ impl P2PServer {
             ibd_or_online_state: Arc::new(Mutex::new(false)),
             chain_length,
             pending_blocks: Arc::new(Mutex::new(HashMap::new())),
+            // NEW: Initialize recently processed blocks set
+            recently_processed_blocks: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -1038,6 +1041,33 @@ impl P2PServer {
                                             }
                                         }
                                         drop(sync_state);
+
+                                        let block_hash_opt = data
+                                            .get("block")
+                                            .and_then(|v| v.get("hash"))
+                                            .and_then(|v| v.as_str());
+                                        if let Some(block_hash) = block_hash_opt {
+                                            let mut processed =
+                                                self.recently_processed_blocks.lock().await;
+                                            if processed.iter().any(|h| h == block_hash) {
+                                                println!(
+                                                    "Duplicate MINED_BLOCK {} from {}; skipping",
+                                                    block_hash, peer_addr
+                                                );
+                                                continue;
+                                            }
+                                            processed.push_back(block_hash.to_string());
+                                            if processed.len() > 5 {
+                                                processed.pop_front();
+                                            }
+                                            drop(processed);
+                                        } else {
+                                            println!(
+                                                "❌ No hash in MINED_BLOCK from {}",
+                                                peer_addr
+                                            );
+                                            continue;
+                                        }
                                         if let Some(block_val) = data.get("block") {
                                             let block: Block = match serde_json::from_value(
                                                 block_val.clone(),
@@ -1121,7 +1151,7 @@ impl P2PServer {
                                                         }
                                                     } {
                                                         println!(
-                                                            "Received MINED_BLOCK with same position {} as current mining target, aborting current mine",
+                                                            "Received MINED_BLOCK with position {} as current mining target, aborting current mine",
                                                             target
                                                         );
                                                         *self.abort_mining.lock().unwrap() = true;

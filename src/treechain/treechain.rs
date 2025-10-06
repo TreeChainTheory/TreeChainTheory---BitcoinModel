@@ -1,5 +1,5 @@
 use crate::chain_util::ChainUtil;
-use crate::config::{BITS, CHILDREN};
+use crate::config::{BITS, CHILDREN, EXPECTED_TIME, MINING_RATE};
 use crate::treechain;
 use crate::treechain::block::{Block, PQPEntry};
 use crate::wallet::transaction::Transaction;
@@ -776,6 +776,55 @@ impl TreeChain {
             .iter()
             .filter(|(hash, _)| !hash.is_empty())
             .count()
+    }
+
+    pub fn find_bits(&self, target_queue: u32) -> Option<String> {
+        let mut bits = None;
+        let mut i = target_queue as usize;
+        while i != usize::MAX {
+            if let Some((_, b)) = self.blocks.get_index(i) {
+                if b.position.is_empty() {
+                    i -= 1;
+                    continue;
+                }
+                bits = Some(b.bits.clone());
+                break;
+            }
+            if i == 0 {
+                break;
+            }
+            i -= 1;
+        }
+        bits
+    }
+
+    pub fn find_timestamp_for_queue_le(&self, target_queue: u32) -> Option<u128> {
+        let mut ts = None;
+        let mut i = target_queue as usize;
+        while i != usize::MAX {
+            if let Some((_, b)) = self.blocks.get_index(i) {
+                if b.position.is_empty() {
+                    i -= 1;
+                    continue;
+                }
+                ts = Some(b.timestamp);
+                break;
+            }
+            if i == 0 {
+                for x in (1..CHILDREN as usize + 1) {
+                    if let Some((_, b)) = self.blocks.get_index(x) {
+                        if b.position.is_empty() {
+                            continue;
+                        }
+                        ts = Some(b.timestamp);
+                        break;
+                    }
+                }
+                break;
+            }
+            i -= 1;
+        }
+        ts
     }
 
     pub fn add_block(&mut self, block: Block) {
@@ -1695,6 +1744,54 @@ impl TreeChain {
             return false;
         }
 
+        if block.level == 0 {
+            // Genesis: fixed bits
+            if block.bits != Block::genesis().bits {
+                println!("❌ Genesis bits mismatch for block: {}", block.hash);
+                return false;
+            }
+        } else {
+            let num = EXPECTED_TIME as u32 / MINING_RATE as u32;
+            let queue_index = block.pqp_entry.queue_index;
+            let is_adjustment = (queue_index % (num * CHILDREN as u32) < CHILDREN as u32)
+                && queue_index >= num * CHILDREN as u32;
+            let mut expected_bits =
+                if let Some(bits) = self.find_bits(queue_index.saturating_sub(CHILDREN as u32)) {
+                    bits
+                } else {
+                    BITS.to_string()
+                };
+            if is_adjustment {
+                let remainder = queue_index % (CHILDREN as u32);
+                let target_first = queue_index.saturating_sub(100 * CHILDREN as u32 - remainder);
+                let target_last = queue_index.saturating_sub(1);
+                if let (Some(ft), Some(lt)) = (
+                    self.find_timestamp_for_queue_le(target_first),
+                    self.find_timestamp_for_queue_le(target_last),
+                ) {
+                    if lt > ft {
+                        if let Some(new_bits) = Block::adjust_bits(&expected_bits, ft, lt) {
+                            expected_bits = new_bits;
+                            println!(
+                                "🔍 Verified adjustment for queue_index {}: {} (time span: {}ms)",
+                                queue_index,
+                                expected_bits.clone(),
+                                (lt - ft) as i128
+                            );
+                        }
+                    }
+                }
+            }
+
+            if block.bits != expected_bits {
+                println!(
+                    "❌ Bits mismatch for block {}: expected {}, got {}",
+                    block.hash, expected_bits, block.bits
+                );
+                return false;
+            }
+        }
+
         // Verify PQP entry signature
         let mut sig_data = Vec::new();
         sig_data.extend_from_slice(&block.pqp_entry.queue_index.to_le_bytes());
@@ -1904,6 +2001,7 @@ impl TreeChain {
         tag: String,
         utxo_set: &UtxoSet,
         txn_pool: &TransactionPool,
+        bits: String,
     ) -> Option<Block> {
         let calc = self.calculate_qi(pqp, align);
         if let Some((queue_index, prev_pqp, parent_hash)) = calc {
@@ -1955,8 +2053,7 @@ impl TreeChain {
                 .unwrap_or_else(|_| Duration::from_secs(0))
                 .as_millis();
 
-            let bits = crate::config::BITS.to_string(); // Or however bits are determined
-            let mut block = Block::new(
+            let block = Block::new(
                 "".to_string(), // hash (computed later)
                 "".to_string(), // pqp_commitment (computed later)
                 level,

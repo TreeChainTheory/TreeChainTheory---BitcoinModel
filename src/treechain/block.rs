@@ -92,16 +92,16 @@ impl Block {
 
     pub fn genesis() -> Block {
         Block::new(
-            "d47502a543596f1ac9fa8c9cc04e237e23da0df63e357173c36bdf5d1b88dc1b".to_string(),
-            "2684fa0c2d3c863c19790bc716c2568b70acfb5e8c8a21c45352563a8079a2fd".to_string(),
+            "000011428da0831df234bd3a0f404f575cf14c9c630f9f6b1c54820a9e2e65ed".to_string(),
+            "bad9f937944415e9195541968ca121ac25cca5ce29d7dbea629083218ed9d56c".to_string(),
             0,
             "0".to_string(),
             1,
             "00".repeat(32),
             "00".repeat(32),
             0,
-            "1d00ffff".to_string(),
-            0,
+            "1e7fffff".to_string(),
+            25231,
             0,
             PQPEntry {
                 queue_index: 0,
