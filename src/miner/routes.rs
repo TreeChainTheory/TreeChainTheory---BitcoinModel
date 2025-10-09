@@ -1,18 +1,17 @@
 use crate::chain_util::ChainUtil;
 use crate::config::{BITS, CHILDREN, EXPECTED_TIME, MINING_RATE, SIGHASH_ALL};
-use crate::miner::p2p_server;
+
 use crate::p2p_server::P2PServer;
-use crate::treechain;
+
 use crate::treechain::block::Block;
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
 use crate::wallet::transaction::{Transaction, TxInput, TxOutput};
-use crate::wallet::transaction_pool::{ScriptInfo, TransactionPool};
+use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
 use crate::wallet::wallet::Wallet;
 use actix_web::{HttpResponse, Responder, get, post, web};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use sha2::digest::typenum::bit;
 use std::sync::{Arc, Mutex as SyncMutex};
 use tokio::sync::Mutex;
 
@@ -101,10 +100,10 @@ async fn start_mining(
             }
 
             *abort_mining.lock().unwrap() = false;
-            let mut parent_pos: String;
+            let parent_pos: String;
             let calc;
             {
-                let mut tree = treechain.lock().await;
+                let tree = treechain.lock().await;
                 let mut pqp_guard = pqp.lock().await;
                 let parent_pos_entry = pqp_guard.current_parent();
                 let parent_pos_block =
@@ -148,15 +147,15 @@ async fn start_mining(
                 };
 
                 //here suppose the blocks are upto 299 , and now its time for 300 , 301 , 302 then they calculate (CHILDREN =3)
-                if (queue_index % (num * CHILDREN as u32) < CHILDREN as u32)
+                if (queue_index % (num * CHILDREN as u32) <= CHILDREN as u32)
                     && queue_index >= num * CHILDREN as u32
                 {
                     // Lock tree for read to compute adjustment
-                    let remainder = queue_index % (CHILDREN as u32);
+                    let remainder = queue_index % (num * CHILDREN as u32);
                     let tree_read = treechain.lock().await;
                     let target_first =
                         queue_index.saturating_sub(num * CHILDREN as u32 - remainder);
-                    let target_last = queue_index.saturating_sub(1);
+                    let target_last = queue_index.saturating_sub(remainder);
                     if let (Some(ft), Some(lt)) = (
                         tree_read.find_timestamp_for_queue_le(target_first),
                         tree_read.find_timestamp_for_queue_le(target_last),
@@ -724,7 +723,7 @@ async fn wallet_details(
     )>,
 ) -> impl Responder {
     let wallet = data.6.clone();
-    let mut wallet_guard = wallet.lock().await;
+    let wallet_guard = wallet.lock().await;
     let utxo_set_guard = data.9.lock().await;
     let treechain_guard = data.0.lock().await;
 
@@ -1317,6 +1316,163 @@ async fn get_balance_route(
     }))
 }
 
+#[derive(Deserialize)]
+struct MultisigQuery {
+    pubkeys: Vec<String>,
+    m: u8,
+}
+
+#[post("/find_multisig_utxo")]
+async fn find_multisig_utxo(
+    body: web::Json<MultisigQuery>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Arc<Mutex<Wallet>>,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let (_, _, _, _, _, _, wallet_arc, _, _, utxo_set, _) = data.as_ref();
+    let wallet = wallet_arc.lock().await;
+    let utxo_set_guard = utxo_set.lock().await;
+
+    if body.m as usize > body.pubkeys.len() || body.m == 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Invalid m or pubkeys"
+        }));
+    }
+
+    if !body.pubkeys.iter().any(|pk| pk == &wallet.public_key) {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Wallet public key not in multisig pubkeys"
+        }));
+    }
+
+    let utxos = wallet.find_multisig_utxos(&utxo_set_guard, &body.pubkeys, body.m);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "multisig_utxos": utxos.iter().map(|(txid, vout, utxo)| {
+            serde_json::json!({
+                "txid": txid,
+                "vout": vout,
+                "value": utxo.out.value,
+                "script_pubkey": utxo.out.script_pubkey,
+                "queue_index": utxo.queue_index,
+                "f_coinbase": utxo.f_coinbase
+            })
+        }).collect::<Vec<_>>()
+    }))
+}
+
+#[get("/balance/{address}")]
+async fn balance_address(
+    path: web::Path<String>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Arc<Mutex<Wallet>>,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let address = path.into_inner();
+    let (_treechain, _, _, _, _, _, _wallet_arc, _, _, utxo_set, _) = data.as_ref();
+
+    if ChainUtil::pubkey_hash_from_address(&address).is_err() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "Invalid address format"
+        }));
+    }
+
+    let utxo_set_guard = utxo_set.lock().await;
+
+    let total = Wallet::get_balance(&address, &utxo_set_guard);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "address": address,
+        "balance": {
+            "total_satoshis": total,
+            "total_btc": format!("{:.8}", total as f64 / 100_000_000.0),
+        }
+    }))
+}
+
+#[derive(Serialize)]
+struct ChildrenEntry {
+    parent_hash: String,
+    parent_queue_index: u32,
+    children: Vec<(String, u32)>,
+}
+#[get("/children_map")]
+async fn children_map(
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Arc<Mutex<Wallet>>,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let treechain_guard = data.0.lock().await;
+    let children_map = &treechain_guard.children_map;
+
+    let mut response_vec: Vec<ChildrenEntry> = Vec::new();
+
+    for (parent_hash, child_hashes) in children_map.iter() {
+        let parent_block = treechain_guard.get_block(parent_hash);
+        let parent_qi = if let Some(pb) = parent_block {
+            pb.pqp_entry.queue_index
+        } else {
+            0 // fallback, e.g., for genesis if not found
+        };
+
+        let mut children: Vec<(String, u32)> = Vec::new();
+        for child_hash in child_hashes {
+            let child_block = treechain_guard.get_block(child_hash);
+            let child_qi = if let Some(cb) = child_block {
+                cb.pqp_entry.queue_index
+            } else {
+                0 // fallback
+            };
+            children.push((child_hash.clone(), child_qi));
+        }
+
+        response_vec.push(ChildrenEntry {
+            parent_hash: parent_hash.clone(),
+            parent_queue_index: parent_qi,
+            children,
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "children_map": response_vec
+    }))
+}
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
@@ -1333,4 +1489,7 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(sign_multisig);
     cfg.service(spend_multisig_txn);
     cfg.service(get_balance_route);
+    cfg.service(find_multisig_utxo);
+    cfg.service(balance_address);
+    cfg.service(children_map);
 }

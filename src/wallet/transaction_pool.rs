@@ -1,14 +1,11 @@
 use crate::chain_util::ChainUtil;
 use crate::config::{CHILDREN, SIGHASH_ALL, USER_TXN_FREERATE};
-use crate::treechain;
 use crate::treechain::treechain::TreeChain;
-use crate::wallet::transaction::{Transaction, TxInput, TxOutput};
+use crate::wallet::transaction::{Transaction, TxInput};
 use crate::wallet::utxo::{Utxo, UtxoSet};
-use crate::wallet::wallet::Wallet;
 use hex;
 use k256::ecdsa::signature::Verifier;
 use k256::ecdsa::{Signature, VerifyingKey};
-use ripemd::Ripemd160;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -70,7 +67,7 @@ impl TransactionPool {
     }
 
     pub fn calculate_vsize(&self, tx: &Transaction) -> usize {
-        let (size, vsize, _) = tx.get_size_vsize_weight();
+        let (_size, vsize, _) = tx.get_size_vsize_weight();
         vsize
     }
 
@@ -481,10 +478,10 @@ impl TransactionPool {
                         }
                         let locktime = originating_tx.locktime;
                         let is_cltv = locktime != 0;
-                        let mut lock: u32 = 0;
+                        let mut _lock: u32 = 0;
                         let mut is_csv_detected = false;
                         if is_cltv {
-                            lock = locktime;
+                            _lock = locktime;
                         } else {
                             // For CSV, find max relative lock from inputs' sequences
                             let mut max_relative = 0u32;
@@ -498,7 +495,7 @@ impl TransactionPool {
                                 }
                             }
                             if is_csv_detected {
-                                lock = max_relative;
+                                _lock = max_relative;
                             } else {
                                 // Not a timelock P2SH, fall back
                                 let input_stack = &stack[0..stack.len() - 1];
@@ -521,7 +518,7 @@ impl TransactionPool {
                         // Construct p2pkh_script for this pubkey
                         let p2pkh_script = format!("76a914{}88ac", pubkey_hash);
                         // Lock as 4 LE bytes hex
-                        let lock_bytes = lock.to_le_bytes();
+                        let lock_bytes = _lock.to_le_bytes();
                         let lock_hex = format!(
                             "{:02x}{:02x}{:02x}{:02x}",
                             lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
@@ -548,7 +545,7 @@ impl TransactionPool {
                             return Err("P2SH ownership mismatch".to_string());
                         }
                         // Check maturity (policy)
-                        let lock_u64 = lock as u64;
+                        let lock_u64 = _lock as u64;
                         let is_mature = if is_cltv {
                             if lock_u64 >= 500_000_000 {
                                 current_time_check >= lock_u64
@@ -566,7 +563,7 @@ impl TransactionPool {
                                 input.txid,
                                 input.vout,
                                 is_cltv,
-                                lock,
+                                _lock,
                                 current_height.saturating_sub(utxo.queue_index as u64)
                             );
                             return Err("P2SH timelock not mature".to_string());
@@ -698,10 +695,10 @@ impl TransactionPool {
                         }
                         let locktime = originating_tx.locktime;
                         let is_cltv = locktime != 0;
-                        let mut lock: u32 = 0;
+                        let mut _lock: u32 = 0;
                         let mut is_csv_detected = false;
                         if is_cltv {
-                            lock = locktime;
+                            _lock = locktime;
                         } else {
                             // For CSV, find max relative lock from inputs' sequences
                             let mut max_relative = 0u32;
@@ -715,7 +712,7 @@ impl TransactionPool {
                                 }
                             }
                             if is_csv_detected {
-                                lock = max_relative;
+                                _lock = max_relative;
                             } else {
                                 // Not a timelock P2WSH, fall back
                                 let input_stack = &stack[0..stack.len() - 1];
@@ -738,7 +735,7 @@ impl TransactionPool {
                         // Construct p2pkh_script for this pubkey
                         let p2pkh_script = format!("76a914{}88ac", pubkey_hash);
                         // Lock as 4 LE bytes hex
-                        let lock_bytes = lock.to_le_bytes();
+                        let lock_bytes = _lock.to_le_bytes();
                         let lock_hex = format!(
                             "{:02x}{:02x}{:02x}{:02x}",
                             lock_bytes[0], lock_bytes[1], lock_bytes[2], lock_bytes[3]
@@ -767,7 +764,7 @@ impl TransactionPool {
                             return Err("P2WSH ownership mismatch".to_string());
                         }
                         // Check maturity (policy)
-                        let lock_u64 = lock as u64;
+                        let lock_u64 = _lock as u64;
                         let is_mature = if is_cltv {
                             if lock_u64 >= 500_000_000 {
                                 current_time_check >= lock_u64
@@ -785,7 +782,7 @@ impl TransactionPool {
                                 input.txid,
                                 input.vout,
                                 is_cltv,
-                                lock,
+                                _lock,
                                 current_height.saturating_sub(utxo.queue_index as u64)
                             );
                             return Err("P2WSH timelock not mature".to_string());
@@ -843,10 +840,10 @@ impl TransactionPool {
         input_value: u64,
         script_hex: &str,
         stack: &[String],
-        current_time: u32,
+        _current_time: u32,
         is_segwit: bool,
-        utxo: &Utxo,
-        treechain: &TreeChain,
+        _utxo: &Utxo,
+        _treechain: &TreeChain,
     ) -> Result<(), String> {
         println!("called verify script");
         let script_bytes =
@@ -1094,7 +1091,7 @@ impl TransactionPool {
         }
         Err("Unsupported script info".to_string())
     }
-    fn bytes_to_u32(bytes: &[u8]) -> u32 {
+    fn _bytes_to_u32(bytes: &[u8]) -> u32 {
         let mut arr = [0u8; 4];
         let len = bytes.len().min(4);
         arr[0..len].copy_from_slice(&bytes[0..len]);
@@ -1494,7 +1491,7 @@ impl TransactionPool {
     ) -> Result<(), String> {
         println!("replace_transaction called for txid: {}", new_tx.txid);
         // Validate new transaction
-        let (new_fee, new_vsize, new_fee_rate, new_depends) = self
+        let (new_fee, _new_vsize, new_fee_rate, _new_depends) = self
             .validate_transaction(&new_tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set, treechain)
             .map_err(|e| format!("Validation failed for txid {}: {}", new_tx.txid, e))?;
 
@@ -1524,14 +1521,14 @@ impl TransactionPool {
         // Check RBF conditions (BIP-125)
         if !replaced_txids.is_empty() {
             let mut total_replaced_fee = 0;
-            let mut total_replaced_size = 0;
+            let mut _total_replaced_size = 0;
             for txid in &replaced_txids {
                 let entry = self
                     .pool
                     .get(txid)
                     .ok_or(format!("Replaced transaction {} not found", txid))?;
                 total_replaced_fee += entry.fee;
-                total_replaced_size += entry.vsize;
+                _total_replaced_size += entry.vsize;
                 if entry.fee_rate >= new_fee_rate {
                     return Err(format!(
                         "New transaction fee rate {} not higher than replaced {} for txid {}",

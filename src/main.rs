@@ -4,7 +4,6 @@ mod miner;
 pub mod treechain;
 pub mod wallet;
 
-use crate::wallet::transaction_pool;
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
 use config::CHILDREN;

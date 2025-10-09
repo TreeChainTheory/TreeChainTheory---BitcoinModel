@@ -2,7 +2,7 @@ use bs58;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use rand_core::OsRng;
 use ripemd::{Digest as RipemdDigest, Ripemd160};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 pub struct ChainUtil;
 
 impl ChainUtil {

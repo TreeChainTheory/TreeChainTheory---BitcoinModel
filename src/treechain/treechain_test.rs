@@ -1,7 +1,6 @@
 use crate::config::CHILDREN;
 use crate::treechain::block::{Block, PQPEntry};
 use crate::treechain::treechain::{PQP, ParentQueueEntry, TreeChain};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[test]
 fn test_pqp_initialization() {

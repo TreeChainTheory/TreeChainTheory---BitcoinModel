@@ -1,6 +1,5 @@
 use crate::wallet::transaction::Transaction;
-use crate::{chain_util::ChainUtil, wallet::transaction::TxOutput};
-use hex;
+use crate::wallet::transaction::TxOutput;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

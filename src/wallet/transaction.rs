@@ -1,8 +1,7 @@
 use crate::chain_util::ChainUtil;
-use crate::treechain;
 use crate::treechain::treechain::TreeChain;
-use crate::wallet::transaction_pool::{ScriptInfo, TransactionPool};
-use crate::wallet::utxo::{Utxo, UtxoSet};
+
+use crate::wallet::utxo::UtxoSet;
 use crate::wallet::wallet::Wallet;
 use hex;
 use serde::{Deserialize, Serialize};
@@ -407,7 +406,7 @@ impl Transaction {
         // Create inputs with sequence/locktime prep
         let mut vin = vec![];
         let tx_locktime = 0u32;
-        for (txid, vout_idx, redeem, input_value) in inputs {
+        for (txid, vout_idx, _redeem, _input_value) in inputs {
             let input_seq = 0xffffffffu32;
             vin.push(TxInput {
                 txid,
@@ -659,7 +658,7 @@ impl Transaction {
         &self,
         input_index: usize,
         script_pubkey: &str,
-        value: u64,
+        _value: u64,
         sighash_type: u32,
     ) -> Vec<u8> {
         println!("compute sighash called");

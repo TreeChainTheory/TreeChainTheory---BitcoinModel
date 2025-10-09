@@ -1,5 +1,0 @@
-🤔🤔 selected txns: [Transaction { txid: "cc6f534e229c932fba72249c1504eba38a061efbf8f6454b5635a4da305f2f04", hash: "cc6f534e229c932fba72249c1504eba38a061efbf8f6454b5635a4da305f2f04", version: 1, vin: [TxInput { txid: "7aa9f0d4feceb486fba447db6b5f36cb30dd04b98251207a4aea31cecfacf8c0", vout: 0, script_sig: "463044022002b240f2c3a02fda7968a1333d7bed0e3602a142cb06a9ae253a54fa723dcfd202205c2a9c914ff01501b0371305f8673031f547894cb6b7c4e39b1b3abfbaab56be210285fdd13a991dbd4b4d7a75a32fb167c2cd90944282bdc41ba88bc5db4da5cb32", sequence: 4294967295 }], vout: [TxOutput { value: 999999999, script_pubkey: "76a914a0e6ca5444e4d8b7c80f70237f332320387f18c788ac" }, TxOutput { value: 3999800001, script_pubkey: "76a9147f1180b778bcbbfebc56c8dbdd449ce22251033988ac" }], witnesses: None, locktime: 0 }]
-
-
-error logs
-❌ Transaction validation failed in block 0000382a685ed9222288f1adf22cbee04d374658f2345274340444c015c60abb: Double-spend detected for 7aa9f0d4feceb486fba447db6b5f36cb30dd04b98251207a4aea31cecfacf8c0:0

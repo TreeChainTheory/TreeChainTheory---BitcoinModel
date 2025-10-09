@@ -5,15 +5,13 @@
 //5th terminal ALIGN=2 HTTP_PORT=3005 P2P_PORT=5005 cargo run --bin TreeChainTheorey
 //6th terminal ALIGN=3 HTTP_PORT=3006 P2P_PORT=5006 cargo run --bin TreeChainTheorey
 
-use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
-use crate::treechain;
+use crate::config::{GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::ParentQueueEntry;
 use crate::treechain::treechain::{PQP, TreeChain};
 use crate::wallet::transaction::Transaction;
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
-use k256::elliptic_curve::bigint::U64;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -251,7 +249,7 @@ impl P2PServer {
                                 }
                             }
                             drop(treechain);
-                            let mut peer_lengths = self.peer_lengths.lock().await;
+                            let peer_lengths = self.peer_lengths.lock().await;
                             let connected_peers = self.connected_peers.lock().await;
                             println!("Currently connected peers {:?}", connected_peers);
                             let peers_to_connect: Vec<String> = map
@@ -541,7 +539,7 @@ impl P2PServer {
             .lock()
             .await
             .insert(peer_addr_temp.clone());
-        let (chain_length, last_ts) = self.get_chain_info().await;
+        let (chain_length, _last_ts) = self.get_chain_info().await;
         let genesis_block = {
             let tree = self.treechain.lock().await;
             tree.blocks.get_index(0).unwrap().1.clone()
@@ -1157,6 +1155,7 @@ impl P2PServer {
                                                         *self.abort_mining.lock().unwrap() = true;
                                                     }
                                                 }
+                                                drop(target_guard);
                                             }
                                             let mut treechain = self.treechain.lock().await;
                                             let mut pqp = self.pqp.lock().await;
@@ -1209,6 +1208,8 @@ impl P2PServer {
                                                     drop(writers);
                                                     drop(treechain);
                                                     drop(pqp);
+                                                    drop(utxo_set);
+                                                    drop(txn_pool);
                                                     self.update_registry_chain_length().await;
                                                     // Update peer_lengths and trigger sync if needed
                                                     let (local_len, _) =
@@ -1221,23 +1222,23 @@ impl P2PServer {
                                                         *peer_len = local_len + 1;
                                                     }
                                                     drop(peer_lengths);
-                                                    if let Some((best_addr, best_len, _)) =
-                                                        self.get_current_best_peer().await
-                                                    {
-                                                        if best_len > local_len {
-                                                            println!(
-                                                                "Best peer {} has longer chain ({} vs {}); triggering sync",
-                                                                best_addr, best_len, local_len
-                                                            );
-                                                            let writers =
-                                                                self.peer_writers.lock().await;
-                                                            if let Some(w) = writers.get(&best_addr)
-                                                            {
-                                                                self.send_getblocks(w.clone())
-                                                                    .await;
-                                                            }
-                                                        }
-                                                    }
+                                                    // if let Some((best_addr, best_len, _)) =
+                                                    //     self.get_current_best_peer().await
+                                                    // {
+                                                    //     if best_len > local_len {
+                                                    //         println!(
+                                                    //             "Best peer {} has longer chain ({} vs {}); triggering sync",
+                                                    //             best_addr, best_len, local_len
+                                                    //         );
+                                                    //         let writers =
+                                                    //             self.peer_writers.lock().await;
+                                                    //         if let Some(w) = writers.get(&best_addr)
+                                                    //         {
+                                                    //             self.send_getblocks(w.clone())
+                                                    //                 .await;
+                                                    //         }
+                                                    //     }
+                                                    // }
                                                 } else {
                                                     println!(
                                                         "❌ Failed to add MINED_BLOCK {} (duplicate or invalid)",
@@ -1398,7 +1399,7 @@ impl P2PServer {
                                                 let mut txn_pool = self.txn_pool.lock().await;
                                                 let utxo_set = self.utxo_set.lock().await;
                                                 let treechain = self.treechain.lock().await;
-                                                txn_pool
+                                                let _ = txn_pool
                                                     .add_transaction(txn, &utxo_set, &treechain);
                                                 drop(txn_pool);
                                                 drop(utxo_set);
@@ -1463,7 +1464,7 @@ impl P2PServer {
         let treechain = self.treechain.lock().await;
         let mut start_index = None;
         for locator in block_locator {
-            if let Some((idx, (hash, _))) = treechain
+            if let Some((idx, (_hash, _))) = treechain
                 .blocks
                 .iter()
                 .enumerate()

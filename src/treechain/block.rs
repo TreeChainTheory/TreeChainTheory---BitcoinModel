@@ -49,7 +49,7 @@ pub struct Block {
     pub align: u8,
     pub pqp_entry: PQPEntry,
 
-    pub nTx: u32,
+    pub n_tx: u32,
 
     /// List of transactions (will be changed later after buiilding transactions).
     pub tx: Vec<Transaction>,
@@ -69,7 +69,7 @@ impl Block {
         nonce: u32,
         align: u8,
         pqp_entry: PQPEntry,
-        nTx: u32,
+        n_tx: u32,
         tx: Vec<Transaction>,
     ) -> Self {
         Self {
@@ -85,7 +85,7 @@ impl Block {
             nonce,
             align,
             pqp_entry,
-            nTx,
+            n_tx,
             tx,
         }
     }
@@ -127,7 +127,7 @@ impl Block {
         let parent_hash = "".to_string();
 
         // Create the block with other fields as empty or zero
-        let mut block = Block::new(
+        let block = Block::new(
             "".to_string(), // hash (to be calculated)
             "".to_string(), // pqp_commitment (to be calculated)
             0,              // level
@@ -167,7 +167,7 @@ impl Block {
         hasher.update(block.pqp_entry.miner_address.as_bytes());
         hasher.update(hex::decode(&block.pqp_entry.prev_pqp_commitment).unwrap_or_default());
         hasher.update(hex::decode(&block.pqp_entry.signature).unwrap_or_default());
-        hasher.update(block.nTx.to_le_bytes());
+        hasher.update(block.n_tx.to_le_bytes());
         for tx in &block.tx {
             hasher.update(hex::decode(&tx.txid).unwrap_or_default());
         }
@@ -203,7 +203,7 @@ impl Block {
         hasher.update(self.pqp_entry.miner_address.as_bytes());
         hasher.update(hex::decode(&self.pqp_entry.prev_pqp_commitment).unwrap_or_default());
         hasher.update(hex::decode(&self.pqp_entry.signature).unwrap_or_default());
-        hasher.update(self.nTx.to_le_bytes());
+        hasher.update(self.n_tx.to_le_bytes());
         for tx in &self.tx {
             hasher.update(hex::decode(&tx.txid).unwrap_or_default());
         }
@@ -325,20 +325,20 @@ impl Block {
         }
 
         let exponent = target_bytes.len() as u8;
-        let mut mantissa: u32 = 0;
+        let mut _mantissa: u32 = 0;
 
         if exponent <= 3 {
-            mantissa = target_bytes
+            _mantissa = target_bytes
                 .iter()
                 .fold(0u32, |acc, &b| (acc << 8) | b as u32);
-            mantissa <<= 8 * (3 - exponent as usize);
+            _mantissa <<= 8 * (3 - exponent as usize);
         } else {
-            mantissa = ((target_bytes[0] as u32) << 16)
+            _mantissa = ((target_bytes[0] as u32) << 16)
                 | ((target_bytes[1] as u32) << 8)
                 | (target_bytes[2] as u32);
         }
 
-        let compact: u32 = ((exponent as u32) << 24) | mantissa;
+        let compact: u32 = ((exponent as u32) << 24) | _mantissa;
         format!("{:08x}", compact)
     }
 

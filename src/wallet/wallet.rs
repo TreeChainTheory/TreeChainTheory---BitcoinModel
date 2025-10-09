@@ -2,7 +2,6 @@ use crate::chain_util::ChainUtil;
 use crate::config::SIGHASH_ALL;
 use crate::treechain::treechain::TreeChain;
 use crate::wallet::transaction::Transaction;
-use crate::wallet::transaction_pool::{ScriptInfo, TransactionPool};
 use crate::wallet::utxo::Utxo;
 use crate::wallet::utxo::UtxoSet;
 use k256::EncodedPoint;
@@ -11,7 +10,6 @@ use k256::ecdsa::signature::Signer;
 use k256::ecdsa::signature::Verifier;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Wallet {
@@ -284,7 +282,7 @@ impl Wallet {
     pub fn get_utxos_for_address<'a>(
         address: &'a str,
         utxo_set: &'a UtxoSet,
-        treechain: &'a TreeChain,
+        _treechain: &'a TreeChain,
     ) -> Vec<(String, u32, &'a Utxo)> {
         let pubkey_hash = match ChainUtil::pubkey_hash_from_address(address) {
             Ok(hash) => hash,
@@ -295,19 +293,6 @@ impl Wallet {
         };
 
         let expected_script = Transaction::create_p2pkh_script(&pubkey_hash);
-
-        // Compute current height as max queue_index
-        let current_height = treechain
-            .blocks
-            .values()
-            .map(|b| b.pqp_entry.queue_index as u64)
-            .max()
-            .unwrap_or(0);
-
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as u64;
 
         let mut utxos = Vec::new();
 
