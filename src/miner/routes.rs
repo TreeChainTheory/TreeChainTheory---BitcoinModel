@@ -1473,6 +1473,34 @@ async fn children_map(
         "children_map": response_vec
     }))
 }
+
+#[get("/get_connected_peers")]
+async fn get_connected_peers(
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Arc<Mutex<Wallet>>,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let p2p_server = &data.3;
+    let connected_peers_guard = p2p_server.connected_peers.lock().await;
+    let peers: Vec<String> = connected_peers_guard.iter().cloned().collect();
+    drop(connected_peers_guard);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "peers": peers
+    }))
+}
+
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
@@ -1492,4 +1520,5 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(find_multisig_utxo);
     cfg.service(balance_address);
     cfg.service(children_map);
+    cfg.service(get_connected_peers);
 }
