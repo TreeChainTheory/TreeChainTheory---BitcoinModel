@@ -6,16 +6,16 @@ pub mod wallet;
 
 use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::UtxoSet;
-use config::CHILDREN;
-use treechain::treechain::{PQP, TreeChain};
-use wallet::wallet::Wallet;
-
+use actix_cors::Cors;
 use actix_web::{App, HttpServer, web};
+use config::CHILDREN;
 use dotenv::dotenv;
 use std::env;
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
+use treechain::treechain::{PQP, TreeChain};
+use wallet::wallet::Wallet;
 
 use crate::miner::p2p_server::{self, P2PServer};
 
@@ -73,7 +73,13 @@ async fn main() {
     );
 
     HttpServer::new(move || {
+        let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header()
+            .max_age(0);
         App::new()
+            .wrap(cors)
             .app_data(web::Data::new((
                 Arc::clone(&treechain),
                 Arc::clone(&pqp),

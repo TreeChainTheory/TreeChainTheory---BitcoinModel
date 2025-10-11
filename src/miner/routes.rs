@@ -1350,13 +1350,6 @@ async fn find_multisig_utxo(
         }));
     }
 
-    if !body.pubkeys.iter().any(|pk| pk == &wallet.public_key) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": "Wallet public key not in multisig pubkeys"
-        }));
-    }
-
     let utxos = wallet.find_multisig_utxos(&utxo_set_guard, &body.pubkeys, body.m);
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -1501,6 +1494,30 @@ async fn get_connected_peers(
     }))
 }
 
+#[get("/get_mining_status")]
+async fn get_mining_status(
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Arc<Mutex<Wallet>>,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let (_, _, mining_flag, _, _, _, _, _, _, _, _) = data.as_ref();
+    let mining = mining_flag.lock().await;
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "mining": *mining
+    }))
+}
+
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(start_mining);
     cfg.service(stop_mining);
@@ -1521,4 +1538,5 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(balance_address);
     cfg.service(children_map);
     cfg.service(get_connected_peers);
+    cfg.service(get_mining_status);
 }

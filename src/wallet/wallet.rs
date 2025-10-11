@@ -302,7 +302,7 @@ impl Wallet {
                 utxos.push((txid.clone(), *vout, utxo));
             }
         }
-
+        utxos.sort_by_key(|(_, _, utxo)| utxo.queue_index);
         println!(
             "✅ Found {} mature UTXOs for address {}",
             utxos.len(),
@@ -318,9 +318,6 @@ impl Wallet {
         pubkeys: &Vec<String>,
         m: u8,
     ) -> Vec<(String, u32, Utxo)> {
-        if !pubkeys.contains(&self.public_key) {
-            return vec![];
-        }
         if m as usize > pubkeys.len() || m == 0 {
             return vec![];
         }
