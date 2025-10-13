@@ -91,14 +91,6 @@ async fn start_mining(
                 break;
             }
 
-            let tx: Vec<Transaction>;
-            {
-                let txn_pool = txn_pool.lock().await;
-                tx = txn_pool.select_transactions(1024 * 10, align.clone());
-                println!("🤔🤔 selected txns: {:?}", tx);
-                drop(txn_pool);
-            }
-
             *abort_mining.lock().unwrap() = false;
             let parent_pos: String;
             let calc;
@@ -122,6 +114,14 @@ async fn start_mining(
 
             if let Some((queue_index, prev_pqp, parent_hash)) = calc {
                 *current_mining_position.lock().unwrap() = Some(parent_pos.clone());
+
+                let tx: Vec<Transaction>;
+                {
+                    let txn_pool = txn_pool.lock().await;
+                    tx = txn_pool.select_transactions(1024 * 10, align.clone(), &parent_hash);
+                    println!("🤔🤔 selected txns: {:?}", tx);
+                    drop(txn_pool);
+                }
 
                 let miner_address = wallet.address.clone();
                 let mut sig_data = Vec::new();

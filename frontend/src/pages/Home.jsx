@@ -74,7 +74,7 @@ export default function Home() {
 </ul>
 
         <p className="text-white/90 mb-4">
-          For transaction assignment: Miners select txns where the last digit of the tx ID satisfies ((last_digit % CHILDREN as u32) + 1) == align as u32, ensuring balanced distribution across branches.
+          For transaction assignment: Miners select txns where the last digit of the txn's vin[0].script_sig satisfies (for normal p2pkh txns, and for multisig its vin[0].txid) ((last_digit % CHILDREN as u32) + 1) == align as u32, ensuring balanced distribution across branches.
         </p>
         <p className="text-white/90 mb-4">
           Rollback (for malicious blocks): Prune affected subtrees by removing from the back and re-adding valid parents to the front—<em>TreeChainTheorey - Bitcoin Model does not implement this; reserved for later variants.</em>

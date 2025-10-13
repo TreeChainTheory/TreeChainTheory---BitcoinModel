@@ -71,99 +71,6 @@ impl TransactionPool {
         vsize
     }
 
-    // pub fn validate_transaction(
-    //     &self,
-    //     tx: &Transaction,
-    //     min_fee_rate: f64,
-    //     utxt_set: &UtxoSet,
-    // ) -> Result<(u64, usize, f64, HashSet<String>), String> {
-    //     //check txid and hash
-    //     if !Transaction::check_txid_and_hash(tx) {
-    //         return Err(format!(
-    //             "Transaction txid and hash dosnt match calculation: {}",
-    //             tx.txid
-    //         ));
-    //     }
-
-    //     let vsize = self.calculate_vsize(tx);
-    //     if vsize > MAX_TX_SIZE {
-    //         return Err(format!("Transaction too large: {} vB", vsize));
-    //     }
-
-    //     // Check locktime first
-    //     let current_time = SystemTime::now()
-    //         .duration_since(UNIX_EPOCH)
-    //         .unwrap_or_default()
-    //         .as_secs() as u32;
-    //     if tx.locktime > current_time && tx.locktime < 500_000_000 {
-    //         return Err(format!(
-    //             "Transaction locktime {} not yet reached (current: {})",
-    //             tx.locktime, current_time
-    //         ));
-    //     }
-    //     println!("validate transaction here 1");
-    //     // Verify inputs are unspent and calculate total input value
-    //     let mut input_value = 0;
-    //     let mut depends = HashSet::new();
-    //     let mut utxos = vec![];
-    //     for input in &tx.vin {
-    //         let utxo = utxt_set
-    //             .get_utxo(&input.txid, input.vout)
-    //             .or_else(|| self.utxo_set.get_utxo(&input.txid, input.vout))
-    //             .ok_or(format!("UTXO not found: {}:{}", input.txid, input.vout))?;
-    //         input_value += utxo.out.value;
-    //         utxos.push(utxo.clone());
-
-    //         if self.pool.contains_key(&input.txid) {
-    //             depends.insert(input.txid.clone());
-    //         }
-    //     }
-    //     println!("validate transaction here 2");
-
-    //     // Verify signatures and scripts for all inputs
-    //     let witnesses = tx.witnesses.as_ref();
-    //     for (i, input) in tx.vin.iter().enumerate() {
-    //         let utxo = &utxos[i];
-    //         println!("validate transaction here 3");
-    //         Self::verify_input(
-    //             tx,
-    //             i,
-    //             input,
-    //             utxo,
-    //             utxo.out.value,
-    //             current_time,
-    //             witnesses.and_then(|w| w.get(i)),
-    //         )?;
-    //     }
-
-    //     // Check outputs
-    //     let mut output_value = 0;
-    //     for output in &tx.vout {
-    //         if output.value == 0 {
-    //             return Err("Output value must be positive".to_string());
-    //         }
-    //         output_value += output.value;
-    //     }
-
-    //     if output_value > input_value {
-    //         return Err(format!(
-    //             "Outputs {} exceed inputs {}",
-    //             output_value, input_value
-    //         ));
-    //     }
-
-    //     let fee = input_value - output_value;
-    //     let fee_rate = fee as f64 / vsize as f64;
-    //     if fee_rate < min_fee_rate {
-    //         return Err(format!(
-    //             "Fee rate {} below minimum {}",
-    //             fee_rate, min_fee_rate
-    //         ));
-    //     }
-
-    //     Ok((fee, vsize, fee_rate, depends))
-    // }
-
     pub fn validate_transaction(
         &self,
         tx: &Transaction,
@@ -374,8 +281,8 @@ impl TransactionPool {
             .max()
             .unwrap_or(0);
 
-        if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 50) {
-            return Err("Coinbase UTXO not mature (requires 50 confirmations)".to_string());
+        if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 10) {
+            return Err("Coinbase UTXO not mature (requires 10 confirmations)".to_string());
         }
 
         let is_segwit = witness.is_some();
@@ -1419,7 +1326,12 @@ impl TransactionPool {
         Ok(())
     }
 
-    pub fn select_transactions(&self, max_block_weight: usize, align: u8) -> Vec<Transaction> {
+    pub fn select_transactions(
+        &self,
+        max_block_weight: usize,
+        align: u8,
+        parent_hash: &String,
+    ) -> Vec<Transaction> {
         let mut sorted_entries: Vec<&MempoolEntry> = self.pool.values().collect();
         sorted_entries.sort_by(|a, b| b.fee_rate.partial_cmp(&a.fee_rate).unwrap());
 
@@ -1433,7 +1345,7 @@ impl TransactionPool {
                 entry.tx.txid, entry.fee_rate, tx_weight
             );
 
-            if !self.tx_suitable_for_align(&entry.tx, align) {
+            if !self.tx_suitable_for_align(&entry.tx, align, parent_hash) {
                 println!("  Skipped: tx_suitable_for_align failed (align={})", align);
                 continue;
             }
@@ -1470,13 +1382,13 @@ impl TransactionPool {
         selected_txs
     }
 
-    pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8) -> bool {
+    pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8, parent_hash: &String) -> bool {
         // if align == 0 {
         //     return true; // this is only for testing purposes
         // }
         let mut data = &tx.vin[0].script_sig;
         if data.starts_with("00") {
-            data = &tx.vin[0].txid;
+            data = parent_hash;
         }
 
         // Use first input's txid for alignment

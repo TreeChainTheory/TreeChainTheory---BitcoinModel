@@ -1878,6 +1878,9 @@ impl TreeChain {
 
         // Validate non-coinbase transactions
         for tx in &block.tx[1..] {
+            if !txn_pool.tx_suitable_for_align(tx, block.align, &block.parent_hash) {
+                return false;
+            }
             if let Err(e) = txn_pool.validate_transaction(tx, 0.0, utxo_set, &self) {
                 println!(
                     "❌ Transaction validation failed in block {}: {}",
