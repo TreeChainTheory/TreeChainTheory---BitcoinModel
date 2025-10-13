@@ -147,8 +147,9 @@ export default function Home() {
           <p><strong>Note 1:</strong> Everything in here is all hex's unlike the real ones, as this is all just a prototype and need for human readability to verify.</p>
           <p><strong>Note 2:</strong> You can Scale this by Simply changing the CHILDREN variable to any number in TreeChainTheorey/src/config.rs.</p>
         </div>
-             <p className="text-white font-semibold mb-4">
-          <em>TreeChainTheorey </em> POW Model does not guarentee you CHILDREN num of children per block , but The POS/POH and any other models definately guarentees</p>
+        <p className="text-white font-semibold mb-4">
+          <em>TreeChainTheorey POW</em> Model does not guarentee you CHILDREN num of children per block , but The <em>POS/POH</em>and any other models definately guarentees
+        </p>
         <div className="grid md:grid-cols-3 gap-4 text-white/80">
           <div className="p-4">🚀 <strong>10x Throughput</strong></div>
           <div className="p-4">🔒 <strong>ECDSA Multisig</strong></div>
