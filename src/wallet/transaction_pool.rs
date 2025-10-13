@@ -1471,14 +1471,19 @@ impl TransactionPool {
     }
 
     pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8) -> bool {
-        if align == 0 {
-            return true; // this is only for testing purposes
+        // if align == 0 {
+        //     return true; // this is only for testing purposes
+        // }
+        let mut data = &tx.vin[0].script_sig;
+        if data.starts_with("00") {
+            data = &tx.vin[0].txid;
         }
-        let txid = &tx.txid;
-        if txid.is_empty() {
+
+        // Use first input's txid for alignment
+        if data.is_empty() {
             return false;
         }
-        let last_char = txid.chars().last().unwrap();
+        let last_char = data.chars().last().unwrap();
         let last_digit = u32::from_str_radix(&last_char.to_string(), 16).unwrap_or(0);
         ((last_digit % CHILDREN as u32) + 1) == align as u32
     }
