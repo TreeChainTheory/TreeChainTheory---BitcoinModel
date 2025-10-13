@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Toaster, toast } from 'react-hot-toast'
 
 function WalletPage() {
   const [wallet, setWallet] = useState({ 
@@ -47,6 +48,7 @@ function WalletPage() {
     checkAddress: ''
   })
   const [results, setResults] = useState({})
+  const [submitting, setSubmitting] = useState(false)
   const apiBase = import.meta.env.VITE_API_BASE
 
   useEffect(() => {
@@ -64,8 +66,10 @@ function WalletPage() {
         balance_sat: balance_sat,
         balance_btc: data.wallet.balance_btc
       })
+      toast.success('Wallet loaded successfully!')
     } catch (err) {
       console.error(err)
+      toast.error('Failed to load wallet')
     }
     setLoading(false)
   }
@@ -82,12 +86,14 @@ function WalletPage() {
 
   const copyJson = (json) => {
     navigator.clipboard.writeText(JSON.stringify(json, null, 2))
-    alert('Copied to clipboard!')
+    toast.success('Copied to clipboard!')
   }
 
-  const submitForm = async (endpoint, body, resultKey) => {
+  const submitForm = async (endpoint, body, resultKey, successCheck = (data) => data.status === 'success') => {
+    if (submitting) return
+    setSubmitting(true)
     try {
-        console.log('Submitting to', endpoint, 'with body', body ) // Debugging line
+      console.log('Submitting to', endpoint, 'with body', body ) // Debugging line
       const res = await fetch(`${apiBase}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -95,26 +101,93 @@ function WalletPage() {
       })
       const data = await res.json()
       console.log('Response from', endpoint, 'is', data) // Debugging line
+      if (!successCheck(data)) {
+        toast.error(data.message || 'Operation failed')
+        return
+      }
       setResults(prev => ({ ...prev, [resultKey]: data }))
+      toast.success(`Successfully ${resultKey.replace(/([A-Z])/g, ' $1').toLowerCase()}`)
     } catch (err) {
       console.error(err)
-      alert(`Error: ${err.message}`)
+      toast.error(`Error: ${err.message}`)
+    } finally {
+      setSubmitting(false)
     }
   }
 
   // Helper to convert BTC to sat
   const btcToSat = (btc) => Math.floor(parseFloat(btc) * 100000000)
 
+  const resetNormal = () => {
+    setFormData(prev => ({ ...prev, toAddress: '', value_btc: '', fee_btc: '' }))
+    setResults(prev => ({ ...prev, normalTxn: null }))
+  }
+
+  const resetMultisigCreate = () => {
+    setFormData(prev => ({ ...prev, pubkeys: '', m: 2, multisigValue_btc: '', multisigFee_btc: '' }))
+    setResults(prev => ({ ...prev, multisigCreate: null }))
+  }
+
+  const resetFindMultisig = () => {
+    setFormData(prev => ({ ...prev, findPubkeys: '', findM: 2 }))
+    setResults(prev => ({ ...prev, findMultisig: null }))
+  }
+
+  const resetSpendingCreate = () => {
+    setFormData(prev => ({ 
+      ...prev, 
+      spendTxid: '', 
+      spendVout: 0, 
+      spendPubkeys: '', 
+      spendM: 2, 
+      spendToAddress: '', 
+      spendValue_btc: '', 
+      spendFee_btc: '' 
+    }))
+    setResults(prev => ({ ...prev, spendingCreate: null }))
+  }
+
+  const resetSign = () => {
+    setFormData(prev => ({ 
+      ...prev, 
+      signTxid: '', 
+      signVout: 0, 
+      spendingTxJson: '', 
+      signPubkeys: '', 
+      signM: 2 
+    }))
+    setResults(prev => ({ ...prev, signResult: null }))
+  }
+
+  const resetSpend = () => {
+    setFormData(prev => ({ 
+      ...prev, 
+      spendSpendingTxJson: '', 
+      spendPubkeys: '', 
+      spendM: 2, 
+      sigs: '' 
+    }))
+    setResults(prev => ({ ...prev, spendResult: null }))
+  }
+
   const handleNormalTxn = () => {
+    if (!formData.toAddress || !formData.value_btc || !formData.fee_btc) {
+      toast.error('Please fill all fields')
+      return
+    }
     const body = {
       to_address: formData.toAddress,
       value: btcToSat(formData.value_btc),
       fee: btcToSat(formData.fee_btc)
     }
-    submitForm('create_txn', body, 'normalTxn')
+    submitForm('create_txn', body, 'normalTxn', (data) => data.success === true)
   }
 
   const handleMultisigCreate = () => {
+    if (!formData.pubkeys || !formData.multisigValue_btc || !formData.multisigFee_btc) {
+      toast.error('Please fill all fields')
+      return
+    }
     const body = {
       pubkeys: formData.pubkeys.split(',').map(p => p.trim()).filter(p => p.length > 0),
       m: formData.m,
@@ -125,21 +198,22 @@ function WalletPage() {
   }
 
   const handleFindMultisig = () => {
+    if (!formData.findPubkeys) {
+      toast.error('Please fill pubkeys')
+      return
+    }
     const body = {
       pubkeys: formData.findPubkeys.split(',').map(p => p.trim()).filter(p => p.length > 0),
       m: formData.findM
     }
-    fetch(`${apiBase}/find_multisig_utxo`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
-      .then(res => res.json())
-      .then(data => setResults(prev => ({ ...prev, findMultisig: data.multisig_utxos })))
+    submitForm('find_multisig_utxo', body, 'findMultisig')
   }
 
   const handleCreateSpending = () => {
-    console.log('Creating spending multisig with data:', formData) // Debugging line
+    if (!formData.spendTxid || !formData.spendPubkeys || !formData.spendToAddress || !formData.spendValue_btc || !formData.spendFee_btc) {
+      toast.error('Please fill all fields')
+      return
+    }
     const body = {
       txid: formData.spendTxid,
       vout: formData.spendVout,
@@ -153,10 +227,21 @@ function WalletPage() {
   }
 
   const handleSignMultisig = () => {
+    if (!formData.signTxid || !formData.spendingTxJson || !formData.signPubkeys) {
+      toast.error('Please fill all fields')
+      return
+    }
+    let spendingTx
+    try {
+      spendingTx = JSON.parse(formData.spendingTxJson)
+    } catch (e) {
+      toast.error('Invalid JSON for spending TX')
+      return
+    }
     const body = {
       txid: formData.signTxid,
       vout: formData.signVout,
-      spending_tx: JSON.parse(formData.spendingTxJson),
+      spending_tx: spendingTx,
       pubkeys: formData.signPubkeys.split(',').map(p => p.trim()),
       m: formData.signM
     }
@@ -164,8 +249,19 @@ function WalletPage() {
   }
 
   const handleSpendMultisig = () => {
+    if (!formData.spendSpendingTxJson || !formData.spendPubkeys || !formData.sigs) {
+      toast.error('Please fill all fields')
+      return
+    }
+    let spendingTx
+    try {
+      spendingTx = JSON.parse(formData.spendSpendingTxJson)
+    } catch (e) {
+      toast.error('Invalid JSON for spending TX')
+      return
+    }
     const body = {
-      spending_tx: JSON.parse(formData.spendSpendingTxJson),
+      spending_tx: spendingTx,
       pubkeys: formData.spendPubkeys.split(',').map(p => p.trim()),
       m: formData.spendM,
       sigs: formData.sigs.split(',').map(s => s.trim())
@@ -173,25 +269,39 @@ function WalletPage() {
     submitForm('spend_multisig_txn', body, 'spendResult')
   }
 
-  const handleCheckBalance = () => {
+  const handleCheckBalance = async () => {
     const address = formData.checkAddress
     if (!address) {
-      alert('Please enter an address')
+      toast.error('Please enter an address')
       return
     }
-    fetch(`${apiBase}/balance/${address}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.status === 'success') {
-          setResults(prev => ({ ...prev, checkBalance: data.balance }))
-        } else {
-          alert('Error fetching balance')
-        }
-      })
-      .catch(err => alert(`Error: ${err.message}`))
+    setSubmitting(true)
+    try {
+      const res = await fetch(`${apiBase}/balance/${address}`)
+      const data = await res.json()
+      if (data.status === 'success') {
+        setResults(prev => ({ ...prev, checkBalance: data.balance }))
+        toast.success('Balance fetched successfully')
+      } else {
+        toast.error(data.message || 'Error fetching balance')
+      }
+    } catch (err) {
+      toast.error(`Error: ${err.message}`)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  if (loading) return <div className="text-white text-center pt-20">Loading...</div>
+  const resetCheckBalance = () => {
+    setFormData(prev => ({ ...prev, checkAddress: '' }))
+    setResults(prev => ({ ...prev, checkBalance: null }))
+  }
+
+  if (loading) return (
+    <div className="flex justify-center items-center h-screen">
+      <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-white"></div>
+    </div>
+  )
 
   return (
     <div className="pt-20 pb-10 px-4 max-w-6xl mx-auto">
@@ -203,7 +313,7 @@ function WalletPage() {
         <p className="text-white/90 mb-2">Address: <span className="font-mono bg-white/10 px-2 py-1 rounded break-all">{wallet.address}</span></p>
         <p className="text-white/90 mb-2">Public Key: <span className="font-mono bg-white/10 px-2 py-1 rounded break-all">{wallet.public_key}</span></p>
         <p className="text-3xl text-green-300 mt-2">Balance: {wallet.balance_btc} BTC</p>
-        <button onClick={fetchWallet} className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Refresh</button>
+        <button onClick={fetchWallet} disabled={submitting} className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50">Refresh</button>
       </div>
 
       {/* Tabs */}
@@ -212,7 +322,7 @@ function WalletPage() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-lg transition-all ${activeTab === tab ? 'bg-white/20' : 'text-white/70 hover:bg-white/10'}`}
+            className={`px-4 py-2 rounded-lg transition-all ${activeTab === tab ? 'bg-white/20 text-white' : 'text-white/70 hover:bg-white/10'}`}
           >
             {tab === 'check_balance' ? 'Check Balance' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -245,9 +355,14 @@ function WalletPage() {
             className="p-2 rounded bg-white/10 text-white"
           />
         </div>
-        <button onClick={handleNormalTxn} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600">Send</button>
-        {results.normalTxn && (
-          <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.normalTxn, null, 2)}</pre>
+        <button onClick={handleNormalTxn} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
+          {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Send'}
+        </button>
+        {results.normalTxn && results.normalTxn.success && (
+          <>
+            <button onClick={resetNormal} className="ml-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Create Another Transaction</button>
+            <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.normalTxn, null, 2)}</pre>
+          </>
         )}
       </div>
 
@@ -265,8 +380,15 @@ function WalletPage() {
           <input placeholder="Value (BTC)" value={formData.multisigValue_btc} onChange={(e) => setFormData({...formData, multisigValue_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
           <input placeholder="Fee (BTC)" value={formData.multisigFee_btc} onChange={(e) => setFormData({...formData, multisigFee_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
         </div>
-        <button onClick={handleMultisigCreate} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600">Create</button>
-        {results.multisigCreate && <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.multisigCreate, null, 2)}</pre>}
+        <button onClick={handleMultisigCreate} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
+          {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Create'}
+        </button>
+        {results.multisigCreate && results.multisigCreate.status === 'success' && (
+          <>
+            <button onClick={resetMultisigCreate} className="ml-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Create Another Multisig</button>
+            <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.multisigCreate, null, 2)}</pre>
+          </>
+        )}
       </div>
 
       {/* Find Multisig UTXOs */}
@@ -274,17 +396,23 @@ function WalletPage() {
         <h3 className="text-xl text-white mb-2">Find Multisig UTXOs</h3>
         <textarea placeholder="Pubkeys (comma-separated)" value={formData.findPubkeys} onChange={(e) => setFormData({...formData, findPubkeys: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-20" />
         <input name="findM" type="number" placeholder="m" value={formData.findM} onChange={(e) => setFormData({...formData, findM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-4" />
-        <button onClick={handleFindMultisig} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Find</button>
-        {
-            results.findMultisig && results.findMultisig.length === 0 && <p className="mt-4 text-white/80">No multisig UTXOs found.</p>
-        }
-        {results.findMultisig && results.findMultisig.length >0 && (
-          <ul className="mt-4 space-y-2">
-            {results.findMultisig.map((utxo, i) => (
-              <li key={i} className="text-white/90 p-2 bg-white/10 rounded">TXID: {utxo.txid}, Value: {(utxo.value / 1e8).toFixed(8)} BTC</li>
-            ))}
-          </ul>
-        )}
+        <button onClick={handleFindMultisig} disabled={submitting} className="px-4 py-2 ml-3 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50">
+          {submitting ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mx-auto"></div> : 'Find'}
+        </button>
+        {results.findMultisig && results.findMultisig.status === 'success' && (
+          <>
+            <button onClick={resetFindMultisig} className="ml-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Find Again</button>
+            {results.findMultisig.multisig_utxos && results.findMultisig.multisig_utxos.length === 0 ? (
+              <p className="mt-4 text-white/80">No multisig UTXOs found.</p>
+            ) : (
+              <ul className="mt-4 space-y-2">
+                {results.findMultisig.multisig_utxos.map((utxo, i) => (
+                  <li key={i} className="text-white/90 p-2 bg-white/10 rounded">TXID: {utxo.txid}, Value: {(utxo.value / 1e8).toFixed(8)} BTC</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) }
       </div>
 
       {/* Create Spending Multisig */}
@@ -301,18 +429,18 @@ function WalletPage() {
           <input placeholder="Value (BTC)" value={formData.spendValue_btc} onChange={(e) => setFormData({...formData, spendValue_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
           <input placeholder="Fee (BTC)" value={formData.spendFee_btc} onChange={(e) => setFormData({...formData, spendFee_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
         </div>
-        <button onClick={handleCreateSpending} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600">Create Unsigned</button>
-        {
-            results.spendingCreate && results.spendingCreate.status === 'error' && (
-                <p className="mt-4 text-red-400">Error: {results.spendingCreate.message}</p>
-            )
-        }
-        {results.spendingCreate && results.spendingCreate.unsigned_transaction && (
-          <div className="mt-4 p-4 bg-white/10 rounded">
-            <h3 className="text-white mb-2">Unsigned Transaction</h3>
-            <pre className="text-white/90 overflow-auto">{JSON.stringify(results.spendingCreate.unsigned_transaction, null, 2)}</pre>
-            <button onClick={() => copyJson(results.spendingCreate.unsigned_transaction)} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Copy JSON</button>
-          </div>
+        <button onClick={handleCreateSpending} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
+          {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Create Unsigned'}
+        </button>
+        {results.spendingCreate && results.spendingCreate.status === 'success' && (
+          <>
+            <button onClick={resetSpendingCreate} className="ml-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Create Another Spending TX</button>
+            <div className="mt-4 p-4 bg-white/10 rounded">
+              <h3 className="text-white mb-2">Unsigned Transaction</h3>
+              <pre className="text-white/90 overflow-auto">{JSON.stringify(results.spendingCreate.unsigned_transaction, null, 2)}</pre>
+              <button onClick={() => copyJson(results.spendingCreate.unsigned_transaction)} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Copy JSON</button>
+            </div>
+          </>
         )}
       </div>
 
@@ -326,8 +454,15 @@ function WalletPage() {
         <textarea placeholder="Spending TX JSON" value={formData.spendingTxJson} onChange={(e) => handleTextareaChange(e, 'spendingTxJson')} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-32" />
         <textarea placeholder="Pubkeys (comma-separated)" value={formData.signPubkeys} onChange={(e) => setFormData({...formData, signPubkeys: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-20" />
         <input name="signM" type="number" placeholder="m" value={formData.signM} onChange={(e) => setFormData({...formData, signM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-4" />
-        <button onClick={handleSignMultisig} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600">Sign</button>
-        {results.signResult && <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.signResult, null, 2)}</pre>}
+        <button onClick={handleSignMultisig} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
+          {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Sign'}
+        </button>
+        {results.signResult && results.signResult.status === 'success' && (
+          <>
+            <button onClick={resetSign} className="ml-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Sign Another</button>
+            <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.signResult, null, 2)}</pre>
+          </>
+        )}
       </div>
 
       {/* Spend Multisig */}
@@ -337,8 +472,15 @@ function WalletPage() {
         <textarea placeholder="Pubkeys (comma-separated)" value={formData.spendPubkeys} onChange={(e) => setFormData({...formData, spendPubkeys: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-20" />
         <input name="spendM" type="number" placeholder="m" value={formData.spendM} onChange={(e) => setFormData({...formData, spendM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-2" />
         <textarea placeholder="Sigs (comma-separated hex)" value={formData.sigs} onChange={(e) => setFormData({...formData, sigs: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-4 h-20" />
-        <button onClick={handleSpendMultisig} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600">Spend</button>
-        {results.spendResult && <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.spendResult, null, 2)}</pre>}
+        <button onClick={handleSpendMultisig} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
+          {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Spend'}
+        </button>
+        {results.spendResult && results.spendResult.status === 'success' && (
+          <>
+            <button onClick={resetSpend} className="ml-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Spend Another</button>
+            <pre className="mt-4 p-4 bg-white/10 rounded text-white/90 overflow-auto">{JSON.stringify(results.spendResult, null, 2)}</pre>
+          </>
+        )}
       </div>
 
       {/* Check Balance */}
@@ -350,15 +492,22 @@ function WalletPage() {
           onChange={(e) => setFormData({...formData, checkAddress: e.target.value})}
           className="w-full p-2 rounded bg-white/10 text-white mb-4"
         />
-        <button onClick={handleCheckBalance} className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Check Balance</button>
+        <button onClick={handleCheckBalance} disabled={submitting} className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+          {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Check Balance'}
+        </button>
         {results.checkBalance && (
-          <div className="mt-4 p-4 bg-white/10 rounded">
-            <h3 className="text-white mb-2">Balance for {formData.checkAddress}</h3>
-            <p className="text-green-300 text-xl">{results.checkBalance.total_btc} BTC</p>
-            <p className="text-white/80">{results.checkBalance.total_satoshis} satoshis</p>
-          </div>
+          <>
+            <button onClick={resetCheckBalance} className="ml-4 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Check Another</button>
+            <div className="mt-4 p-4 bg-white/10 rounded">
+              <h3 className="text-white mb-2">Balance for {formData.checkAddress}</h3>
+              <p className="text-green-300 text-xl">{results.checkBalance.total_btc} BTC</p>
+              <p className="text-white/80">{results.checkBalance.total_satoshis} satoshis</p>
+            </div>
+          </>
         )}
       </div>
+
+      <Toaster />
     </div>
   )
 }

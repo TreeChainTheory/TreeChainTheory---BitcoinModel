@@ -74,10 +74,13 @@ export default function Home() {
 </ul>
 
         <p className="text-white/90 mb-4">
-          For transaction assignment: Miners select txns where the last digit of the txn's vin[0].script_sig satisfies (for normal p2pkh txns, and for multisig its vin[0].txid) ((last_digit % CHILDREN as u32) + 1) == align as u32, ensuring balanced distribution across branches.
+          For transaction assignment: Miners select txns where the last digit of the txn's vin[0].script_sig satisfies (for normal p2pkh txns, and for multisig or other types of txns its prev_pqp_commitment) ((last_digit % CHILDREN as u32) + 1) == align as u32, ensuring balanced distribution across branches.
         </p>
         <p className="text-white/90 mb-4">
           Rollback (for malicious blocks): Prune affected subtrees by removing from the back and re-adding valid parents to the front—<em>TreeChainTheorey - Bitcoin Model does not implement this; reserved for later variants.</em>
+        </p>
+        <p className="text-white font-semibold mb-4">
+          <em>TreeChainTheorey - Bitcoin Model Consensus</em> follows a race rule which is some X aligned miner should mine the block before the <em>Next parent</em> get <em>Children</em>
         </p>
       </article>
 
@@ -144,6 +147,8 @@ export default function Home() {
           <p><strong>Note 1:</strong> Everything in here is all hex's unlike the real ones, as this is all just a prototype and need for human readability to verify.</p>
           <p><strong>Note 2:</strong> You can Scale this by Simply changing the CHILDREN variable to any number in TreeChainTheorey/src/config.rs.</p>
         </div>
+             <p className="text-white font-semibold mb-4">
+          <em>TreeChainTheorey </em> POW Model does not guarentee you CHILDREN num of children per block , but The POS/POH and any other models definately guarentees</p>
         <div className="grid md:grid-cols-3 gap-4 text-white/80">
           <div className="p-4">🚀 <strong>10x Throughput</strong></div>
           <div className="p-4">🔒 <strong>ECDSA Multisig</strong></div>

@@ -70,7 +70,7 @@
 //     // Verify it matches the hardcoded genesis
 //     assert_eq!(
 //         genesis_template.hash,
-//         "000011428da0831df234bd3a0f404f575cf14c9c630f9f6b1c54820a9e2e65ed"
+//         "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22"
 //     );
 //     assert_eq!(genesis_template.pqp_commitment.len(), 64);
 // }

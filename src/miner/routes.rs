@@ -359,6 +359,39 @@ async fn get_blocks(
     }))
 }
 
+#[get("/get_block/{block_hash}")]
+async fn get_block(
+    path: web::Path<String>,
+    data: web::Data<(
+        Arc<Mutex<TreeChain>>,
+        Arc<Mutex<PQP>>,
+        Arc<Mutex<bool>>,
+        Arc<P2PServer>,
+        Arc<SyncMutex<Option<String>>>,
+        Arc<SyncMutex<bool>>,
+        Arc<Mutex<Wallet>>,
+        u8,
+        Arc<SyncMutex<u64>>,
+        Arc<Mutex<UtxoSet>>,
+        Arc<Mutex<TransactionPool>>,
+    )>,
+) -> impl Responder {
+    let block_hash = path.into_inner();
+    let treechain_guard = data.0.lock().await;
+    let block = treechain_guard.get_block(&block_hash);
+
+    match block {
+        Some(block) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "block": block
+        })),
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "status": "error",
+            "message": "Block not found"
+        })),
+    }
+}
+
 #[get("/get_pqp")]
 async fn get_pqp(
     data: web::Data<(
@@ -1539,4 +1572,5 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(children_map);
     cfg.service(get_connected_peers);
     cfg.service(get_mining_status);
+    cfg.service(get_block);
 }

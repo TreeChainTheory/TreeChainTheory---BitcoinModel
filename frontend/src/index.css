@@ -27,3 +27,14 @@ body {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* OR if you just want to hide the visual scrollbar but keep scrolling: */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+html, body {
+  scrollbar-width: none; /* For Firefox */
+  -ms-overflow-style: none; /* For Internet Explorer and Edge */
+}

@@ -191,10 +191,10 @@ function MiningPage() {
         {poolSize === 0 ? (
           <p className="text-white/80 text-center">Transaction pool is empty.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-h-96 overflow-y-auto">
             <table className="w-full text-white/90 text-xs border-collapse">
               <thead>
-                <tr className="bg-white/10">
+                <tr className="bg-white/10  top-0">
                   <th className="p-2 text-left">TXID</th>
                   <th className="p-2 text-left">Fee (sats)</th>
                   <th className="p-2 text-left">Fee Rate (sat/vB)</th>
@@ -203,7 +203,7 @@ function MiningPage() {
                   <th className="p-2 text-left">Inputs/Outputs</th>
                 </tr>
               </thead>
-              <tbody className="max-h-64 overflow-y-auto">
+              <tbody>
                 {txPool.map((tx, i) => (
                   <tr key={i} className="border-b border-white/10 hover:bg-white/5">
                     <td className="p-2 font-mono truncate max-w-32">{tx.txid.substring(0, 16)}...</td>
@@ -239,32 +239,41 @@ function MiningPage() {
         {utxoSet.length === 0 ? (
           <p className="text-white/80 text-center">UTXO set is empty.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-white/90 text-xs border-collapse">
-              <thead>
-                <tr className="bg-white/10">
-                  <th className="p-2 text-left">TXID</th>
-                  <th className="p-2 text-left">Vout</th>
-                  <th className="p-2 text-left">Value (sats)</th>
-                  <th className="p-2 text-left">Queue Index</th>
-                  <th className="p-2 text-left">Coinbase</th>
-                  <th className="p-2 text-left">Script Pubkey</th>
-                </tr>
-              </thead>
-              <tbody className="max-h-64 overflow-y-auto">
-                {utxoSet.map((utxo, i) => (
-                  <tr key={i} className="border-b border-white/10 hover:bg-white/5">
-                    <td className="p-2 font-mono truncate max-w-32">{utxo.txid.substring(0, 16)}...</td>
-                    <td className="p-2">{utxo.vout}</td>
-                    <td className="p-2">{utxo.value.toLocaleString()}</td>
-                    <td className="p-2">QI: {utxo.queue_index}</td>
-                    <td className="p-2">{utxo.is_coinbase ? 'Yes' : 'No'}</td>
-                    <td className="p-2 font-mono truncate max-w-40">{utxo.script_pubkey.substring(0, 20)}...</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+<div className="max-h-96 overflow-y-auto relative">
+  <table className="w-full text-white/90 text-xs border-collapse">
+    <thead className="bg-white/10  top-0 z-10 backdrop-blur-sm">
+      <tr>
+        <th className="p-2 text-left">TXID</th>
+        <th className="p-2 text-left">Vout</th>
+        <th className="p-2 text-left">Value (sats)</th>
+        <th className="p-2 text-left">Queue Index</th>
+        <th className="p-2 text-left">Coinbase</th>
+        <th className="p-2 text-left">Script Pubkey</th>
+      </tr>
+    </thead>
+    <tbody>
+      {utxoSet.map((utxo, i) => (
+        <tr
+          key={i}
+          className="border-b border-white/10 hover:bg-white/5 transition-colors"
+        >
+          <td className="p-2 font-mono truncate max-w-32">
+            {utxo.txid.substring(0, 16)}...
+          </td>
+          <td className="p-2">{utxo.vout}</td>
+          <td className="p-2">{utxo.value.toLocaleString()}</td>
+          <td className="p-2">QI: {utxo.queue_index}</td>
+          <td className="p-2">{utxo.is_coinbase ? 'Yes' : 'No'}</td>
+          <td className="p-2 font-mono truncate max-w-40">
+            {utxo.script_pubkey.substring(0, 20)}...
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+
         )}
       </div>
     </div>
