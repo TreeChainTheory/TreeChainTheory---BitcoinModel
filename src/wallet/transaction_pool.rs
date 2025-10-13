@@ -1330,7 +1330,7 @@ impl TransactionPool {
         &self,
         max_block_weight: usize,
         align: u8,
-        parent_hash: &String,
+        data: &String,
     ) -> Vec<Transaction> {
         let mut sorted_entries: Vec<&MempoolEntry> = self.pool.values().collect();
         sorted_entries.sort_by(|a, b| b.fee_rate.partial_cmp(&a.fee_rate).unwrap());
@@ -1345,7 +1345,7 @@ impl TransactionPool {
                 entry.tx.txid, entry.fee_rate, tx_weight
             );
 
-            if !self.tx_suitable_for_align(&entry.tx, align, parent_hash) {
+            if !self.tx_suitable_for_align(&entry.tx, align, data) {
                 println!("  Skipped: tx_suitable_for_align failed (align={})", align);
                 continue;
             }
@@ -1382,13 +1382,13 @@ impl TransactionPool {
         selected_txs
     }
 
-    pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8, parent_hash: &String) -> bool {
+    pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8, prev_pqp: &String) -> bool {
         // if align == 0 {
         //     return true; // this is only for testing purposes
         // }
         let mut data = &tx.vin[0].script_sig;
         if data.starts_with("00") {
-            data = parent_hash;
+            data = prev_pqp;
         }
 
         // Use first input's txid for alignment
