@@ -922,7 +922,7 @@ impl TreeChain {
         let current_parent = pqp
             .current_parent()
             .expect("No current parent PQP entry found");
-        let latest_pqp = pqp.latest()?;
+        let _latest_pqp = pqp.latest()?;
         println!("\n current_parent hash: {:?}", current_parent.block_hash);
 
         let sibling_aligns: Vec<u8> = pqp
@@ -941,14 +941,17 @@ impl TreeChain {
             if next_parent.is_none() {
                 return None;
             }
-            let prev_pqp = pqp.get_prev_pqp_commitment(align, &self);
-            let mut max_queue_index = latest_pqp.queue_index;
-            if max_queue_index % CHILDREN as u32 != 0 {
-                max_queue_index += (CHILDREN as u32) - (max_queue_index % CHILDREN as u32);
-            }
-            let base_index = max_queue_index;
-            let queue_index = base_index + align as u32;
+            let prev_pqp = pqp.get_prev_pqp_commitment(align.clone(), &self);
+            // let mut max_queue_index = latest_pqp.queue_index;
+            // if max_queue_index % CHILDREN as u32 != 0 {
+            //     max_queue_index += (CHILDREN as u32) - (max_queue_index % CHILDREN as u32);
+            // }
+            // let base_index = max_queue_index;
+            // let queue_index = base_index + align as u32;
             // println!("returned {},{}", queue_index, prev_pqp);
+
+            let queue_index =
+                Self::child_index(next_parent.unwrap().queue_index.clone(), align as u32);
             return Some((
                 queue_index,
                 prev_pqp,
@@ -957,18 +960,24 @@ impl TreeChain {
         }
 
         let prev_pqp = pqp.get_prev_pqp_commitment(align, &self);
-        let mut max_queue_index = latest_pqp.queue_index;
-        if max_queue_index % CHILDREN as u32 != 0 {
-            max_queue_index += (CHILDREN as u32) - (max_queue_index % CHILDREN as u32);
-        }
-        let base_index = if latest_pqp.parent_hash == current_parent.block_hash {
-            max_queue_index - CHILDREN as u32
-        } else {
-            max_queue_index
-        };
+        // let mut max_queue_index = latest_pqp.queue_index;
+        // if max_queue_index % CHILDREN as u32 != 0 {
+        //     max_queue_index += (CHILDREN as u32) - (max_queue_index % CHILDREN as u32);
+        // }
+        // let base_index = if latest_pqp.parent_hash == current_parent.block_hash {
+        //     max_queue_index - CHILDREN as u32
+        // } else {
+        //     max_queue_index
+        // };
 
-        let queue_index = base_index + align as u32;
+        // let queue_index = base_index + align as u32;
+
+        let queue_index = Self::child_index(current_parent.queue_index.clone(), align as u32);
         Some((queue_index, prev_pqp, current_parent.block_hash.clone()))
+    }
+
+    pub fn child_index(parent: u32, align: u32) -> u32 {
+        parent * CHILDREN as u32 + align
     }
 
     pub fn calculate_queue_index(&self, pqp: &PQP, mut align: u8) -> Option<(u32, u8, String)> {
