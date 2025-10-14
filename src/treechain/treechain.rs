@@ -1722,6 +1722,20 @@ impl TreeChain {
         return pqp;
     }
 
+    pub fn position_to_index(position: &str, children: usize) -> Option<u32> {
+        let parts: Vec<&str> = position.split('.').collect();
+        if parts.is_empty() {
+            return None;
+        }
+
+        let mut index: u32 = parts[0].parse().ok()?;
+        for p in parts.iter().skip(1) {
+            let align: u32 = p.parse().ok()?;
+            index = index * children as u32 + align;
+        }
+        Some(index)
+    }
+
     pub fn parent_queue_entry_from_block(block: &Block) -> ParentQueueEntry {
         ParentQueueEntry {
             queue_index: block.pqp_entry.queue_index,
@@ -1748,6 +1762,44 @@ impl TreeChain {
 
         if block.level != 0 && !self.blocks.contains_key(&block.parent_hash) {
             println!("❌ Parent block missing for block: {}", block.hash);
+            return false;
+        }
+
+        if let Some(parent_block) = self.get_block(&block.parent_hash) {
+            if block.pqp_entry.queue_index
+                != Self::child_index(parent_block.pqp_entry.queue_index, block.align as u32)
+            {
+                println!(
+                    "❌ Queue index mismatch for block {}: expected {}, found {}",
+                    block.hash,
+                    Self::child_index(parent_block.pqp_entry.queue_index, block.align as u32),
+                    block.pqp_entry.queue_index
+                );
+                return false;
+            }
+        } else {
+            println!(
+                "❌ Parent block not found in tree for block: {}",
+                block.parent_hash
+            );
+            return false;
+        }
+
+        if let Some(calc_index) = Self::position_to_index(&block.position, CHILDREN as usize) {
+            if calc_index != block.pqp_entry.queue_index {
+                println!(
+                    "❌ Position mismatch for block {}: computed {} but PQP has {}",
+                    block.hash, calc_index, block.pqp_entry.queue_index
+                );
+                return false;
+            } else {
+                println!(
+                    "✅ Verified position for block {} → {} matches queue_index {}",
+                    block.hash, block.position, calc_index
+                );
+            }
+        } else {
+            println!("❌ Failed to parse position for block: {}", block.hash);
             return false;
         }
 

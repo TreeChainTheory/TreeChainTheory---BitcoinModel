@@ -1,427 +1,671 @@
-# 🌳 TreeChainTheory – Rethinking the Blockchain Structure
-
-> **What if a blockchain wasn’t a chain?**  
-> Instead of a linear reverse-linked list, imagine a tree — branching, parallel, and scalable.  
-
-**TreeChainTheory** explores a new data structure for blockchains, where blocks grow in a binary tree-like formation instead of a single sequential chain. This model introduces novel possibilities in speed, decentralization, and consensus design — aiming to overcome the limitations of traditional blockchain architecture.
-
-## 🔍 Core Ideas
-- 🌱 Replaces linear blockchains with a **tree** structure of blocks.
-- ⚡ Aims to increase **throughput** by parallelizing block creation.
-- 👥 Enables better **decentralization** with multiple active block leaders.
-- 🔄 Introduces a **parent queue pool** for dynamic parent selection.
-- 🎯 Inspired by models like **Solana’s Proof of History**, but with a structural twist.
-- 🚀 Designed to become the base for the **world’s fastest cryptocurrency**.
-
-
-## 🌲 Why Tree Over Chain?
-
-Traditional blockchains use a linear, reverse-linked list structure where each block points to a single parent. While this keeps the system simple, it creates bottlenecks:
-
-- ❗ Only one leader at a time → low parallelism
-- 🔄 Sequential block production → slower finality
-- 🧱 Each block depends on the last → centralization risks in leader selection
-
-**TreeChainTheory** proposes a paradigm shift:
-
-- 🧬 Each parent can give rise to multiple children (we assume 2 per parent in our base model).
-- 🌐 Multiple leaders can produce blocks **in parallel**.
-- 🔁 Parent queue pool dynamically schedules parents for next block production.
-
-This makes the system more scalable, fault-tolerant, and fair — paving the way for a high-throughput, decentralized network.
-
-
-
-
-## 📐 Tree Structure Explained
-
-TreeChainTheory introduces a structural shift in how blocks are linked — moving from a single linear chain to a multi-branching tree.
-
-Unlike traditional blockchains where each block has exactly one child (forming a straight line), TreeChainTheory allows each block to have **multiple children**, opening up new possibilities for parallel processing and scalability.
-
-### 🌳 Ideal Case: 2 Children Per Parent
-
-To maintain simplicity and clarity, our theory assumes an **ideal case** where each parent block produces exactly **2 children**. This forms a balanced tree-like structure that is easy to model, visualize, and simulate.
-
-
-         Genesis
-          /   \
-       B1      B2
-      / \     /  \
-    B3   B4  B5   B6
-    ...
-
-
-### 🔗 Block Relationships
-
-- **Each block** has one parent (except the Genesis block).
-- **Each parent** can produce **two children**, handled by **two separate leaders**.
-- A parent is **removed from the queue** once both of its children are created.
-- The structure grows **horizontally and vertically**, forming a tree instead of a line.
-
-### 🧬 Key Design Principles
-
-- **Decentralization**: Multiple leaders operate simultaneously to create children blocks.
-- **Parallelism**: Two children can be created in parallel, increasing throughput.
-- **Determinism**: The process for choosing the next parent and assigning leaders is deterministic via a queue system.
-- **Flexibility**: Though we assume 2 children per parent here, the model supports N-ary trees.
-
-### 📦 The Parent Queue Pool
-
-A central part of the system is the **Parent Queue Pool**, which tracks all eligible parent blocks. Here's how it works:
-
-- When a block is created, it is added to the parent queue.
-- Once it receives two children, it is removed from the queue.
-- The queue ensures fair rotation and avoids centralized leader bottlenecks.
-
-> This simple but powerful idea sets the stage for scalable and decentralized block creation — replacing linear limits with branching potential.
-
-➡️ *Further details are documented in `parent-queue-pool.md` and `consensus.md`.*
-
-    ## 🧾 Parent Queue Pool (PQP)
-
-The **Parent Queue Pool** is a decentralized **double-ended queue** (deque) that maintains a list of upcoming parent blocks. It is a core component of the TreeChainTheory protocol, enabling scalable and parallel block generation.
-
-### 🔁 What does the PQP do?
-
-- 🧠 Tracks all blocks that are eligible to become parents.
-- 🔄 Manages parent assignment for future child blocks.
-- 🚮 Removes a parent block once it gets its designated number of children (2 in the ideal case).
-
-### 📦 What does each PQP entry contain?
-
-Each block that is added to the treechain creates a new entry in the PQP. These entries contain metadata necessary for verification and scheduling:
-
-```json
-"pqp_entry": {
-  "queue_index": N,
-  "block_hash": "<hash of the new block>",
-  "parent_hash": "<hash of the parent block>",
-  "leader_address": "<public key or address of the leader who created the block>",
-  "signature": "<signed by the leader to prove authenticity>"
+{
+    "blocks": [
+        {
+            "align": 0,
+            "bits": "1e1fffff",
+            "hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
+            "level": 0,
+            "merkle_root": "0000000000000000000000000000000000000000000000000000000000000000",
+            "n_tx": 0,
+            "nonce": 388736,
+            "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "position": "0",
+            "pqp_commitment": "866d14c55b8e0523f53b9ba1e2b5e8554a859231f165bf6edb81f634d7ec22d7",
+            "pqp_entry": {
+                "miner_address": "GENISIS_LEADER_HEX",
+                "prev_pqp_commitment": "0000000000000000000000000000000000000000000000000000000000000000",
+                "queue_index": 0,
+                "signature": ""
+            },
+            "timestamp": 0,
+            "tx": [],
+            "version": 1
+        },
+        {
+            "align": 2,
+            "bits": "1e1fffff",
+            "hash": "000017c28e965ca4300143697f78b4cfd307979b55b677374db769f81db5231d",
+            "level": 1,
+            "merkle_root": "a32f8ca974cff8e31f488fe047e140a966133da915aeb74c7f553cdebe8169d1",
+            "n_tx": 1,
+            "nonce": 113941,
+            "parent_hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
+            "position": "0.2",
+            "pqp_commitment": "47796d35a930f6e547f6eccc30c3cada18fbb31f7ab6459b537fff7a4ed7b3a0",
+            "pqp_entry": {
+                "miner_address": "14C8aw8Wa6SUv1Cog83VwXJefb8yYmcVjW",
+                "prev_pqp_commitment": "866d14c55b8e0523f53b9ba1e2b5e8554a859231f165bf6edb81f634d7ec22d7",
+                "queue_index": 2,
+                "signature": "3044022010be604d050ac7a63746125303b2c681e52cce20b59ac01a290dbb9b4c28097a0220253a9bbe8dbc0489b6736c1a1c71f665342a99b8fd1aa69155cf0580f912e2be03b0a1fce6e9985e10e354f441082b65b396c791fad47f1929ef9d5c571ef665c3"
+            },
+            "timestamp": 1760438102356,
+            "tx": [
+                {
+                    "hash": "a32f8ca974cff8e31f488fe047e140a966133da915aeb74c7f553cdebe8169d1",
+                    "locktime": 0,
+                    "txid": "a32f8ca974cff8e31f488fe047e140a966133da915aeb74c7f553cdebe8169d1",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "323130333330353532353634393732303334323435574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a914230348dcabceafa2c34f6e41f4300cefbff60f7788ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "00001b550754979fde494c49e5cb84a288c7a4fe1bd6488086222757c1b0ca15",
+            "level": 1,
+            "merkle_root": "a223cc582bd88bde18e1842cf6a3b9ef89b33536ef02ed204a54741d83685fec",
+            "n_tx": 1,
+            "nonce": 1860,
+            "parent_hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
+            "position": "0.3",
+            "pqp_commitment": "726654f8c08920d22ae0955c5a7df28544a04a59d8220e317c7ef12e53835fcf",
+            "pqp_entry": {
+                "miner_address": "1AByDEZ1au16cBw78q1BcGcP2cfxcR1dmX",
+                "prev_pqp_commitment": "866d14c55b8e0523f53b9ba1e2b5e8554a859231f165bf6edb81f634d7ec22d7",
+                "queue_index": 3,
+                "signature": "304402207fc77f3bb64da351b702425c36cad74f85f09236db7b0d42cd16e300ab93f110022023a65b8de2402630921cf52474fdfc12f7e2013ecdc119f3f9b6eed80a24374a0206a384158003a822a242c75c82afc4ea9198debe0521873bdc1834abd0528019"
+            },
+            "timestamp": 1760438101065,
+            "tx": [
+                {
+                    "hash": "a223cc582bd88bde18e1842cf6a3b9ef89b33536ef02ed204a54741d83685fec",
+                    "locktime": 0,
+                    "txid": "a223cc582bd88bde18e1842cf6a3b9ef89b33536ef02ed204a54741d83685fec",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "333134303434383433323738363336313334313334574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a91464cc36d519481adb4126aff91a4edba32de611ac88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 1,
+            "bits": "1e1fffff",
+            "hash": "00000dab9e659e7dd8aa3445bd2803d9a22f1de88fff07f5093acbc08890aec7",
+            "level": 2,
+            "merkle_root": "593185cf8af1763dbfb65111e910b96dbb64a28c463ac7e439345c9e6b6af3c3",
+            "n_tx": 1,
+            "nonce": 143370,
+            "parent_hash": "000017c28e965ca4300143697f78b4cfd307979b55b677374db769f81db5231d",
+            "position": "0.2.1",
+            "pqp_commitment": "5e19856d6d94c73d092affbc572eed1d4f6977eb242933e8d204133fdfbe8084",
+            "pqp_entry": {
+                "miner_address": "1KPZNSxnZ15TXYsk654H1EQ8CHsgsz9eXu",
+                "prev_pqp_commitment": "866d14c55b8e0523f53b9ba1e2b5e8554a859231f165bf6edb81f634d7ec22d7",
+                "queue_index": 7,
+                "signature": "304402202f53db92d2e26f8a97b667baae947c5a40d38d57c0be5b5e0fc58d06570580360220702ba600cf9789b73a7a1347e23c1c017fd294f28d2280f428d6aefc04622b1003e1280e5020f079c93ce704d7c08023ff52d780f5f77d2faa1d1568fdce762687"
+            },
+            "timestamp": 1760438117052,
+            "tx": [
+                {
+                    "hash": "593185cf8af1763dbfb65111e910b96dbb64a28c463ac7e439345c9e6b6af3c3",
+                    "locktime": 0,
+                    "txid": "593185cf8af1763dbfb65111e910b96dbb64a28c463ac7e439345c9e6b6af3c3",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "3738333231313131323231393736363837303539574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a914c9b66fab1700ffd9d98cddad9b2d56f31291f4e888ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "00001f9024ab9dcddd920de75f68b839f1b5fb85753257f26e11f1d68ebffa0f",
+            "level": 2,
+            "merkle_root": "6ab35fbba3165f75436f9338363290fdab3bbf65b0831ac6c11ec6152e3d5bbd",
+            "n_tx": 1,
+            "nonce": 42749,
+            "parent_hash": "000017c28e965ca4300143697f78b4cfd307979b55b677374db769f81db5231d",
+            "position": "0.2.3",
+            "pqp_commitment": "049d2d35f56bfed5ad5807505df54bf4eb093c18c215ab70b1353c40dfaa0e97",
+            "pqp_entry": {
+                "miner_address": "1AByDEZ1au16cBw78q1BcGcP2cfxcR1dmX",
+                "prev_pqp_commitment": "726654f8c08920d22ae0955c5a7df28544a04a59d8220e317c7ef12e53835fcf",
+                "queue_index": 9,
+                "signature": "304502210093ae019c321c38abb853e0d64a3a588a1f1fd82f3e028c22b6eebad3f1e6207402206ec6cbb6e87194b66c8b95f3548ecd1884da83e9ab0c7de59d3e258e4bb5d66f0206a384158003a822a242c75c82afc4ea9198debe0521873bdc1834abd0528019"
+            },
+            "timestamp": 1760438112751,
+            "tx": [
+                {
+                    "hash": "6ab35fbba3165f75436f9338363290fdab3bbf65b0831ac6c11ec6152e3d5bbd",
+                    "locktime": 0,
+                    "txid": "6ab35fbba3165f75436f9338363290fdab3bbf65b0831ac6c11ec6152e3d5bbd",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "393130373935383938363339393733303832323631574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a91464cc36d519481adb4126aff91a4edba32de611ac88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 2,
+            "bits": "1e1fffff",
+            "hash": "00000750be2c350a4b5cac8c887b325d4fa4579af016bf0fef49cb94c991dad1",
+            "level": 2,
+            "merkle_root": "b59d420b5af807d5e80f367d3db3eaa1290216bf3a1ab5c81f27cdba5cff6d79",
+            "n_tx": 1,
+            "nonce": 113190,
+            "parent_hash": "00001b550754979fde494c49e5cb84a288c7a4fe1bd6488086222757c1b0ca15",
+            "position": "0.3.2",
+            "pqp_commitment": "3b77471a21e99bc0aa4924815abad59ea85b0ee05ef9c59f4ce7390885abdeac",
+            "pqp_entry": {
+                "miner_address": "14C8aw8Wa6SUv1Cog83VwXJefb8yYmcVjW",
+                "prev_pqp_commitment": "47796d35a930f6e547f6eccc30c3cada18fbb31f7ab6459b537fff7a4ed7b3a0",
+                "queue_index": 11,
+                "signature": "3045022100feed1e642aedf0339506a6b3c6ede3b8ea76abc207beda96cc915a0e87e6251b0220140d36f298c1de876c6ee45d4946124a89c1e79ecf97255d3706f4cfbad6775e03b0a1fce6e9985e10e354f441082b65b396c791fad47f1929ef9d5c571ef665c3"
+            },
+            "timestamp": 1760438162623,
+            "tx": [
+                {
+                    "hash": "b59d420b5af807d5e80f367d3db3eaa1290216bf3a1ab5c81f27cdba5cff6d79",
+                    "locktime": 0,
+                    "txid": "b59d420b5af807d5e80f367d3db3eaa1290216bf3a1ab5c81f27cdba5cff6d79",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "313138303231333030383735343137303831313230574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a914230348dcabceafa2c34f6e41f4300cefbff60f7788ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "00001484404320c719a0d4f3bb3ff17f3aec96c3f7a856c98a3f8f07e21f9ba0",
+            "level": 2,
+            "merkle_root": "61d3c03bc2d1063a06f5164ff58d0c0bb8302a0c7f415293afc8f4d4debe8c29",
+            "n_tx": 1,
+            "nonce": 307328,
+            "parent_hash": "00001b550754979fde494c49e5cb84a288c7a4fe1bd6488086222757c1b0ca15",
+            "position": "0.3.3",
+            "pqp_commitment": "90f49b35ad5c0ccdbdac121c9a68cfdc33a07aa79c9739ae2e9e36c2053434b2",
+            "pqp_entry": {
+                "miner_address": "1AByDEZ1au16cBw78q1BcGcP2cfxcR1dmX",
+                "prev_pqp_commitment": "049d2d35f56bfed5ad5807505df54bf4eb093c18c215ab70b1353c40dfaa0e97",
+                "queue_index": 12,
+                "signature": "3045022100dc71d4b911f1a10da8320f123a0403168ec725924dbea45d11707a5a3c29d72202203b9cd107e5582a391dc36bb45598fbd80e59238d76c1714f374a85b899a9a4a10206a384158003a822a242c75c82afc4ea9198debe0521873bdc1834abd0528019"
+            },
+            "timestamp": 1760438131232,
+            "tx": [
+                {
+                    "hash": "61d3c03bc2d1063a06f5164ff58d0c0bb8302a0c7f415293afc8f4d4debe8c29",
+                    "locktime": 0,
+                    "txid": "61d3c03bc2d1063a06f5164ff58d0c0bb8302a0c7f415293afc8f4d4debe8c29",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "313232363232353535393838323335373436383331574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a91464cc36d519481adb4126aff91a4edba32de611ac88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "000019ebcd9aafe1409e28785f685e072a7e8980d47aef9abfef36613e68ab3f",
+            "level": 3,
+            "merkle_root": "98c39cb2f80136c77b4b116ee83a758203669660a03d5de18d32c9195b4abb1b",
+            "n_tx": 1,
+            "nonce": 59537,
+            "parent_hash": "00000dab9e659e7dd8aa3445bd2803d9a22f1de88fff07f5093acbc08890aec7",
+            "position": "0.2.1.3",
+            "pqp_commitment": "38ee1db2d708f258f3d7b456b06ecbdc71819f05e3495c363acd665ec3c67534",
+            "pqp_entry": {
+                "miner_address": "1AByDEZ1au16cBw78q1BcGcP2cfxcR1dmX",
+                "prev_pqp_commitment": "90f49b35ad5c0ccdbdac121c9a68cfdc33a07aa79c9739ae2e9e36c2053434b2",
+                "queue_index": 24,
+                "signature": "3045022100d05ce109272b1b81ac787de84223022049549c19468e4f1997c2eeb9eca19ce50220688263c63dd3ed16e6bc3576c1bddade68e69e26428a918c798a6211bacd8da50206a384158003a822a242c75c82afc4ea9198debe0521873bdc1834abd0528019"
+            },
+            "timestamp": 1760438174756,
+            "tx": [
+                {
+                    "hash": "98c39cb2f80136c77b4b116ee83a758203669660a03d5de18d32c9195b4abb1b",
+                    "locktime": 0,
+                    "txid": "98c39cb2f80136c77b4b116ee83a758203669660a03d5de18d32c9195b4abb1b",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "32343137363635383038393431333238383036373235574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a91464cc36d519481adb4126aff91a4edba32de611ac88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 2,
+            "bits": "1e1fffff",
+            "hash": "0000002d809cc5f2b3db721a7ce4214f61d8a870cc264656e6cef8e7e2a11bf9",
+            "level": 3,
+            "merkle_root": "074e1c721acb8395439b426d1c56f30659d3b5ec3694d306d82e2c94102a2baf",
+            "n_tx": 1,
+            "nonce": 5269,
+            "parent_hash": "00001f9024ab9dcddd920de75f68b839f1b5fb85753257f26e11f1d68ebffa0f",
+            "position": "0.2.3.2",
+            "pqp_commitment": "d290e30ca1754e61ac4e40f39093c0b8a69b639fed299cb70da75180d68d6feb",
+            "pqp_entry": {
+                "miner_address": "14C8aw8Wa6SUv1Cog83VwXJefb8yYmcVjW",
+                "prev_pqp_commitment": "3b77471a21e99bc0aa4924815abad59ea85b0ee05ef9c59f4ce7390885abdeac",
+                "queue_index": 29,
+                "signature": "304402205191fb58b661a9cea09889e4e453c775a1bafb4e4b3370805b847f7fdc6c02e9022027af5521cc7c2479992ef2c5cd4105d1eeb1f066d48d4413ad24e94e47ae929103b0a1fce6e9985e10e354f441082b65b396c791fad47f1929ef9d5c571ef665c3"
+            },
+            "timestamp": 1760438191987,
+            "tx": [
+                {
+                    "hash": "074e1c721acb8395439b426d1c56f30659d3b5ec3694d306d82e2c94102a2baf",
+                    "locktime": 0,
+                    "txid": "074e1c721acb8395439b426d1c56f30659d3b5ec3694d306d82e2c94102a2baf",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "32393131303333373931373532393230373537343939574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a914230348dcabceafa2c34f6e41f4300cefbff60f7788ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "00000327ed60bdbf17266157d8a0fbd38518754a4d58c99f8d6c702ddce2cbed",
+            "level": 3,
+            "merkle_root": "9385698a2c24fabe215f93c743c6e18f9587b25a2996b036f96d0afa4f874bd3",
+            "n_tx": 1,
+            "nonce": 101198,
+            "parent_hash": "00001f9024ab9dcddd920de75f68b839f1b5fb85753257f26e11f1d68ebffa0f",
+            "position": "0.2.3.3",
+            "pqp_commitment": "e2d1616781cfa60f3e7120be476de17b066d267466a588dd19b73ddd781b1f47",
+            "pqp_entry": {
+                "miner_address": "1AByDEZ1au16cBw78q1BcGcP2cfxcR1dmX",
+                "prev_pqp_commitment": "38ee1db2d708f258f3d7b456b06ecbdc71819f05e3495c363acd665ec3c67534",
+                "queue_index": 30,
+                "signature": "3045022100978c3cf3129a56bcb39723786ba38833379bebd078d66538f5ddb9c4a5d9c12d022068fe0ca2d0f22b9ff6ce1b4a03c0eba28d08998a7cb42926a68bd843a2cbb56b0206a384158003a822a242c75c82afc4ea9198debe0521873bdc1834abd0528019"
+            },
+            "timestamp": 1760438181086,
+            "tx": [
+                {
+                    "hash": "9385698a2c24fabe215f93c743c6e18f9587b25a2996b036f96d0afa4f874bd3",
+                    "locktime": 0,
+                    "txid": "9385698a2c24fabe215f93c743c6e18f9587b25a2996b036f96d0afa4f874bd3",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "33303130353036383832383137393933303639373233574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a91464cc36d519481adb4126aff91a4edba32de611ac88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 2,
+            "bits": "1e1fffff",
+            "hash": "000003bb84cf93be918d3a09020ef4d8c06cbb6e203c17e1506d420c5db50daf",
+            "level": 3,
+            "merkle_root": "47959c577d74af6480fab996e90601e967d12ff2280bae97f81efeecf13b4671",
+            "n_tx": 1,
+            "nonce": 7066,
+            "parent_hash": "00000750be2c350a4b5cac8c887b325d4fa4579af016bf0fef49cb94c991dad1",
+            "position": "0.3.2.2",
+            "pqp_commitment": "5748b94276437cee7e5a220e387e7d730f04e9d98ccafc29c92f3b5c2c0eadb1",
+            "pqp_entry": {
+                "miner_address": "13jhv2z66L4qJCBGkfJvhhNy4zYEPFQRYp",
+                "prev_pqp_commitment": "d290e30ca1754e61ac4e40f39093c0b8a69b639fed299cb70da75180d68d6feb",
+                "queue_index": 35,
+                "signature": "3045022100d1567e8b64fde6ad22b10d8c579d38001aa336fd79623d24c619db640187619602201131b97bf20f61d0758539f128828f4e25f6b13dc199b66506158fa56876d37802d752ab1978b8d42d3412f3bae7ca91bd946fff98a4e64717b2590d6106ecf412"
+            },
+            "timestamp": 1760438201904,
+            "tx": [
+                {
+                    "hash": "47959c577d74af6480fab996e90601e967d12ff2280bae97f81efeecf13b4671",
+                    "locktime": 0,
+                    "txid": "47959c577d74af6480fab996e90601e967d12ff2280bae97f81efeecf13b4671",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "3335383330303230323631373433373230373133574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a9141e03e02554e25ead7345ee4527eb12889781c4af88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "000017e231d79c3f691b5ef1f6fcfe0f6dcac73f305365b3b1d445e8465f8838",
+            "level": 3,
+            "merkle_root": "51d5734928d4126bda42abb3a145795c3b32328d805c8f23817c67934b88dfc6",
+            "n_tx": 1,
+            "nonce": 86273,
+            "parent_hash": "00000750be2c350a4b5cac8c887b325d4fa4579af016bf0fef49cb94c991dad1",
+            "position": "0.3.2.3",
+            "pqp_commitment": "28001d57c4fe419bec921b4023140296d2f44bb2e938c4b5c6dc5d687d400112",
+            "pqp_entry": {
+                "miner_address": "1AByDEZ1au16cBw78q1BcGcP2cfxcR1dmX",
+                "prev_pqp_commitment": "e2d1616781cfa60f3e7120be476de17b066d267466a588dd19b73ddd781b1f47",
+                "queue_index": 36,
+                "signature": "3044022044f54072a797dafd0e63c024efadb769288536717a2e231d8ed281f73dcae515022075bd53d402c882d0daf75c6ccde6e703e15f3f899bb2fea11b577e8d3d5bbbfd0206a384158003a822a242c75c82afc4ea9198debe0521873bdc1834abd0528019"
+            },
+            "timestamp": 1760438192658,
+            "tx": [
+                {
+                    "hash": "51d5734928d4126bda42abb3a145795c3b32328d805c8f23817c67934b88dfc6",
+                    "locktime": 0,
+                    "txid": "51d5734928d4126bda42abb3a145795c3b32328d805c8f23817c67934b88dfc6",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "333632393531383235383032313930333731353636574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a91464cc36d519481adb4126aff91a4edba32de611ac88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 2,
+            "bits": "1e1fffff",
+            "hash": "00000493c29cf69db803534f7206185181edff54b3368f14ce7e91b61a0b12d4",
+            "level": 3,
+            "merkle_root": "f01b0bd92fdbc082e59c46fa1a4e7ba3823895f9d14e21a5dd06185bd78f51ed",
+            "n_tx": 1,
+            "nonce": 281702,
+            "parent_hash": "00001484404320c719a0d4f3bb3ff17f3aec96c3f7a856c98a3f8f07e21f9ba0",
+            "position": "0.3.3.2",
+            "pqp_commitment": "5cb358c06107d6423ad2800609949af74ede0256651145264eb416e6d8a1602d",
+            "pqp_entry": {
+                "miner_address": "14C8aw8Wa6SUv1Cog83VwXJefb8yYmcVjW",
+                "prev_pqp_commitment": "5748b94276437cee7e5a220e387e7d730f04e9d98ccafc29c92f3b5c2c0eadb1",
+                "queue_index": 38,
+                "signature": "304402202f1f51d19c3fa915bd6e6801584dc3ef5bf9fa8d62ec76483e27656a80a25f2202204933ed9cbba289e3bb80f1e6b0d2d6c6c42cdcf2057edd18cb7d1ed11af4ffd403b0a1fce6e9985e10e354f441082b65b396c791fad47f1929ef9d5c571ef665c3"
+            },
+            "timestamp": 1760438221196,
+            "tx": [
+                {
+                    "hash": "f01b0bd92fdbc082e59c46fa1a4e7ba3823895f9d14e21a5dd06185bd78f51ed",
+                    "locktime": 0,
+                    "txid": "f01b0bd92fdbc082e59c46fa1a4e7ba3823895f9d14e21a5dd06185bd78f51ed",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "333835343137363636313135333332383430363533574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a914230348dcabceafa2c34f6e41f4300cefbff60f7788ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "000018c91ccab21abeb8dd7c289e197a02364f9143017a4c4b9474f718e7dec8",
+            "level": 3,
+            "merkle_root": "7883153dc0ff2966d24e1c80afea2f40f56c82d89acd8e9db4845172457bbc01",
+            "n_tx": 1,
+            "nonce": 174984,
+            "parent_hash": "00001484404320c719a0d4f3bb3ff17f3aec96c3f7a856c98a3f8f07e21f9ba0",
+            "position": "0.3.3.3",
+            "pqp_commitment": "0d694ec1ff9566b6086939b7a237b89277472ebeee825d7f79be425318757ebb",
+            "pqp_entry": {
+                "miner_address": "1AByDEZ1au16cBw78q1BcGcP2cfxcR1dmX",
+                "prev_pqp_commitment": "28001d57c4fe419bec921b4023140296d2f44bb2e938c4b5c6dc5d687d400112",
+                "queue_index": 39,
+                "signature": "3045022100ecf6093e1e81a77d501c782ffda4800d5488065b4e76a6fe45036db2ddb7304602200278353d92bc34de7315d2b4d2f177338ea35bd84c4128c0184cb222023749c10206a384158003a822a242c75c82afc4ea9198debe0521873bdc1834abd0528019"
+            },
+            "timestamp": 1760438202778,
+            "tx": [
+                {
+                    "hash": "7883153dc0ff2966d24e1c80afea2f40f56c82d89acd8e9db4845172457bbc01",
+                    "locktime": 0,
+                    "txid": "7883153dc0ff2966d24e1c80afea2f40f56c82d89acd8e9db4845172457bbc01",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "33393133303839353136343832343231323839333730574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a91464cc36d519481adb4126aff91a4edba32de611ac88ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 2,
+            "bits": "1e1fffff",
+            "hash": "0000122b133e74fe492672345dcc8da8e3ce6129cafc9a635035ea223eb925fc",
+            "level": 4,
+            "merkle_root": "4a83f710c538b652a8ce6cc3f793978e3d59c3e567d17e91381f037ca3437d3b",
+            "n_tx": 1,
+            "nonce": 877695,
+            "parent_hash": "000019ebcd9aafe1409e28785f685e072a7e8980d47aef9abfef36613e68ab3f",
+            "position": "0.2.1.3.2",
+            "pqp_commitment": "79fdf24bfe774f4c4abc8690d329c7a25b783ae9ee805be82fab408383586cf6",
+            "pqp_entry": {
+                "miner_address": "14C8aw8Wa6SUv1Cog83VwXJefb8yYmcVjW",
+                "prev_pqp_commitment": "5cb358c06107d6423ad2800609949af74ede0256651145264eb416e6d8a1602d",
+                "queue_index": 74,
+                "signature": "30440220798df3e29953dc0054c7483872cfab3b198ac65d3891674d7afd36c08d838c290220392fd0dd7a10d1edbd254564a75403344e0383f351fd3d49cb81dbd4e81ae1ed03b0a1fce6e9985e10e354f441082b65b396c791fad47f1929ef9d5c571ef665c3"
+            },
+            "timestamp": 1760438278425,
+            "tx": [
+                {
+                    "hash": "4a83f710c538b652a8ce6cc3f793978e3d59c3e567d17e91381f037ca3437d3b",
+                    "locktime": 0,
+                    "txid": "4a83f710c538b652a8ce6cc3f793978e3d59c3e567d17e91381f037ca3437d3b",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "373432393138343231323533373135373430373233574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a914230348dcabceafa2c34f6e41f4300cefbff60f7788ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        },
+        {
+            "align": 3,
+            "bits": "1e1fffff",
+            "hash": "00001129c0c02349c0010958592c3a11e02f561490946018b3760404c1a6fda3",
+            "level": 4,
+            "merkle_root": "912912658352eec9a2b88062046e3f0d22f7e6fa07e0c8bf83e8eb88a80957b4",
+            "n_tx": 1,
+            "nonce": 305050,
+            "parent_hash": "000019ebcd9aafe1409e28785f685e072a7e8980d47aef9abfef36613e68ab3f",
+            "position": "0.2.1.3.3",
+            "pqp_commitment": "1de822bd5318b2bfb508cff1f02f4445f9e1583da9d8f7b5be544e5bf9d10e82",
+            "pqp_entry": {
+                "miner_address": "1Htw8BeUj5WjtCMNfWyDtTScH3sWspaLf7",
+                "prev_pqp_commitment": "0d694ec1ff9566b6086939b7a237b89277472ebeee825d7f79be425318757ebb",
+                "queue_index": 75,
+                "signature": "304402206245181c832612003609f66071567f2567ebd8a24269c8a8449fbfc1069cafe3022068bde23059433e0075876786c2208d904422155f939f7affd78848e81758f219025553fb71af957eb213d6a477519b86c73e812d169c068c543f9ff2d8d0d668eb"
+            },
+            "timestamp": 1760438248600,
+            "tx": [
+                {
+                    "hash": "912912658352eec9a2b88062046e3f0d22f7e6fa07e0c8bf83e8eb88a80957b4",
+                    "locktime": 0,
+                    "txid": "912912658352eec9a2b88062046e3f0d22f7e6fa07e0c8bf83e8eb88a80957b4",
+                    "version": 1,
+                    "vin": [
+                        {
+                            "script_sig": "37353135373430333830323639343033333136383831574f57",
+                            "sequence": 4294967295,
+                            "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                            "vout": 4294967295
+                        }
+                    ],
+                    "vout": [
+                        {
+                            "script_pubkey": "76a914b954682b423bc3f622438ad6b2fca94236f35bb488ac",
+                            "value": 5000000000
+                        }
+                    ],
+                    "witnesses": null
+                }
+            ],
+            "version": 1
+        }
+    ],
+    "status": "success"
 }
-```
----
-## 🧩 PQP Entry Structure
-
-Each entry in the **Parent Queue Pool (PQP)** contains essential metadata about blocks that will act as parents in the TreeChain.
-
-- 🆔 **queue_index**: Position in the PQP (sequential, deterministic).
-- 🔗 **block_hash**: Unique hash of the newly created block.
-- 🌳 **parent_hash**: Hash of the parent block from which this block was derived.
-- 👤 **leader_address**: Identity/public key of the block-producing leader.
-- ✍️ **signature**: Digital signature by the leader proving authorship and integrity.
-
----
-
-## 🧱 How is the PQP Updated?
-
-In **TreeChain**, the PQP is updated in a decentralized and verifiable way by embedding the entry **directly inside the block**.
-
-- 📦 The `pqp_entry` is included in the block body at the time of block creation.
-- 🌐 All nodes extract the `pqp_entry` upon receiving the block.
-- 📋 Each node appends the entry to their **local PQP** based on queue rules.
-- ✅ The block itself serves as **cryptographic proof** of the PQP entry.
-
----
-
-## ✅ Why Embed PQP Inside the Block?
-
-- 🔒 **Integrity**: If the block is valid, its PQP entry is inherently valid.
-- 🧩 **Simplicity**: No extra gossip or sync mechanism is needed for the queue.
-- ⚙️ **Consistency**: All nodes see the same PQP if they agree on the TreeChain.
-
----
-
-## 🔄 Alternative Design: Gossip-Based PQP (Advanced)
-
-A more modular design is possible for future versions of TreeChain:
-
-- 📡 Leaders broadcast PQP entries **separately** after block creation.
-- 🤖 Network nodes validate and append entries via a **gossip protocol**.
-- ❗ Requires **conflict resolution rules** for duplicated or invalid entries.
-- 🧪 Useful for large-scale networks or upgrades needing **flexible PQP consensus**.
-
-> 💡 This approach trades simplicity for greater control and decoupling — and is ideal for advanced implementations of TreeChain.
-
-
-## 🔁 Why is the Parent Queue Pool (PQP) a Double-Ended Queue?
-
-Although TreeChain typically **adds entries at the end** and **removes from the front**, the Parent Queue Pool (PQP) is intentionally implemented as a **double-ended queue (deque)** to support rollback, error correction, and flexible consensus mechanisms.
-
-### 🧨 When Is the Back Used for Removal?
-
-- ✅ New `pqp_entry` blocks are added to the **back** (right side).
-- ✅ Parents are removed from the **front** (left side) once they produce two children.
-- ❗ If a **block is found malicious or invalid**, TreeChain must **rollback that branch**.
-- 🔄 The rollback process **removes children from the back**, and for every child removed:
-  - Its **parent is added to the front** of the PQP.
-- 🧠 This enables TreeChain to re-assign trustworthy parents for future block creation.
-
-### 🧩 PQP Entry Structure
-
-- 🆔 **queue_index**: Position in the PQP (sequential and unique).
-- 🔗 **block_hash**: Hash of the new block that becomes a parent.
-- 🌳 **parent_hash**: Hash of the block’s parent.
-- 👤 **leader_address**: Address or public key of the block-producing leader.
-- ✍️ **signature**: Signature by the leader, proving authorship.
-
-### 🧩 Rollback Rule Summary
-
-- 🔄 If any block is removed from the back:
-  - Its **parent** is **re-added to the front**.
-  - Ofcourse if the **parent** is already in the **pqp** then it wont get added.
-- 🔁 This process repeats until the invalid block is removed.
-- ✅ Ensures no valid branch is permanently lost due to one faulty child.
-
-### 🔒 If its a Confirmed-Only Consensus Variant
-
-> Only blocks that are confirmed or finalized are allowed to enter the PQP, so this problem won't arise.
-
-- 🚫 Prevents unconfirmed blocks from ever entering the tree.
-- 🧱 Guarantees only stable, trusted blocks can become parents.
-- ⚙️ Eliminates the need for rollback mechanisms entirely.
-
-### 📌 Why Double-Ended Matters
-
-- ⬅️ **Left side (front)**: Used to re-add safe parent blocks during rollbacks.
-- ➡️ **Right side (back)**: Used to append newly created child blocks.
-
----
-
-### 🌳 Example 1: Rolling Back a Single Malicious Block
-
-- Initial Tree Structure:
-```
-   B1
-  /  \
-B2   B3 ← Malicious Block
-
-```
-
-- PQP before rollback:
-  - PQP → [B2, B3]
-
-- Rollback steps:
-- ❌ Remove B3 from the back (invalid block)
-- 🔁 Add B1 (its parent) to the front
-
-- PQP after rollback:
-  - PQP → [B1, B2]
-
----
-### 🌲 Example 2: Rolling Back a Deep Subtree
-
-#### 🧱 Genesis
-```
-  B
-```
-
-- ✅ PQP: `[B]`
-
-
-#### 🧱 Level 1 – Children of B
-```
-    B
-   / \
- L1   R1
-```
-
-
-- L1 and R1 are created from B.
-
-- ✅ PQP: `[L1, R1]`
-
-#### 🧱 Level 2 – Children of L1
-```
-      B
-     / \
-   L1   R1
-  /  \
-L11  L12
-```
-
-- L11 and L12 created from L1.
-
-- ✅ PQP: `[R1, L11, L12]`
-
-#### 🧱 Level 3 – Children of R1
-
-```
-          B
-         / \
-       L1   R1
-      / \   / \
-   L11 L12 R11 R12
-```
-
-- R11 and R12 created from R1.
-
-- ✅ PQP: `[L11, L12, R11, R12]`
-
-
-#### 🧱 Level 4 – Children of L11
-
-```
-          B
-         / \
-       L1   R1
-      / \   / \
-   L11 L12 R11 R12
-  /   \
-L111 L112
-```
-
-
-- L111 and L112 created from L11.
-
-- ✅ PQP: `[L12, R11, R12, L111, L112]`
-
-
-#### 🧱 Level 5 – Children of L12
-
-```
-              B
-           /     \
-         /         \
-        L1          R1
-      /    \       /   \
-   L11       L12  R11   R12
-  /   \     /   \
-L111 L112  L121  L122 
-```
-
-
-- L121 and L122 created from L12.
-
-- ✅ PQP: `[R11, R12, L111, L112, L121, L122]`
-
-### ❌ `L11` is Found to be Malicious – Rollback Begins
-
-- We now rollback all its descendants and repair the PQP.
-
-#### 🔁 Step 1: Pop `L122` → Add parent `L12`
-
-- ✅ PQP: `[L12, R11, R12, L111, L112, L121]`
-
-
-#### 🔁 Step 2: Pop `L121` → `L12` already in PQP → skip adding
-
-- ✅ PQP: `[L12, R11, R12, L111, L112]`
-
-
-#### 🔁 Step 3: Pop `L112` → Add parent `L11` (malicious)
-
-- `L11` is malicious → ❌ do **not** add to PQP
-
-- ✅ PQP: `[L12, R11, R12, L111]`
-
-
-#### 🔁 Step 4: Pop `L111` → `L11` already flagged malicious → skip
-
-- ✅ PQP: `[L12, R11, R12]`
-
-### ✅ Final Tree After Rollback
-
-```
-           B
-         /   \
-       L1     R1
-         \   /  \
-         L12 R11 R12
-          
-     L121  L122   ← removed
-
-```
-
-
-- `L11`, `L111`, and `L112` are removed.
-- `L12` is now active and ready to continue growth.
-
-#### 📌 Final PQP After Rollback
-
-- ✅ PQP: `[L12, R11, R12]`
-
-
----
-
-
-## ✅ TreeChain’s Structure Tolerates Partial Growth
-
-- 🌳 **TreeChain is not strictly binary** — the 2-child model is just the ideal case.
-- 🧩 **Parents are not required to have both children** at the same time.
-- ❌ If a **child is invalidated**, the remaining child still stays valid and active.
-- ✂️ Similar to **Merkle tree pruning** — we trim only the bad branch, not the whole structure.
-- 🔁 The tree continues to grow from the valid parts without requiring full resets.
-- 🛡️ So, L1 having only `L12` after `L11` is removed is **not a violation**, but a **resilient fallback**.
-
-### 🔄 TreeChain vs Linear Blockchain in Fault Recovery
-
-Let's compare how a malicious block affects both systems.
-
-#### 🧱 TreeChain Example:
-
-- Total blocks produced: 11
-- Malicious block: L11 (4th level)
-- Blocks removed: L11, L111, L112, L121, L122 → Total = 5
-- Surviving blocks: 6 (L12, R1, R11, R12, B, L1)
-
-✅ Recovery: Tree continues from L12 without restarting.
-
-
-#### 🔗 Traditional Linear Blockchain:
-
-- Total blocks produced: 11
-- Malicious block: Block 4
-- All blocks after Block 4 are invalid.
-- Blocks removed: Blocks 4 to 11 → Total = 8
-- Chain rolls back to Block 3 and **restarts**
-
-❌ Recovery: Everything after the bad block is lost.
-
-
-### ✅ Summary
-
-| Model           | Malicious Block | Blocks Lost | Resumes From | Parallel Damage Limit |
-|----------------|------------------|-------------|--------------|------------------------|
-| TreeChain      | L11              | 5           | L12          | Only from bad subtree  |
-| Linear Chain   | Block 4          | 8           | Block 3      | Entire rest of chain   |
-
-TreeChain offers **localized damage recovery**, while linear chains require **global rollback**.
----
-### ✨ Key Insight: Resilience of TreeChain
-
-- ⚠️ Even when a block in **TreeChain** is found **malicious**...
-- 🌳 ...the **tree doesn't collapse** like in traditional blockchains.
-- 🔄 It **adapts and continues** from unaffected valid paths.
-- 🚫 No need to discard the entire chain — only the affected subtree is pruned.
-- ✅ This is the **core strength** of TreeChain over **linear blockchain models**.
----
-
-### 🔒 Confirmed-Only PQP Consensus: No Rollbacks Needed
-
-- ✅ In this model, only **confirmed or finalized blocks** are allowed to submit `pqp_entry` into the Parent Queue Pool (PQP).
-- 🧱 This ensures that **only trusted and validated blocks** become future parents.
-- 🚫 Malicious or unconfirmed blocks are **never added to the PQP**, even temporarily.
-- 🔄 As a result, there's **no need for rollback or subtree pruning**, since no bad blocks reach the parent layer.
-- 🧠 This approach shifts the focus to **stronger pre-confirmation consensus** (e.g., BFT, finality gadgets).
-- 🛡️ Ideal for networks that prioritize **absolute safety** over immediate liveness or parallelism.
-
-> ⚖️ Tradeoff: While it avoids rollback risk, it may introduce **delays** in PQP updates due to waiting for confirmations.
-
-- 🌳 However, as the tree grows wide (more branches, more active parents), it creates a **large buffer** of parallel growth.
-- 🚀 Even if one branch is waiting for confirmation, others can continue producing blocks — keeping throughput high.
-- 🧠 The wider the TreeChain becomes, the **less noticeable** the confirmation delay becomes.
-- ✅ This makes **confirmed-only PQP models highly scalable and resilient**, especially in large validator networks.
-
-> TreeChain doesn’t rely on a single path — **parallelism makes confirmation delays nearly invisible at scale**.
-
----
-### 🛡️ Is the Parent Queue Pool (PQP) Centralized?
-
-- ❌ No — although the PQP may look like a global scheduler, it is **completely decentralized**.
-- ✅ Each `pqp_entry` is embedded inside blocks and validated independently by every node.
-- 🔁 All updates to the PQP are **deterministic**, **signed**, and **locally reconstructable**.
-- 🌐 There is **no central authority**, no off-chain queue manager, and no extra protocol layer needed.
-- 🧠 Think of PQP like a **Merkle Tree root** — all nodes agree on it, but no one "hosts" it.
-
