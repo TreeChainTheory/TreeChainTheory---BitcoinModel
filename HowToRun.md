@@ -127,12 +127,66 @@
   - **Use the frontend UI to:**
     - View blocks and PQP entries
     - Observe live mining activity
-    - Create and broadcast transactions
+    - Create and broadcast All types of transactions
+   
+# Explore the frontend 
+---
+- **Home page** -> Consists of all the **Overview** of the model
+<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/8e11d694-d4a3-4094-b8ad-6a04a7b03ab0" />
+
+---
+- **Mining Page** -> Start/Stop mining , list of connected nodes , transaction pool & Utxo set
+<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/94f5c5b8-200f-4667-8ff2-b971a967ad4b" />
+
+---
+- **Wallet Page** -> Get Balance , Create **Normal**, **Multisig** txns , Create **Unsigned** txn for multisig , **Sign**, **Spend**
+<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/64d73639-642f-4e02-b531-7561e3f2d7f0" />
+
+---
+- **Tree Page** -> View the **Blocks** in **Queue Index** order , **Tree View** & **Level View** and Also look at the **PQP** 
+<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/93b2d985-ad71-4495-8355-070b42dc22b5" />
+
+---
+# Txns Testing ( P2PKH , P2SH -> m-of-n multisig)
+## Create Normal P2PKH txn
+- Paste wallet address of the receiver
+- enter the amount and fee , send
+- you can see the json response of the txn
+<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/89c74264-0381-4d96-a104-61198642b768" />
+
+## Create P2SH Mutlsig txn (m-of-n)
+- Enter the pubkeys
+- Enter the M (should not be more than N)
+- Enter value and fee
+<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/bbf46872-b033-4f80-90a3-c2a3790cb5da" />
+
+- Find the txid by pasting the pubkeys and m
+<img width="400" height="150" alt="image" src="https://github.com/user-attachments/assets/e8160a38-e96b-41a2-817e-e8b4378538a3" />
+
+## Process of Spending the Multisig Utxo
+- After Finding the Txid of the multisig txn
+- Paste the Txid & vout
+- Paste pubkeys , m
+- Enter the Address , Value and Fee (Note: Make sure there is no remainder of the amount left in the multisig utxo)
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/de6fe76d-80ab-4286-ad42-6dd5acffa831" />
+
+- Copy Json of the unsigned Txns
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/36589a82-62a6-44dc-b71e-8a325a16d944" />
+
+- Get the Signatures of atleast m pubkeys
+- Paste the Txid & vout of the spending multisig utxo
+- Paste the Json Unsigned txn 
+- Paste the pubkey , m
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/52669c10-a69b-4942-a997-09665deb6172" />
+
+- Paste the unsigned txn , pubkeys , m and the collected **Signatures** and click Spend
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/ec41fee0-6488-4e3e-8d17-f628fad08f3b" />
+
 
 ## Access Through Backends (API Testing)
 
   - To verify or interact directly with the backends using Postman or curl:
-    - See the file: `accessThroughBackends.md`
+    - See the file: `./ApiAccess.md`
 
   - **Description:**
     - This file includes all REST endpoints for backend nodes
