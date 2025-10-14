@@ -375,10 +375,10 @@ function WalletPage() {
           onChange={(e) => setFormData({...formData, pubkeys: e.target.value})}
           className="w-full p-2 rounded bg-white/10 text-white mb-4 h-20"
         />
-        <input name="m" type="number" placeholder="m" value={formData.m} onChange={(e) => setFormData({...formData, m: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-2" />
+        <input name="m" type="number" placeholder="m" value={formData.m || ''} onChange={(e) => setFormData({...formData, m: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-2" />
         <div className="grid grid-cols-2 gap-4 mb-4">
-          <input placeholder="Value (BTC)" value={formData.multisigValue_btc} onChange={(e) => setFormData({...formData, multisigValue_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
-          <input placeholder="Fee (BTC)" value={formData.multisigFee_btc} onChange={(e) => setFormData({...formData, multisigFee_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
+          <input placeholder="Value (BTC)" value={formData.multisigValue_btc || ''} onChange={(e) => setFormData({...formData, multisigValue_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
+          <input placeholder="Fee (BTC)" value={formData.multisigFee_btc || ''} onChange={(e) => setFormData({...formData, multisigFee_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
         </div>
         <button onClick={handleMultisigCreate} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
           {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Create'}
@@ -420,10 +420,10 @@ function WalletPage() {
         <h2 className="text-2xl text-white mb-4">Create Spending Multisig TX (Unsigned)</h2>
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <input placeholder="TXID" value={formData.spendTxid} onChange={(e) => setFormData({...formData, spendTxid: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
-          <input type="number" placeholder="Vout" value={formData.spendVout} onChange={(e) => setFormData({...formData, spendVout: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white" />
+          <input type="number" placeholder="Vout" value={formData.spendVout || '' } onChange={(e) => setFormData({...formData, spendVout: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white" />
         </div>
         <textarea placeholder="Pubkeys (comma-separated)" value={formData.spendPubkeys} onChange={(e) => setFormData({...formData, spendPubkeys: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-20" />
-        <input name="spendM" type="number" placeholder="m" value={formData.spendM} onChange={(e) => setFormData({...formData, spendM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-2" />
+        <input name="spendM" type="number" placeholder="m" value={formData.spendM || ''} onChange={(e) => setFormData({...formData, spendM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-2" />
         <div className="grid md:grid-cols-3 gap-4 mb-4">
           <input placeholder="To Address" value={formData.spendToAddress} onChange={(e) => setFormData({...formData, spendToAddress: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
           <input placeholder="Value (BTC)" value={formData.spendValue_btc} onChange={(e) => setFormData({...formData, spendValue_btc: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
@@ -449,11 +449,11 @@ function WalletPage() {
         <h2 className="text-2xl text-white mb-4">Sign Multisig</h2>
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <input placeholder="TXID" value={formData.signTxid} onChange={(e) => setFormData({...formData, signTxid: e.target.value})} className="p-2 rounded bg-white/10 text-white" />
-          <input type="number" placeholder="Vout" value={formData.signVout} onChange={(e) => setFormData({...formData, signVout: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white" />
+          <input type="number" placeholder="Vout" value={formData.signVout || ''} onChange={(e) => setFormData({...formData, signVout: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white" />
         </div>
         <textarea placeholder="Spending TX JSON" value={formData.spendingTxJson} onChange={(e) => handleTextareaChange(e, 'spendingTxJson')} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-32" />
         <textarea placeholder="Pubkeys (comma-separated)" value={formData.signPubkeys} onChange={(e) => setFormData({...formData, signPubkeys: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-20" />
-        <input name="signM" type="number" placeholder="m" value={formData.signM} onChange={(e) => setFormData({...formData, signM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-4" />
+        <input name="signM" type="number" placeholder="m" value={formData.signM || ''} onChange={(e) => setFormData({...formData, signM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-4" />
         <button onClick={handleSignMultisig} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
           {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Sign'}
         </button>
@@ -470,7 +470,7 @@ function WalletPage() {
         <h2 className="text-2xl text-white mb-4">Spend Multisig TX</h2>
         <textarea placeholder="Spending TX JSON" value={formData.spendSpendingTxJson} onChange={(e) => handleTextareaChange(e, 'spendSpendingTxJson')} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-32" />
         <textarea placeholder="Pubkeys (comma-separated)" value={formData.spendPubkeys} onChange={(e) => setFormData({...formData, spendPubkeys: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-2 h-20" />
-        <input name="spendM" type="number" placeholder="m" value={formData.spendM} onChange={(e) => setFormData({...formData, spendM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-2" />
+        <input name="spendM" type="number" placeholder="m" value={formData.spendM || ''} onChange={(e) => setFormData({...formData, spendM: parseInt(e.target.value)})} className="p-2 rounded bg-white/10 text-white mb-2" />
         <textarea placeholder="Sigs (comma-separated hex)" value={formData.sigs} onChange={(e) => setFormData({...formData, sigs: e.target.value})} className="w-full p-2 rounded bg-white/10 text-white mb-4 h-20" />
         <button onClick={handleSpendMultisig} disabled={submitting} className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
           {submitting ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div> : 'Spend'}

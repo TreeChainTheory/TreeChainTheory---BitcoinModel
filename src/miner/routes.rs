@@ -118,7 +118,11 @@ async fn start_mining(
                 let tx: Vec<Transaction>;
                 {
                     let txn_pool = txn_pool.lock().await;
-                    tx = txn_pool.select_transactions(1024 * 10, align.clone(), &prev_pqp.clone());
+                    tx = txn_pool.select_transactions(
+                        1024 * 10,
+                        align.clone(),
+                        &parent_hash.clone(),
+                    );
                     println!("🤔🤔 selected txns: {:?}", tx);
                     drop(txn_pool);
                 }
