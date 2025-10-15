@@ -1,4 +1,3 @@
-
 # 🚀 How to Run TreeChainTheorey – Bitcoin Model
 
 ---
@@ -140,7 +139,8 @@
 
 ---
 - **Wallet Page** -> Get Balance , Create **Normal**, **Multisig** txns , Create **Unsigned** txn for multisig , **Sign**, **Spend**
-<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/64d73639-642f-4e02-b531-7561e3f2d7f0" />
+<img width="400" height="314" alt="image" src="https://github.com/user-attachments/assets/ca009e0a-d39e-4ba8-9f0b-ac5f96bd72a9" />
+
 
 ---
 - **Tree Page** -> View the **Blocks** in **Queue Index** order , **Tree View** & **Level View** and Also look at the **PQP** 
@@ -152,35 +152,50 @@
 - Paste wallet address of the receiver
 - enter the amount and fee , send
 - you can see the json response of the txn
-<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/89c74264-0381-4d96-a104-61198642b768" />
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/b78b764a-c398-4e13-abf8-e194d103f9c9" />
+<img width="400" height="320" alt="image" src="https://github.com/user-attachments/assets/0e46e4c2-77e1-46df-b712-26357e53a89f" />
+
+
 
 ## Create P2SH Mutlsig txn (m-of-n)
 - Enter the pubkeys
 - Enter the M (should not be more than N)
 - Enter value and fee
-<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/bbf46872-b033-4f80-90a3-c2a3790cb5da" />
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/107fb178-d125-4436-9f81-1f7c6b4b5e49" />
 
 - Find the txid by pasting the pubkeys and m
-<img width="400" height="150" alt="image" src="https://github.com/user-attachments/assets/e8160a38-e96b-41a2-817e-e8b4378538a3" />
+<img width="400" height="150" alt="image" src="https://github.com/user-attachments/assets/d70d21a5-971f-4e4d-a18d-03a98f545aab" />
+
+- response seems like this
+<img width="400" height="150" alt="image" src="https://github.com/user-attachments/assets/02e66c19-873f-4ebc-adcf-0e27678efca7" />
+
 
 ## Process of Spending the Multisig Utxo
 - After Finding the Txid of the multisig txn
 - Paste the Txid & vout
 - Paste pubkeys , m
 - Enter the Address , Value and Fee (Note: Make sure there is no remainder of the amount left in the multisig utxo)
-<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/de6fe76d-80ab-4286-ad42-6dd5acffa831" />
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/a066e2f0-1c9a-4dcd-98ca-eb31f45ce05f" />
+
 
 - Copy Json of the unsigned Txns
-<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/36589a82-62a6-44dc-b71e-8a325a16d944" />
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/d74be1dd-5610-4cae-be35-d5e8be371392" />
+
 
 - Get the Signatures of atleast m pubkeys
 - Paste the Txid & vout of the spending multisig utxo
 - Paste the Json Unsigned txn 
 - Paste the pubkey , m
-<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/52669c10-a69b-4942-a997-09665deb6172" />
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/337aef21-1d19-453a-913e-94befe23f0b5" />
 
-- Paste the unsigned txn , pubkeys , m and the collected **Signatures** and click Spend
-<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/ec41fee0-6488-4e3e-8d17-f628fad08f3b" />
+- Copy the signature
+<img width="400" height="150" alt="image" src="https://github.com/user-attachments/assets/060c6306-3acf-4bbf-a5f1-a3672269686c" />
+
+
+
+- Paste the unsigned txn , pubkeys , m and the collected **Signatures** in Pubkeys order and click Spend
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/3dd9e6f7-1cee-4dda-9737-60c58f94d0dc" />
+
 
 
 ## Access Through Backends (API Testing)
