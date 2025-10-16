@@ -35,7 +35,7 @@
     ```
 
 # 🧱 Mining API Endpoints
-
+---
 - **`/start_mining`**
   - **Description:** Starts the mining process for the node.
   - **Response:**
