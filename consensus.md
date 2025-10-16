@@ -185,5 +185,52 @@ Unlike Bitcoin’s strictly linear chain, TreeChainTheorey allows **multiple chi
   ```
 </details>
 
+### Placeholder block
+- Its a block with all empty feilds & 0s in numeric feilds
+- Its used to be inserted into the treechain (index map) on behalf of the stale block.
+- This prototype's place holder block size 482 bytes.
+<details>
+<summary>Click to view placeholder block</summary>
+  
+  ```json
+  {
+    "hash": "",
+    "pqp_commitment": "",
+    "level": 0,
+    "position": "",
+    "version": 0,
+    "parent_hash": "",
+    "merkle_root": "",
+    "timestamp": 0,
+    "bits": "",
+    "nonce": 0,
+    "align": 0,
+    "pqp_entry": {
+      "queue_index": 0,
+      "miner_address": "",
+      "prev_pqp_commitment": "",
+      "signature": ""
+    },
+    "n_tx": 0,
+    "tx": []
+  }
+  ```
+</details>
+
+---
+
+# 🌴 TreeChain & ⛓ PQP
+
+- **TreeChain** transforms the traditional *linear blockchain* (linked list) into a **tree-based structure**, enabling multiple blocks to grow concurrently.
+- Structurally, it’s **not a recursive tree** — instead, it uses an **index map** to represent the hierarchy.
+- The **index map** allows constant-time access (`O(1)`) to any block using either its `queue_index` or `hash`.
+- This structure maintains the *tree logic* efficiently without deep recursive traversal.
+- The **PQP (Pending Queue of Parents)** acts as the linkage mechanism ensuring every new block is attached to a valid parent and a valid previous same aligned block, maintaining fairness in tree growth and parent order of blocks.
+- When a block is missed because its parent already received children, it becomes **stale**.
+- For every **stale or missing block**, a **placeholder block** is inserted into the index map to preserve structural integrity.
+- As a result, both **block lookup** (by index or hash) and **tree traversal** remain **O(1)** operations, combining performance with structural accuracy.
+
+
+
 ---
 
