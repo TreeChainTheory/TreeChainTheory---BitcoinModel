@@ -86,6 +86,136 @@
       ]
     }
     ```
+- **`/utxo_set`**
+  - **Description:** Retrieves the complete Unspent Transaction Output (UTXO) set of the node, including metadata such as total value and count.
+  - **Response Example:**
+    ```json
+    {
+      "success": true,
+      "timestamp": "2025-10-16T04:51:39.801402+00:00",
+      "total_value": 187755813476,
+      "utxo_count": 396,
+      "utxos": [
+        {
+          "is_coinbase": true,
+          "queue_index": 1220,
+          "script_pubkey": "76a91487530b946df273db74f323f3dd505ab5c531100988ac",
+          "txid": "387d3b5fa6ebcea09ee53439f879084d124cd064c400c0468d4f2c390c943de7",
+          "value": 19531250,
+          "vout": 0
+        },
+    ```
+    
+- **`/transaction_pool`**
+  - **Description:** Returns information about the node’s current transaction pool (mempool), including pending transactions, fee rates, and overall pool statistics.
+  - **Response Example:**
+    ```json
+    {
+      "average_fee_rate_sat_per_vb": 444444.44444444444,
+      "pool_size": 1,
+      "success": true,
+      "summary": {
+        "pool_stats": {
+          "avg_fee_rate_sat_per_vb": "444444.44",
+          "total_fees_btc": "1.00000000",
+          "total_size_mb": "0.00",
+          "transaction_count": 1
+        }
+      },
+      "timestamp": "2025-10-16T04:54:25.389766+00:00",
+      "total_fees_satoshis": 100000000,
+      "total_size_bytes": 225,
+      "total_size_mb": 0.00021457672119140625,
+      "total_value_satoshis": 5000000000,
+      "transactions": [
+        {
+          "added_time": {
+            "iso": "2025-10-16T04:54:07.076+00:00",
+            "timestamp_ms": 1760590447076
+          },
+          "age_seconds": {
+            "value": 18
+          },
+          "dependencies": {
+            "child_count": 0,
+            "children": [],
+            "parent_count": 0,
+            "parents": []
+          },
+          "fee": {
+            "sat_per_vbyte": 444444.44444444444,
+            "satoshis": 100000000
+          },
+          "fee_rate": {
+            "sat_per_vbyte": 444444.44444444444
+          },
+          "full_transaction": null,
+          "has_witness": false,
+          "hash": "40c8cedd795fa17cbb0ad280388fd7192124113abaf428e684afae027f161b78",
+          "input_count": 1,
+          "locktime": 0,
+          "output_count": 2,
+          "size": {
+            "bytes": 300,
+            "vbytes": 225
+          },
+          "total_input_value": {
+            "satoshis": 5000000000
+          },
+          "total_output_value": {
+            "satoshis": 4900000000
+          },
+          "txid": "40c8cedd795fa17cbb0ad280388fd7192124113abaf428e684afae027f161b78",
+          "version": 1,
+          "weight": {
+            "weight_units": 900
+          }
+        }
+      ]
+    }
+    ```
+- **`/children_map`**
+  - **Description:** Returns the hierarchical mapping of parent and child blocks within the TreeChain network.  
+    Each entry includes a `parent_hash`, its `queue_index`, and an array of child block hashes with their respective alignments.
+  - **Response Example:**
+    ```json
+    {
+      "children_map": [
+        {
+          "children": [
+            [
+              "000021c515150f7f18706bb31c7835309bc6cc7d0bd09153efe215cbcdad3057",
+              2
+            ],
+            [
+              "0000284cc339e4de6798ef824ffeb315c386a8afb2d413320723f28a7f16467a",
+              1
+            ],
+            [
+              "00005927ea19f572a699c51a71d9d74fbfb0387b214bb2dddbdafea48a75da83",
+              3
+            ]
+          ],
+          "parent_hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
+          "parent_queue_index": 0
+        },
+        {
+          "children": [
+            [
+              "00007eef9ef287775f7bf3a774c59c1e4e44c84947d29e83a52868cd31194b20",
+              6
+            ],
+            [
+              "00003700e936c61ac31673e3cd596bc6d9a1d3b25044692c45d6fe3d4ec54712",
+              4
+            ]
+          ],
+          "parent_hash": "0000284cc339e4de6798ef824ffeb315c386a8afb2d413320723f28a7f16467a",
+          "parent_queue_index": 1
+        }
+      ]
+    }
+    ```
 
 - **`/wallet`**
   - **Description:** Returns detailed wallet information including balance, UTXOs, and metadata.
