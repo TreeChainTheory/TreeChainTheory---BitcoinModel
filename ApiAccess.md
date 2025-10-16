@@ -2,10 +2,22 @@
 
 ## 🚀 How to Start
 
+**Clone the repository (main branch)**
+
+- Clone:
+  ```bash
+  git clone https://github.com/TreeChainTheory/TreeChainTheory---BitcoinModel
+  ```
+- Enter project folder:
+  ```bash
+  cd TreeChainTheory---BitcoinModel
+  ```
+
 **Start Ports Server**
-   ```bash
-   cargo run --bin ports_server
-   ```
+
+```bash
+cargo run --bin ports_server
+```
 
 ## Start TreeChain Nodes (Minimum 3 Nodes Required)
 
@@ -35,8 +47,11 @@
     ```
 
 # 🧱 Mining API Endpoints
+
 ---
+
 - **`/start_mining`**
+
   - **Description:** Starts the mining process for the node.
   - **Response:**
     ```json
@@ -47,6 +62,7 @@
     ```
 
 - **`/stop_mining`**
+
   - **Description:** Stops the mining process for the node.
   - **Response:**
     ```json
@@ -57,38 +73,40 @@
     ```
 
 - **`/get_blocks`**
+
   - **Description:** Retrieves the list of mined blocks in `queue_index` order.
   - **Response Example:**
     <details>
        <summary>Click to View response</summary>
-  
-       ```json
-       {
-         "blocks": [
-           {
-             "align": 0,
-             "bits": "1e7fffff",
-             "hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
-             "level": 0,
-             "merkle_root": "0000000000000000000000000000000000000000000000000000000000000000",
-             "n_tx": 0,
-             "nonce": 388736,
-             "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
-             "position": "0",
-             "pqp_commitment": "866d14c55b8e0523f53b9ba1e2b5e8554a859231f165bf6edb81f634d7ec22d7",
-             "pqp_entry": {
-               "miner_address": "GENISIS_LEADER_HEX",
-               "prev_pqp_commitment": "0000000000000000000000000000000000000000000000000000000000000000",
-               "queue_index": 0,
-               "signature": ""
-             },
-             "timestamp": 0,
-             "tx": [],
-             "version": 1
-           }
-         ]
-       }
-       ```
+
+    ```json
+    {
+      "blocks": [
+        {
+          "align": 0,
+          "bits": "1e7fffff",
+          "hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
+          "level": 0,
+          "merkle_root": "0000000000000000000000000000000000000000000000000000000000000000",
+          "n_tx": 0,
+          "nonce": 388736,
+          "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "position": "0",
+          "pqp_commitment": "866d14c55b8e0523f53b9ba1e2b5e8554a859231f165bf6edb81f634d7ec22d7",
+          "pqp_entry": {
+            "miner_address": "GENISIS_LEADER_HEX",
+            "prev_pqp_commitment": "0000000000000000000000000000000000000000000000000000000000000000",
+            "queue_index": 0,
+            "signature": ""
+          },
+          "timestamp": 0,
+          "tx": [],
+          "version": 1
+        }
+      ]
+    }
+    ```
+
     </details>
 
 - **`/utxo_set`**
@@ -114,243 +132,249 @@
            },
        ```
      </details>
-
-    
 - **`/transaction_pool`**
+
   - **Description:** Returns information about the node’s current transaction pool (mempool), including pending transactions, fee rates, and overall pool statistics.
   - **Response Example:**
     <details>
        <summary>Click to View Response</summary>
- 
-       ```json
-       {
-         "average_fee_rate_sat_per_vb": 444444.44444444444,
-         "pool_size": 1,
-         "success": true,
-         "summary": {
-           "pool_stats": {
-             "avg_fee_rate_sat_per_vb": "444444.44",
-             "total_fees_btc": "1.00000000",
-             "total_size_mb": "0.00",
-             "transaction_count": 1
-           }
-         },
-         "timestamp": "2025-10-16T04:54:25.389766+00:00",
-         "total_fees_satoshis": 100000000,
-         "total_size_bytes": 225,
-         "total_size_mb": 0.00021457672119140625,
-         "total_value_satoshis": 5000000000,
-         "transactions": [
-           {
-             "added_time": {
-               "iso": "2025-10-16T04:54:07.076+00:00",
-               "timestamp_ms": 1760590447076
-             },
-             "age_seconds": {
-               "value": 18
-             },
-             "dependencies": {
-               "child_count": 0,
-               "children": [],
-               "parent_count": 0,
-               "parents": []
-             },
-             "fee": {
-               "sat_per_vbyte": 444444.44444444444,
-               "satoshis": 100000000
-             },
-             "fee_rate": {
-               "sat_per_vbyte": 444444.44444444444
-             },
-             "full_transaction": null,
-             "has_witness": false,
-             "hash": "40c8cedd795fa17cbb0ad280388fd7192124113abaf428e684afae027f161b78",
-             "input_count": 1,
-             "locktime": 0,
-             "output_count": 2,
-             "size": {
-               "bytes": 300,
-               "vbytes": 225
-             },
-             "total_input_value": {
-               "satoshis": 5000000000
-             },
-             "total_output_value": {
-               "satoshis": 4900000000
-             },
-             "txid": "40c8cedd795fa17cbb0ad280388fd7192124113abaf428e684afae027f161b78",
-             "version": 1,
-             "weight": {
-               "weight_units": 900
-             }
-           }
-         ]
-       }
-       ```
+
+    ```json
+    {
+      "average_fee_rate_sat_per_vb": 444444.44444444444,
+      "pool_size": 1,
+      "success": true,
+      "summary": {
+        "pool_stats": {
+          "avg_fee_rate_sat_per_vb": "444444.44",
+          "total_fees_btc": "1.00000000",
+          "total_size_mb": "0.00",
+          "transaction_count": 1
+        }
+      },
+      "timestamp": "2025-10-16T04:54:25.389766+00:00",
+      "total_fees_satoshis": 100000000,
+      "total_size_bytes": 225,
+      "total_size_mb": 0.00021457672119140625,
+      "total_value_satoshis": 5000000000,
+      "transactions": [
+        {
+          "added_time": {
+            "iso": "2025-10-16T04:54:07.076+00:00",
+            "timestamp_ms": 1760590447076
+          },
+          "age_seconds": {
+            "value": 18
+          },
+          "dependencies": {
+            "child_count": 0,
+            "children": [],
+            "parent_count": 0,
+            "parents": []
+          },
+          "fee": {
+            "sat_per_vbyte": 444444.44444444444,
+            "satoshis": 100000000
+          },
+          "fee_rate": {
+            "sat_per_vbyte": 444444.44444444444
+          },
+          "full_transaction": null,
+          "has_witness": false,
+          "hash": "40c8cedd795fa17cbb0ad280388fd7192124113abaf428e684afae027f161b78",
+          "input_count": 1,
+          "locktime": 0,
+          "output_count": 2,
+          "size": {
+            "bytes": 300,
+            "vbytes": 225
+          },
+          "total_input_value": {
+            "satoshis": 5000000000
+          },
+          "total_output_value": {
+            "satoshis": 4900000000
+          },
+          "txid": "40c8cedd795fa17cbb0ad280388fd7192124113abaf428e684afae027f161b78",
+          "version": 1,
+          "weight": {
+            "weight_units": 900
+          }
+        }
+      ]
+    }
+    ```
+
     </details>
 
 - **`/children_map`**
+
   - **Description:** Returns the hierarchical mapping of parent and child blocks within the TreeChain network.  
     Each entry includes a `parent_hash`, its `queue_index`, and an array of child block hashes with their respective alignments.
   - **Response Example:**
-    <details>
-       <summary>Click to View Response</summary>
-       
-      ```json
-       {
-         "children_map": [
-           {
-             "children": [
-               [
-                 "000021c515150f7f18706bb31c7835309bc6cc7d0bd09153efe215cbcdad3057",
-                 2
-               ],
-               [
-                 "0000284cc339e4de6798ef824ffeb315c386a8afb2d413320723f28a7f16467a",
-                 1
-               ],
-               [
-                 "00005927ea19f572a699c51a71d9d74fbfb0387b214bb2dddbdafea48a75da83",
-                 3
-               ]
-             ],
-             "parent_hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
-             "parent_queue_index": 0
-           },
-           {
-             "children": [
-               [
-                 "00007eef9ef287775f7bf3a774c59c1e4e44c84947d29e83a52868cd31194b20",
-                 6
-               ],
-               [
-                 "00003700e936c61ac31673e3cd596bc6d9a1d3b25044692c45d6fe3d4ec54712",
-                 4
-               ]
-             ],
-             "parent_hash": "0000284cc339e4de6798ef824ffeb315c386a8afb2d413320723f28a7f16467a",
-             "parent_queue_index": 1
-           }
-         ]
-       }
-    ```
-   </details>
-
+   <details>
+      <summary>Click to View Response</summary>
+      
+     ```json
+      {
+        "children_map": [
+          {
+            "children": [
+              [
+                "000021c515150f7f18706bb31c7835309bc6cc7d0bd09153efe215cbcdad3057",
+                2
+              ],
+              [
+                "0000284cc339e4de6798ef824ffeb315c386a8afb2d413320723f28a7f16467a",
+                1
+              ],
+              [
+                "00005927ea19f572a699c51a71d9d74fbfb0387b214bb2dddbdafea48a75da83",
+                3
+              ]
+            ],
+            "parent_hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
+            "parent_queue_index": 0
+          },
+          {
+            "children": [
+              [
+                "00007eef9ef287775f7bf3a774c59c1e4e44c84947d29e83a52868cd31194b20",
+                6
+              ],
+              [
+                "00003700e936c61ac31673e3cd596bc6d9a1d3b25044692c45d6fe3d4ec54712",
+                4
+              ]
+            ],
+            "parent_hash": "0000284cc339e4de6798ef824ffeb315c386a8afb2d413320723f28a7f16467a",
+            "parent_queue_index": 1
+          }
+        ]
+      }
+   ```
+  </details>
 
 - **`/wallet`**
+
   - **Description:** Returns detailed wallet information including balance, UTXOs, and metadata.
   - **Response Example:**
     <details>
        <summary>Click to View Response</summary>
- 
-       ```json
-          {
-            "metadata": {
-              "node_version": "0.1.0",
-              "timestamp": "2025-10-16T04:33:07.703721+00:00",
-              "utxo_set_height": 396
-            },
-            "security": {
-              "address_verification": "valid",
-              "derived_pubkey_hash": "a9243aefc7c9b30e3b75303aae1195bc5b791ef1",
-              "expected_pubkey_hash": "a9243aefc7c9b30e3b75303aae1195bc5b791ef1",
-              "wallet_format": "simple"
-            },
-            "transaction_stats": {
-              "net_balance_satoshis": 33397321681,
-              "total_received_btc": "333.97321681",
-              "total_received_satoshis": 33397321681,
-              "total_sent_btc": "0.00000000",
-              "total_sent_satoshis": 0
-            },
-            "utxos": {
-              "count": 66,
-              "dust_utxos": 0,
-              "total_value_satoshis": 33397321681
-            },
-            "wallet": {
-              "address": "1GRLbjspgWJSmNEd922b8APP2Ch3JtmPNS",
-              "balance_btc": "333.97321681",
-              "balance_satoshis": {
-                "total": 33397321681
-              },
-              "public_key": "03d696b22e5cb8109c7762fab20ef8dc3841cdddacd842616884d0b19b343a0ade",
-              "public_key_hash": "a9243aefc7c9b30e3b75303aae1195bc5b791ef1"
-            },
-            "warnings": []
-          }
-       ```
+
+    ```json
+    {
+      "metadata": {
+        "node_version": "0.1.0",
+        "timestamp": "2025-10-16T04:33:07.703721+00:00",
+        "utxo_set_height": 396
+      },
+      "security": {
+        "address_verification": "valid",
+        "derived_pubkey_hash": "a9243aefc7c9b30e3b75303aae1195bc5b791ef1",
+        "expected_pubkey_hash": "a9243aefc7c9b30e3b75303aae1195bc5b791ef1",
+        "wallet_format": "simple"
+      },
+      "transaction_stats": {
+        "net_balance_satoshis": 33397321681,
+        "total_received_btc": "333.97321681",
+        "total_received_satoshis": 33397321681,
+        "total_sent_btc": "0.00000000",
+        "total_sent_satoshis": 0
+      },
+      "utxos": {
+        "count": 66,
+        "dust_utxos": 0,
+        "total_value_satoshis": 33397321681
+      },
+      "wallet": {
+        "address": "1GRLbjspgWJSmNEd922b8APP2Ch3JtmPNS",
+        "balance_btc": "333.97321681",
+        "balance_satoshis": {
+          "total": 33397321681
+        },
+        "public_key": "03d696b22e5cb8109c7762fab20ef8dc3841cdddacd842616884d0b19b343a0ade",
+        "public_key_hash": "a9243aefc7c9b30e3b75303aae1195bc5b791ef1"
+      },
+      "warnings": []
+    }
+    ```
+
     </details>
 
-
 # 💸 Transactions
+
 ---
 
 ## 🔹 P2PKH Normal Transactions
 
 - **Endpoint:** `/create_transaction`
+
   - **Description:** Creates and broadcasts a standard Pay-to-Public-Key-Hash (P2PKH) transaction.
   - **Request Body:**
-      ```json
-      {
-        "to_address": "19ZCMN2d2LQbrqzMbzoUQUriaWUukgx8mA", 
-        "value": 5699999999,
-        "fee": 100000000
-      }
-      ```
+
+    ```json
+    {
+      "to_address": "19ZCMN2d2LQbrqzMbzoUQUriaWUukgx8mA",
+      "value": 5699999999,
+      "fee": 100000000
+    }
+    ```
 
   - **Response Example:**
     <details>
       <summary>Click to view Response JSON</summary>
 
-      ```json
-      {
-        "fee": 100000000,
-        "from_address": "1Em1o7Dpgh9tFPSXc7A94arw95a1BsyWct",
-        "success": true,
-        "to_address": "19ZCMN2d2LQbrqzMbzoUQUriaWUukgx8mA",
-        "total_input": 5799999999,
-        "transaction": {
-          "hash": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
-          "locktime": 0,
-          "txid": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
-          "version": 1,
-          "vin": [
-            {
-              "script_sig": "473045022100ac049092cf77f4a1bfb6fb759e4e088eeafad4012519d8a38f09a354f2cc3fbb022010bda1d3a47da54dbc795c2bfa361429358c964824e6d119fc8592d0d4f5aee521026c469f4feb872c4d950e15c1ece80993a5a10d5cc1f7e1c7385d2836b05bb87a",
-              "sequence": 4294967295,
-              "txid": "26b4cb81ff8d04fd24678081b034132cd3fbbe637178d0e3637c2dfa04a5c98b",
-              "vout": 0
-            },
-            {
-              "script_sig": "46304402204ab0c8189a318489769782b683e12a23acc9a48337af0a6a78674c6cd866055d02203794d7b2236d946b1d25df3cc5d6a06062efe9411299a6a9d92d4aad9df6f31921026c469f4feb872c4d950e15c1ece80993a5a10d5cc1f7e1c7385d2836b05bb87a",
-              "sequence": 4294967295,
-              "txid": "d2950c0d08369b140b9408d5bd43d68f2cac96e387b407abd4f9dc8c9af92bd2",
-              "vout": 0
-            }
-          ],
-          "vout": [
-            {
-              "script_pubkey": "76a9145dd7cade0ae535c7df0f586cd8f081f59faf640d88ac",
-              "value": 5699999999
-            },
-            {
-              "script_pubkey": "76a91496ec99e1c0f7ea3c187e34d378267da25f58075a88ac",
-              "value": 4200000001
-            }
-          ],
-          "witnesses": null
-        },
+    ```json
+    {
+      "fee": 100000000,
+      "from_address": "1Em1o7Dpgh9tFPSXc7A94arw95a1BsyWct",
+      "success": true,
+      "to_address": "19ZCMN2d2LQbrqzMbzoUQUriaWUukgx8mA",
+      "total_input": 5799999999,
+      "transaction": {
+        "hash": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
+        "locktime": 0,
         "txid": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
-        "value": 5699999999,
-        "wallet_balance": 94200000001
-      }
-      ```
+        "version": 1,
+        "vin": [
+          {
+            "script_sig": "473045022100ac049092cf77f4a1bfb6fb759e4e088eeafad4012519d8a38f09a354f2cc3fbb022010bda1d3a47da54dbc795c2bfa361429358c964824e6d119fc8592d0d4f5aee521026c469f4feb872c4d950e15c1ece80993a5a10d5cc1f7e1c7385d2836b05bb87a",
+            "sequence": 4294967295,
+            "txid": "26b4cb81ff8d04fd24678081b034132cd3fbbe637178d0e3637c2dfa04a5c98b",
+            "vout": 0
+          },
+          {
+            "script_sig": "46304402204ab0c8189a318489769782b683e12a23acc9a48337af0a6a78674c6cd866055d02203794d7b2236d946b1d25df3cc5d6a06062efe9411299a6a9d92d4aad9df6f31921026c469f4feb872c4d950e15c1ece80993a5a10d5cc1f7e1c7385d2836b05bb87a",
+            "sequence": 4294967295,
+            "txid": "d2950c0d08369b140b9408d5bd43d68f2cac96e387b407abd4f9dc8c9af92bd2",
+            "vout": 0
+          }
+        ],
+        "vout": [
+          {
+            "script_pubkey": "76a9145dd7cade0ae535c7df0f586cd8f081f59faf640d88ac",
+            "value": 5699999999
+          },
+          {
+            "script_pubkey": "76a91496ec99e1c0f7ea3c187e34d378267da25f58075a88ac",
+            "value": 4200000001
+          }
+        ],
+        "witnesses": null
+      },
+      "txid": "27cb598f207b54c4bf0a7dadf87abbf938dda9c6833fda86ad625ee32c3833be",
+      "value": 5699999999,
+      "wallet_balance": 94200000001
+    }
+    ```
+
     </details>
 
 ## 🔐 Create Multisig Transactions
 
 ### 🧩 Overview (example usage)
+
 Node 6 created the multisig transaction using the public keys of Node 4, Node 5, and Node 6 (`m = 2`), sending **10 BTC + 1 BTC fee**.  
 The following steps outline the process of creating, signing, and spending a multisig transaction.
 
@@ -458,7 +482,6 @@ The following steps outline the process of creating, signing, and spending a mul
        ```
     </details>
 
-
 ---
 
 - **Step 3: `/sign_multisig`**
@@ -518,6 +541,7 @@ The following steps outline the process of creating, signing, and spending a mul
 ---
 
 - **Step 4: `/spend_multisig_txn`**
+
   - **Description:** Combine collected signatures in correct pubkey order to broadcast the final signed transaction.
   - **Request Body:**
     <details>
@@ -596,4 +620,3 @@ The following steps outline the process of creating, signing, and spending a mul
        }
     ```
     </details>
-
