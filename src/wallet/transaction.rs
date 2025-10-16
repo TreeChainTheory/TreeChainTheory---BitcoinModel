@@ -454,19 +454,10 @@ impl Transaction {
 
         if total_input < target_amount {
             return Err(format!(
-                "Insufficient funds: need {}, available {}",
+                "Insufficient funds: need {}, available {}. UTXOs might need to be unlocked.",
                 target_amount, total_input
             ));
         }
-
-        if total_input < value + fee {
-            return Err(format!(
-                "Insufficient funds: need {}, have {}",
-                value + fee,
-                total_input
-            ));
-        }
-
         // Create final vin
         let vin: Vec<TxInput> = selected
             .into_iter()

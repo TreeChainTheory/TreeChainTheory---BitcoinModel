@@ -38,7 +38,7 @@ result:
 }
 
 
-2."/create_spending_multisig_tx"
+2."/create_spending_multisig_tx" -> create unsiged transaction make sure no remainder amount left 
 body:
 {
     "txid": "4fdbb2c590ac6fa81649ef8043088a3e88f74dcb0750413c4296733148c17216",
@@ -80,7 +80,7 @@ result:
     }
 }
 
-3. "/sign_multisig
+3. "/sign_multisig get signatures from those pubkeys
 body:
 {
     "txid": "4fdbb2c590ac6fa81649ef8043088a3e88f74dcb0750413c4296733148c17216",
@@ -126,7 +126,7 @@ sig 2:
     "status": "success"
 }
 
-4. "/spend_multisig_txn
+4. "/spend_multisig_txn -> place those signatures in pubkeys order
 body:
 {
     "spending_tx":{
@@ -192,6 +192,5 @@ result:
     "txid": "35003179e4faccfed3234065bbec522cf61afc3d94045bfe0ee98023cf251be1"
 }
 
-Actully Node 6 created the multisig txn with pubkeys of node 4 , 5 ,6  ( m = 2)
-sent 10 Btc + 1 btc fee
+
 

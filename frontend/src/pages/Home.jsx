@@ -74,13 +74,19 @@ export default function Home() {
 </ul>
 
         <p className="text-white/90 mb-4">
-          For transaction assignment: Miners select txns where the last digit of the txn's vin[0].script_sig satisfies (for normal p2pkh txns, and for multisig or other types of txns its prev_pqp_commitment) ((last_digit % CHILDREN as u32) + 1) == align as u32, ensuring balanced distribution across branches.
+          For transaction assignment: Miners select txns where the last digit of the txn's vin[0].script_sig satisfies ((last_digit % CHILDREN as u32) + 1) == align as u32, ensuring balanced distribution across branches.
+        </p>
+        <p className='text-white mb-4'>
+         if the txn is multisig , by theorey parent_hash is taken to check the last digit condition (this(parent_hash) can be changed to some value that remains contant for a while and get a chance for some aligned miners to mine these txns)
+        </p>
+        <p className="text-white mb-4">
+          In our model multisig txns can spend only one utxo at a time , so we choose vin's txid instead of parent_hash
         </p>
         <p className="text-white/90 mb-4">
           Rollback (for malicious blocks): Prune affected subtrees by removing from the back and re-adding valid parents to the front—<em>TreeChainTheorey - Bitcoin Model does not implement this; reserved for later variants.</em>
         </p>
         <p className="text-white font-semibold mb-4">
-          <em>TreeChainTheorey - Bitcoin Model Consensus</em> follows a race rule which is some X aligned miner should mine the block before the <em>Next parent</em> get <em>Children</em>
+          <em>TreeChainTheorey - Bitcoin Model Consensus</em> follows a race rule which is some X aligned miner should mine the block before the <em>Next parent</em> get any <em>Children</em>
         </p>
       </article>
 
@@ -91,7 +97,7 @@ export default function Home() {
           <h2 className="text-3xl font-bold text-white mb-4">Mining & Consensus --Bitcoin Model</h2>
           <p className="text-white/90 mb-4">
             Mining occurs every <code>MINING_RATE</code> ms (default 100ms), adjusted by difficulty (<code>BITS</code>)
-            every 300 blocks. Subsidy halves every <code>HALVING_INTERVAL</code> (100 blocks). Tree branching:
+            every 300 blocks. Subsidy halves every <code>HALVING_INTERVAL</code> (1000 blocks (count of blocks is not equal to queue_index)). Tree branching:
             Each parent spawns up to <code>CHILDREN</code> (3) children via align. Queue index calculated as
             <code>max(parent QI) + align offset</code>.
           </p>

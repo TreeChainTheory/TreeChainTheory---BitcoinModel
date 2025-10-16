@@ -4,7 +4,7 @@ pub const MINING_RATE: i32 = 100_000;
 // donot put this over max 4,294,967,295 as it overflows u32 of queue_index and misbehaves
 pub const EXPECTED_TIME: i128 = 10_000_000; // 10000s in ms -> adjust this according to CHILDREN * (MINING_RATE/EXPECTED_TIME) blocks (like expect CHILDREN*100 blocks in 10000s )
 pub const INITIAL_SUBSIDY: u64 = 50 * 100_000_000; //50 BTC
-pub const HALVING_INTERVAL: u64 = 100;
+pub const HALVING_INTERVAL: u64 = 1000;
 pub const INVMESSAGE_LIMIT: u16 = 40;
 pub const GETDATA_LIMIT: u16 = 20;
 pub const TESTING_WALLET_BALANCE: u64 = 500;

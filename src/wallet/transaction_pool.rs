@@ -1382,13 +1382,18 @@ impl TransactionPool {
         selected_txs
     }
 
-    pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8, parent_hash: &String) -> bool {
+    pub fn tx_suitable_for_align(
+        &self,
+        tx: &Transaction,
+        align: u8,
+        _parent_hash: &String,
+    ) -> bool {
         // if align == 0 {
         //     return true; // this is only for testing purposes
         // }
         let mut data = &tx.vin[0].script_sig;
         if data.starts_with("00") {
-            data = parent_hash;
+            data = &tx.vin[0].txid; // segwit txn, use txid instead
         }
 
         // Use first input's txid for alignment

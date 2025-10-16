@@ -87,6 +87,7 @@ async fn start_mining(
     tokio::spawn(async move {
         loop {
             if !*mining_flag.lock().await {
+                *abort_mining.lock().unwrap() = true;
                 println!("Mining stopped");
                 break;
             }
@@ -110,6 +111,8 @@ async fn start_mining(
                 if calc.is_none() {
                     println!("Failed to calculate queue index it returned None");
                 }
+                drop(tree);
+                drop(pqp_guard);
             }
 
             if let Some((queue_index, prev_pqp, parent_hash)) = calc {
@@ -136,47 +139,61 @@ async fn start_mining(
 
                 // Sign the data
                 let signature = wallet.sign_data(&sig_data);
+                let mut bits_to_use;
+
+                let num = EXPECTED_TIME as u32 / MINING_RATE as u32;
 
                 // CONCATENATE signature with wallet.public_key
                 let combined_signature = format!("{}{}", signature, wallet.public_key);
-                let num = EXPECTED_TIME as u32 / MINING_RATE as u32;
-                let mut bits_to_use = if let Some(bits) = treechain
-                    .lock()
-                    .await
-                    .find_bits(queue_index.saturating_sub(CHILDREN as u32))
+
+                let upcount;
                 {
-                    bits
-                } else {
-                    BITS.to_string()
-                };
+                    let tree = treechain.lock().await;
+                    bits_to_use = tree.get_latest_bits();
+                    let count = tree.get_count_upto_uncle(parent_hash) as u32;
+                    println!("count {}", count.clone());
+                    upcount = count + align as u32;
+
+                    drop(tree);
+                }
 
                 //here suppose the blocks are upto 299 , and now its time for 300 , 301 , 302 then they calculate (CHILDREN =3)
-                if (queue_index % (num * CHILDREN as u32) <= CHILDREN as u32)
-                    && queue_index >= num * CHILDREN as u32
+                if (upcount % (num * CHILDREN as u32) < CHILDREN as u32)
+                    && upcount >= num * CHILDREN as u32
                 {
                     // Lock tree for read to compute adjustment
-                    let remainder = queue_index % (num * CHILDREN as u32);
+                    let remainder = upcount as u32 % (num * CHILDREN as u32);
                     let tree_read = treechain.lock().await;
-                    let target_first =
-                        queue_index.saturating_sub(num * CHILDREN as u32 - remainder);
-                    let target_last = queue_index.saturating_sub(remainder);
-                    if let (Some(ft), Some(lt)) = (
-                        tree_read.find_timestamp_for_queue_le(target_first),
-                        tree_read.find_timestamp_for_queue_le(target_last),
-                    ) {
-                        if lt > ft {
-                            // Get prev_bits from parent (consistent with verify)
-                            if let Some(new_bits) = Block::adjust_bits(&bits_to_use, ft, lt) {
-                                bits_to_use = new_bits.clone();
-                                println!(
-                                    "🔧 Adjusted bits for queue_index {}: {} (time span: {}s)",
-                                    queue_index,
-                                    bits_to_use.clone(),
-                                    (lt - ft) as i128
-                                );
+                    let mut target_first =
+                        upcount.saturating_sub(num * CHILDREN as u32 + remainder);
+                    if target_first == 0 {
+                        target_first = 1;
+                    }
+                    let target_last = upcount.saturating_sub(remainder + 1);
+                    let tf = tree_read.get_qi_from_count(target_first);
+                    let tl = tree_read.get_qi_from_count(target_last);
+                    if let (Some(tf), Some(tl)) = (tf, tl) {
+                        if let (Some(ft), Some(lt)) = (
+                            tree_read.find_timestamp_for_queue_le(tf),
+                            tree_read.find_timestamp_for_queue_le(tl),
+                        ) {
+                            if lt > ft {
+                                // Get prev_bits from parent (consistent with verify)
+                                let prev_bits =
+                                    tree_read.find_bits(tl as u32).unwrap_or(BITS.to_string());
+                                if let Some(new_bits) = Block::adjust_bits(&prev_bits, ft, lt) {
+                                    bits_to_use = new_bits.clone();
+                                    println!(
+                                        "🔧 Adjusted bits for queue_index {}: {} (time span: {}s)",
+                                        queue_index,
+                                        bits_to_use.clone(),
+                                        (lt - ft) as i128
+                                    );
+                                }
                             }
                         }
                     }
+
                     drop(tree_read);
                 }
 
@@ -197,7 +214,11 @@ async fn start_mining(
                         &txn_pool,
                         bits_to_use.clone(),
                     );
-                    println!("Prepared block template: {:?}", block_template_opt);
+                    drop(tree);
+                    drop(pqp_guard);
+                    drop(txn_pool);
+                    drop(utxo_set);
+                    // println!("Prepared block template: {:?}", block_template_opt);
                 }
 
                 if let Some(mut block_template) = block_template_opt {
@@ -252,22 +273,25 @@ async fn start_mining(
                                 &mut utxo_set,
                                 &mut txn_pool,
                             ) {
+                                {
+                                    let mut chain_length = chain_length.lock().unwrap();
+                                    *chain_length = tree.count as u64;
+                                    drop(chain_length);
+                                }
                                 println!("Successfully mined block: {}", mined_block.hash);
-                                drop(tree);
+
                                 drop(pqp_guard);
                                 drop(utxo_set);
                                 drop(txn_pool);
+                                drop(tree);
                                 p2p_server
                                     .clone()
                                     .send_minedblock(mined_block.clone())
                                     .await;
-                                {
-                                    let mut chain_length = chain_length.lock().unwrap();
-                                    *chain_length += 1;
-                                    drop(chain_length);
-                                }
-                                p2p_server.clone().update_registry_chain_length().await;
                             } else {
+                                drop(utxo_set);
+                                drop(txn_pool);
+                                drop(tree);
                                 println!(
                                     "Failed to add block {} (duplicate or invalid)",
                                     mined_block.hash
@@ -275,6 +299,10 @@ async fn start_mining(
                                 pqp_guard.remove_pqp_entry(pqp_entry);
                             }
                         } else {
+                            drop(pqp_guard);
+                            drop(utxo_set);
+                            drop(txn_pool);
+                            drop(tree);
                             println!("Failed to add PQP entry for mined block, retrying...");
                         }
                     } else {
@@ -921,7 +949,7 @@ async fn create_multisig_txn(
     }
 
     let utxo_set_guard = utxo_set.lock().await;
-    let mut txn = Transaction::create_new_multisig_txn(
+    let mut txn = match Transaction::create_new_multisig_txn(
         &wallet,
         &utxo_set_guard,
         m,
@@ -929,8 +957,15 @@ async fn create_multisig_txn(
         value,
         fee,
         &treechain_guard,
-    )
-    .expect("Failed to create multisig transaction");
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "status": "error",
+                "message": format!("Failed to create multisig transaction: {}", e)
+            }));
+        }
+    };
     txn = txn
         .clone()
         .sign_transaction(&wallet, &mut txn, &utxo_set_guard);
@@ -1099,13 +1134,13 @@ async fn spend_multisig_txn(
 
     if m as usize > pubkeys.len() || m == 0 {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
+            "success": false,
             "message": "Invalid m or pubkeys"
         }));
     }
     if sigs.len() < m as usize {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
+            "success": false,
             "message": "Signatures length is less than m"
         }));
     }
@@ -1113,7 +1148,7 @@ async fn spend_multisig_txn(
     // Assume single input for simplicity
     if spending_tx.vin.len() != 1 {
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
+            "success": false,
             "message": "Only single-input transactions supported"
         }));
     }
@@ -1130,7 +1165,7 @@ async fn spend_multisig_txn(
                 .content_type("application/json")
                 .json(serde_json::json!({
                     "success": false,
-                    "error": format!("UTXO not found: {}:{}", txid, vout)
+                    "message": format!("UTXO not found: {}:{}", txid, vout)
                 }));
         }
     };
@@ -1142,7 +1177,7 @@ async fn spend_multisig_txn(
         return HttpResponse::BadRequest()
             .content_type("application/json")
             .json(serde_json::json!({
-                "status": "error",
+                "success": false,
                 "message": "Script mismatch"
             }));
     }
@@ -1154,7 +1189,7 @@ async fn spend_multisig_txn(
             .content_type("application/json")
             .json(serde_json::json!({
                 "success": false,
-                "error": format!(
+                "message": format!(
                     "Insufficient funds: input {} satoshis, outputs {} satoshis",
                     input_value, total_output
                 )
@@ -1234,7 +1269,7 @@ async fn spend_multisig_txn(
                     .content_type("application/json")
                     .json(serde_json::json!({
                         "success": false,
-                        "error": format!("Failed to add to mempool: {}", e),
+                        "message": format!("Failed to add to mempool: {}", e),
                         "transaction": spending_tx
                     }))
             }
@@ -1242,7 +1277,7 @@ async fn spend_multisig_txn(
     } else {
         let response = serde_json::json!({
             "success": false,
-            "error": "Insufficient signatures",
+            "message": "Insufficient signatures",
             "updated_sigs": sigs,
             "num_signatures": num_sigs,
             "required_signatures": m,

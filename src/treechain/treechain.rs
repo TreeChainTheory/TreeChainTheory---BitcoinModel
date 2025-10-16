@@ -751,6 +751,7 @@ impl ParentQueueEntry {
 pub struct TreeChain {
     pub blocks: IndexMap<String, Block>,
     pub children_map: IndexMap<String, Vec<String>>,
+    pub count: usize,
 }
 
 impl TreeChain {
@@ -765,14 +766,56 @@ impl TreeChain {
         TreeChain {
             blocks,
             children_map,
+            count: 1,
         }
     }
 
-    pub fn calculate_length(&self) -> usize {
+    pub fn calculate_length(&mut self) -> usize {
+        let count = self
+            .blocks
+            .iter()
+            .filter(|(_, b)| !b.position.is_empty())
+            .count();
+        self.count = count.clone();
+        count
+    }
+
+    pub fn get_count_upto_uncle(&self, parent_hash: String) -> usize {
+        let mut count = 0;
+        for (_, b) in self.blocks.iter() {
+            if b.position.is_empty() {
+                continue;
+            }
+            if b.parent_hash == parent_hash {
+                break;
+            }
+            count += 1;
+        }
+        count
+    }
+
+    pub fn get_qi_from_count(&self, count: u32) -> Option<u32> {
+        if count == 0 {
+            return None;
+        }
+        let mut real_count = 0;
+        for (qi, (_, block)) in self.blocks.iter().enumerate() {
+            if !block.position.is_empty() {
+                real_count += 1;
+                if real_count == count {
+                    return Some(qi as u32);
+                }
+            }
+        }
+        None
+    }
+    pub fn get_latest_bits(&self) -> String {
         self.blocks
             .iter()
-            .filter(|(hash, _)| !hash.is_empty())
-            .count()
+            .rev()
+            .find(|(hash, _)| !hash.is_empty())
+            .map(|(_, block)| block.bits.clone())
+            .unwrap_or(BITS.to_string())
     }
 
     pub fn find_bits(&self, target_queue: u32) -> Option<String> {
@@ -872,6 +915,7 @@ impl TreeChain {
 
         // Update children_map for the parent
         if !parent_hash.is_empty() {
+            self.count += 1;
             self.children_map
                 .entry(parent_hash)
                 .or_insert_with(Vec::new)
@@ -1812,31 +1856,39 @@ impl TreeChain {
         } else {
             let num = EXPECTED_TIME as u32 / MINING_RATE as u32;
             let queue_index = block.pqp_entry.queue_index;
-            let is_adjustment = (queue_index % (num * CHILDREN as u32) <= CHILDREN as u32)
-                && queue_index >= num * CHILDREN as u32;
-            let mut expected_bits =
-                if let Some(bits) = self.find_bits(queue_index.saturating_sub(CHILDREN as u32)) {
-                    bits
-                } else {
-                    BITS.to_string()
-                };
+            let count = self.get_count_upto_uncle(block.parent_hash.clone()) as u32;
+            let upcount = count + block.align as u32;
+            let is_adjustment = (upcount % (num * CHILDREN as u32) < CHILDREN as u32)
+                && upcount >= num * CHILDREN as u32;
+            let mut expected_bits = self.get_latest_bits();
+
             if is_adjustment {
-                let remainder = queue_index % (num * CHILDREN as u32);
-                let target_first = queue_index.saturating_sub(num * CHILDREN as u32 - remainder);
-                let target_last = queue_index.saturating_sub(remainder);
-                if let (Some(ft), Some(lt)) = (
-                    self.find_timestamp_for_queue_le(target_first),
-                    self.find_timestamp_for_queue_le(target_last),
-                ) {
-                    if lt > ft {
-                        if let Some(new_bits) = Block::adjust_bits(&expected_bits, ft, lt) {
-                            expected_bits = new_bits;
-                            println!(
-                                "🔍 Verified adjustment for queue_index {}: {} (time span: {}ms)",
-                                queue_index,
-                                expected_bits.clone(),
-                                (lt - ft) as i128
-                            );
+                let remainder = upcount % (num * CHILDREN as u32);
+                let mut target_first = upcount.saturating_sub(num * CHILDREN as u32 + remainder);
+                if target_first == 0 {
+                    target_first = 1;
+                }
+                let target_last = upcount.saturating_sub(remainder + 1);
+                println!("target first:{}", target_first);
+                let tf = self.get_qi_from_count(target_first);
+                let tl = self.get_qi_from_count(target_last);
+                if let (Some(tf), Some(tl)) = (tf, tl) {
+                    if let (Some(ft), Some(lt)) = (
+                        self.find_timestamp_for_queue_le(tf),
+                        self.find_timestamp_for_queue_le(tl),
+                    ) {
+                        if lt > ft {
+                            let prev_bits = self.find_bits(tl).unwrap_or(BITS.to_string());
+                            println!("first {} - {}, last {} - {}", ft, tf, lt, tl);
+                            if let Some(new_bits) = Block::adjust_bits(&prev_bits, ft, lt) {
+                                expected_bits = new_bits;
+                                println!(
+                                    "🔍 Verified adjustment for queue_index {}: {} (time span: {}ms)",
+                                    queue_index,
+                                    expected_bits.clone(),
+                                    (lt - ft) as i128
+                                );
+                            }
                         }
                     }
                 }
@@ -1895,8 +1947,9 @@ impl TreeChain {
             println!("❌ Invalid coinbase transaction in block: {}", block.hash);
             return false;
         }
-
-        let subsidy = Block::adjust_subsidy(block.pqp_entry.queue_index as u64);
+        let count = self.get_count_upto_uncle(block.parent_hash.clone()) as u32;
+        let upcount = count + block.align as u32;
+        let subsidy = Block::adjust_subsidy(upcount as u64);
         let fee = match Self::calculate_total_fee(&block.tx[1..], utxo_set, txn_pool) {
             Ok(f) => f,
             Err(e) => {
@@ -2084,8 +2137,11 @@ impl TreeChain {
                 prev_pqp_commitment: prev_pqp,
                 signature,
             };
+            let count = self.get_count_upto_uncle(parent_hash.clone()) as u32;
+            println!("count in pbt {}", count);
+            let upcount = count + align as u32;
 
-            let subsidy = Block::adjust_subsidy(queue_index as u64);
+            let subsidy = Block::adjust_subsidy(upcount as u64);
             let fee = match Self::calculate_total_fee(&tx, utxo_set, txn_pool) {
                 Ok(f) => f,
                 Err(e) => {
@@ -2131,7 +2187,6 @@ impl TreeChain {
                 tx.len() as u32,
                 tx,
             );
-
             Some(block)
         } else {
             None

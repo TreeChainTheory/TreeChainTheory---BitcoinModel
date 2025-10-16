@@ -5,7 +5,7 @@
 //5th terminal ALIGN=2 HTTP_PORT=3005 P2P_PORT=5005 cargo run --bin TreeChainTheorey
 //6th terminal ALIGN=3 HTTP_PORT=3006 P2P_PORT=5006 cargo run --bin TreeChainTheorey
 
-use crate::config::{GETDATA_LIMIT, INVMESSAGE_LIMIT};
+use crate::config::{CHILDREN, GETDATA_LIMIT, INVMESSAGE_LIMIT};
 use crate::treechain::block::Block;
 use crate::treechain::treechain::ParentQueueEntry;
 use crate::treechain::treechain::{PQP, TreeChain};
@@ -107,13 +107,8 @@ impl P2PServer {
     }
 
     pub async fn get_chain_info(&self) -> (u64, Option<u64>) {
-        let len = {
-            let chain_length = self.chain_length.lock().unwrap();
-            *chain_length
-        };
-
         let treechain = self.treechain.lock().await;
-
+        let len = treechain.count as u64;
         let mut last_ts: Option<u64> = None;
         for (_, b) in treechain.blocks.iter().rev() {
             if !b.position.is_empty() {
@@ -121,6 +116,7 @@ impl P2PServer {
                 break;
             }
         }
+        drop(treechain);
         (len, last_ts)
     }
 
@@ -134,6 +130,7 @@ impl P2PServer {
                 last_ts = Some(b.timestamp as u64);
             }
         }
+        drop(treechain);
         (len, last_ts)
     }
 
@@ -346,7 +343,7 @@ impl P2PServer {
                         println!("✅ Added pending block {} from retry", block.hash);
                         {
                             let mut chain_length = self.chain_length.lock().unwrap();
-                            *chain_length += 1;
+                            *chain_length = treechain.count as u64;
                             drop(chain_length);
                         }
                         drop(treechain);
@@ -986,7 +983,7 @@ impl P2PServer {
                                                     {
                                                         let mut chain_length =
                                                             self.chain_length.lock().unwrap();
-                                                        *chain_length += 1;
+                                                        *chain_length = treechain.count as u64;
                                                         drop(chain_length);
                                                     }
                                                     drop(treechain);
@@ -1110,8 +1107,27 @@ impl P2PServer {
                                                     (*ts, block.timestamp as u64);
                                             }
                                             drop(peer_lengths);
+
                                             // Check mining conflict
-                                            {
+                                            let mut treechain = self.treechain.lock().await;
+                                            let mut pqp = self.pqp.lock().await;
+                                            let cp = pqp.current_parent();
+                                            let np = pqp.next_parent();
+                                            if let (Some(cp), Some(np)) = (cp, np) {
+                                                let mut cp_indexes: Vec<u32> = Vec::new();
+                                                let mut np_indexes: Vec<u32> = Vec::new();
+                                                for i in 1..CHILDREN + 1 {
+                                                    let a = TreeChain::child_index(
+                                                        cp.queue_index,
+                                                        i as u32,
+                                                    );
+                                                    let b = TreeChain::child_index(
+                                                        np.queue_index,
+                                                        i as u32,
+                                                    );
+                                                    cp_indexes.push(a);
+                                                    np_indexes.push(b);
+                                                }
                                                 let target_guard =
                                                     self.current_mining_position.lock().unwrap();
                                                 if let Some(target) = target_guard.as_ref() {
@@ -1120,26 +1136,13 @@ impl P2PServer {
                                                             target.split('.').collect();
                                                         let block_parts: Vec<&str> =
                                                             block.position.split('.').collect();
-                                                        if target_parts.len() >= 2
-                                                            && block_parts.len() >= 2
+                                                        if !cp_indexes
+                                                            .contains(&block.pqp_entry.queue_index)
+                                                            && np_indexes.contains(
+                                                                &block.pqp_entry.queue_index,
+                                                            )
                                                         {
-                                                            let prefix_target = &target_parts
-                                                                [..target_parts.len() - 2];
-                                                            let prefix_block = &block_parts
-                                                                [..block_parts.len() - 2];
-                                                            if prefix_target == prefix_block {
-                                                                let target_first = target_parts
-                                                                    [target_parts.len() - 2];
-                                                                let block_first = block_parts
-                                                                    [block_parts.len() - 2];
-                                                                target_first != block_first
-                                                            } else if target_parts.len()
-                                                                < block_parts.len()
-                                                            {
-                                                                true
-                                                            } else {
-                                                                false
-                                                            }
+                                                            true
                                                         } else if target_parts.len()
                                                             < block_parts.len()
                                                         {
@@ -1157,8 +1160,7 @@ impl P2PServer {
                                                 }
                                                 drop(target_guard);
                                             }
-                                            let mut treechain = self.treechain.lock().await;
-                                            let mut pqp = self.pqp.lock().await;
+
                                             let mut utxo_set = self.utxo_set.lock().await;
                                             let mut txn_pool = self.txn_pool.lock().await;
                                             let pqp_entry =
@@ -1184,7 +1186,7 @@ impl P2PServer {
                                                     {
                                                         let mut chain_length =
                                                             self.chain_length.lock().unwrap();
-                                                        *chain_length += 1;
+                                                        *chain_length = treechain.count as u64;
                                                         drop(chain_length);
                                                     }
                                                     // Broadcast the mined block to all connected peers
@@ -1240,6 +1242,9 @@ impl P2PServer {
                                                     //     }
                                                     // }
                                                 } else {
+                                                    drop(treechain);
+                                                    drop(utxo_set);
+                                                    drop(txn_pool);
                                                     println!(
                                                         "❌ Failed to add MINED_BLOCK {} (duplicate or invalid)",
                                                         block.hash
@@ -1251,6 +1256,7 @@ impl P2PServer {
                                                             "❌ Failed to remove the pqp entry"
                                                         );
                                                     }
+                                                    drop(pqp);
                                                 }
                                             } else {
                                                 println!(
