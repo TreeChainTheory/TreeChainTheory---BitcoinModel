@@ -144,7 +144,8 @@
 
 ---
 - **Tree Page** -> View the **Blocks** in **Queue Index** order , **Tree View** & **Level View** and Also look at the **PQP** 
-<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/93b2d985-ad71-4495-8355-070b42dc22b5" />
+<img width="400" height="312" alt="image" src="https://github.com/user-attachments/assets/48ef2c5f-c62b-4d1e-8640-80e45c5c924a" />
+
 
 ---
 # Txns Testing ( P2PKH , P2SH -> m-of-n multisig)
@@ -195,7 +196,24 @@
 
 - Paste the unsigned txn , pubkeys , m and the collected **Signatures** in Pubkeys order and click Spend
 <img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/3dd9e6f7-1cee-4dda-9737-60c58f94d0dc" />
+<img width="400" height="310" alt="image" src="https://github.com/user-attachments/assets/6f8f6c00-9fb7-4ae3-9c9a-a3320b09fe16" />
 
+
+## Tree Page
+- Click the **Tree View** 
+<img width="400" height="312" alt="image" src="https://github.com/user-attachments/assets/48ef2c5f-c62b-4d1e-8640-80e45c5c924a" />
+
+- Expand the view to view full tree
+<img width="400" height="313" alt="image" src="https://github.com/user-attachments/assets/451142af-b97c-42e9-8a68-9cb0b9d5be47" />
+
+- You can also have a queue index order view
+<img width="400" height="312" alt="image" src="https://github.com/user-attachments/assets/c23feadf-25c2-4d6b-805f-012a494e77c3" />
+
+- You can also have a level vise view
+<img width="400" height="160" alt="image" src="https://github.com/user-attachments/assets/f7879abf-96a9-4a04-b60a-6ccf0c04317c" />
+
+- **PQP** View - have a look at the PQP (Parent Queue Pool)
+<img width="400" height="300" alt="image" src="https://github.com/user-attachments/assets/3c88c65a-a331-4b54-a04b-0d7bc8f7bc5e" />
 
 
 ## Access Through Backends (API Testing)
@@ -207,9 +225,9 @@
     - This file includes all REST endpoints for backend nodes
     - Can be used to test:
       - `/start_mining`
-      - `/get_chain`
-      - `/send_txn`
-      - `/get_utxos`
+      - `/get_blocks`
+      - `/get_childrenmap`
+      - `/create_txn`
       - etc.
     - Ideal for developers who want to inspect backend functionality manually
 
