@@ -15,7 +15,7 @@ Instead of a linear chain, blocks are organized in a **tree**, allowing **parall
   *(see [consensus.md](./consensus.md))*
 - 🌐 **Networking:** P2P sync with inventory broadcast and IBD
 - 💰 **Economics:** Bitcoin-like subsidy, halving, and difficulty adjustments
-- 📂 **Execution Guide:** [HowToRun.md](./HowToRun.md)
+- 📂 **Execution Guide:** [HowToRun.md](./HowToRun.md) , [Direct Api Access](./ApiAccess.md)
 
 ---
 ## 🌳 Discription
