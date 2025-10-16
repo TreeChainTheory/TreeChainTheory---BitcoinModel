@@ -137,7 +137,7 @@ Unlike Bitcoin’s strictly linear chain, TreeChainTheorey allows **multiple chi
    Hash all block fields (including PQP entry and txids) → `block.hash`.
 
 2. **Calculate PQP Commitment**  
-   Hash PQP-related fields (`queue_index`, `align`, `hash`, `parent_hash`, etc.) → `block.pqp_commitment`.
+   Hash PQP-related fields (`queue_index`,`align`,`hash`,`parent_hash`,`miner_address`,`prev_pqp_commitment`,`signature`) → `block.pqp_commitment`.
 
 3. **Verification**  
    Each node can recompute both hashes locally to ensure:
@@ -150,9 +150,11 @@ Unlike Bitcoin’s strictly linear chain, TreeChainTheorey allows **multiple chi
 - **Difficulty Adjustment:**  
   - Every few blocks, the expected time (`EXPECTED_TIME`) is compared to actual mining time.  
   - Target adjusts within limits (¼×–4×) to maintain stability.
+  - By default `BITS` is adjusted for every **CHILDREN * 100**
 - **Reward Adjustment:**  
   - Block rewards halve every `HALVING_INTERVAL`.  
   - Initial subsidy defined by `INITIAL_SUBSIDY`.
+  - By default reward is halved for every 1000 blocks.
 
 #### 🧱 Example Block (Prototype JSON)
 <details>
