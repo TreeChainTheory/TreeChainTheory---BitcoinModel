@@ -230,6 +230,36 @@ Unlike Bitcoin’s strictly linear chain, TreeChainTheorey allows **multiple chi
 - For every **stale or missing block**, a **placeholder block** is inserted into the index map to preserve structural integrity.
 - As a result, both **block lookup** (by index or hash) and **tree traversal** remain **O(1)** operations, combining performance with structural accuracy.
 
+## 🌳 TreeChain Structure
+
+```rust
+pub struct TreeChain {
+    pub blocks: IndexMap<String, Block>,
+    pub children_map: IndexMap<String, Vec<String>>,
+    pub count: usize,
+}
+```
+
+- **TreeChain** represents the complete **in-memory view** of the blockchain in **tree form**.  
+- It maintains all blocks — both **valid** and **placeholders** — in efficient **hash-indexed maps** rather than a recursive node structure.
+
+- **`blocks` → `IndexMap<String, Block>`**
+  - Stores every block using its **hash** as the key.
+  - Unlike a normal `HashMap`, an **IndexMap** preserves **insertion order**, so traversal can mimic **chronological** or **structural** order.
+  - A block is inserted exactly at the index = block's queue_index
+  - Provides **O(1)** lookup time for blocks and **predictable iteration order** — ideal for deterministic block trees.
+
+- **`children_map` → `IndexMap<String, Vec<String>>`**
+  - Maps each **parent block’s hash → list of its children block hashes**.
+  - Maintains the **tree linkage** without recursive structs.
+  - Enables quick retrieval of all children of a given parent in **constant time**.
+
+- **`count` → `usize`**
+  - Tracks only the **true (non-placeholder)** blocks within the chain.
+  - **Placeholder blocks** (inserted for structural continuity when a block is missed) do **not** increment this count.
+
+- Together, these maps let **TreeChain** act like a **logical tree**, but internally behave as an **index-based flat structure** — combining **structural clarity** with **O(1) access efficiency**.
+
 
 
 ---
