@@ -40,3 +40,148 @@
   - Malicious or invalid subtrees can be pruned and valid parents re-queued.
   - *Currently disabled in the Bitcoin model; reserved for future versions.*
 
+---
+# 📦 Block 
+
+Each block in **TreeChainTheorey** represents a node in the blockchain tree.  
+Unlike Bitcoin’s strictly linear chain, TreeChainTheorey allows **multiple child blocks per parent**, forming a verifiable tree of blocks.
+
+## 🧱 Overview
+
+- A **Block** ties together:
+  - Its **parent’s identity** (`parent_hash`)
+  - Its bfs index (`queue_index`)
+  - A **commitment to the previous block of the same alignment** (`prev_pqp_commitment`), ensuring continuity and verifiable linkage between sibling branches.
+  - A **commitment to the current block** (`pqp_commitment`)
+  - A **list of transactions**,
+  - And a **proof-of-work** result (nonce + bits).
+
+- Each block references one **PQP entry**, ensuring that creation is tied to a miner who is currently **eligible** to produce that block.
+
+## 🪧 Fields Explanation
+
+#### 🔗 `hash`
+- SHA-256 hash of the entire block’s contents.`(except the pqp_commitment)`
+- Serves as the **unique identifier** for the block.
+- Used to validate that the block’s contents have not been altered.
+
+### 🪞 `pqp_commitment`
+- SHA-256 hash of selected fields (`queue_index`,`align`,`hash`,`parent_hash`,`miner_address`,`prev_pqp_commitment`,`signature`) that connect the block to the **Parent Queue Pool (PQP)**.
+- Ensures the PQP entry and its state are **verifiably linked** to this block.
+- Used by peers to confirm that the miner was authorized to create this block.
+- **pqp_commitment** is computed after the **hash** is computed.
+
+### 🌲 `level`
+- Indicates the **depth** of the block in the tree (genesis = 0).
+- Helps nodes determine the block’s position during traversal and validation.
+
+### 🧭 `position`
+- A **string representation** of the block’s exact placement in the tree (e.g., `"0.1.2"`).
+- Used for visualization and queue index mapping.
+
+### ⚙️ `version`
+- Represents protocol version.  
+- Useful for **future upgrades** (e.g., BIP upgrades).
+
+### 🧩 `parent_hash`
+- The hash of this block’s **parent block**.
+- Establishes the tree linkage — every non-genesis block must reference one valid parent and a valid prev_pqp_commitment.
+
+### 🌿 `merkle_root`
+- Root hash of all transactions within this block.  
+- Constructed by recursively hashing pairs of transactions until one hash remains.  
+- Ensures the **integrity of all transactions** — if even one changes, the root changes.
+
+### ⏰ `timestamp`
+- Time at which the block was mined (as `u128` UNIX epoch ms).  
+- Used for difficulty adjustment and chronological ordering.
+
+### 🧮 `bits`
+- Compact representation of the **difficulty target**.  
+- Used by miners to determine if their block hash meets the current target (`hash < target`).
+
+### 🔁 `nonce`
+- A number that miners repeatedly modify to find a hash satisfying the difficulty target.  
+- Core element of the **Proof-of-Work** process.
+
+### 🧩 `align`
+- Represents the **alignment index** (1 → CHILDREN).  
+- Defines which branch (among siblings) this block belongs to.  
+- Maintains balanced parallelism in the tree.
+
+### 👷 `pqp_entry`
+- A structure proving **block eligibility** via PQP (Parent Queue Pool).  
+- Contains:
+  - `queue_index` — position in the PQP traversal.(`bfs index in the tree`)
+  - `miner_address` — the miner’s address (hex-encoded).
+  - `prev_pqp_commitment` — links to the previous block of the same alignment (maintains chain of eligibility).
+  - `signature` — miner’s ECDSA signature authenticating this entry.
+
+### 🧾 `n_tx`
+- Count of transactions within this block.  
+- Used to verify completeness during block propagation and validation.
+
+### 💰 `tx`
+- Array of transaction objects (`Vec<Transaction>`).  
+- Each transaction contributes to the **Merkle Root** and affects the **UTXO state**.
+
+## ⚖️ Genesis Block
+
+- The genesis block initializes the chain.  
+- It has predefined values (e.g., static hash, `level = 0`, empty transactions).  
+- The `miner_address` is set as `"GENISIS_LEADER_HEX"` — a symbolic placeholder for the first leader.
+
+### 🧩 Hash & Commitment Workflow
+
+1. **Calculate Block Hash**  
+   Hash all block fields (including PQP entry and txids) → `block.hash`.
+
+2. **Calculate PQP Commitment**  
+   Hash PQP-related fields (`queue_index`, `align`, `hash`, `parent_hash`, etc.) → `block.pqp_commitment`.
+
+3. **Verification**  
+   Each node can recompute both hashes locally to ensure:
+   - No tampering with block content.
+   - Valid link to PQP and parent chain.
+
+### 🪜 Difficulty & Reward
+
+- **Target Calculation:** Derived from `bits` (compact format → BigUint target).  
+- **Difficulty Adjustment:**  
+  - Every few blocks, the expected time (`EXPECTED_TIME`) is compared to actual mining time.  
+  - Target adjusts within limits (¼×–4×) to maintain stability.
+- **Reward Adjustment:**  
+  - Block rewards halve every `HALVING_INTERVAL`.  
+  - Initial subsidy defined by `INITIAL_SUBSIDY`.
+
+#### 🧱 Example Block (Prototype JSON)
+<details>
+<summary>Click to view example</summary>
+  
+  ```json
+  {
+    "hash": "0000181c51c930a46ede1edbd3082c0e0d3673334fac3ddc60262c66a2c46b22",
+    "pqp_commitment": "866d14c55b8e0523f53b9ba1e2b5e8554a859231f165bf6edb81f634d7ec22d7",
+    "level": 0,
+    "position": "0",
+    "version": 1,
+    "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "merkle_root": "0000000000000000000000000000000000000000000000000000000000000000",
+    "timestamp": 0,
+    "bits": "1e1fffff",
+    "nonce": 388736,
+    "align": 0,
+    "pqp_entry": {
+      "queue_index": 0,
+      "miner_address": "GENISIS_LEADER_HEX",
+      "prev_pqp_commitment": "0000000000000000000000000000000000000000000000000000000000000000",
+      "signature": ""
+    },
+    "n_tx": 0,
+    "tx": []
+  }
+  ```
+</details>
+
+---
+
