@@ -100,7 +100,7 @@ impl Block {
             "00".repeat(32),
             "00".repeat(32),
             0,
-            "1e7fffff".to_string(),
+            "1e1fffff".to_string(),
             388736,
             0,
             PQPEntry {
