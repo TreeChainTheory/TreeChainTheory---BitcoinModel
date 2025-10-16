@@ -12,12 +12,12 @@
   - Queue Index is typically index of the block.
   - Ensures deterministic, ordered scheduling within the **Parent Queue Pool (PQP)**.
 - **Parent Queue Pool (PQP):**
-  - A decentralized double-ended queue managing eligible parent blocks for child creation.
+  - A decentralized queue managing eligible parent blocks for child creation.
   - Ensures **fair rotation** of parents and prevents bottlenecks.
   - Each PQP entry is **embedded in the block** for verifiable state consistency.
-- **Race Rule:**  
+- **Parent-Child Completion Constraint:**  
   - A miner with a specific alignment (`align = X`) must mine its block **before the next parent** gets any children.
-  - This maintains fair leader selection and synchronized growth of tree branches.
+  - This maintains fair and synchronized growth of tree branches.
 - **Block Linking:**
   - Each block stores `parent_hash`, `queue_index` and `prev_pqp_commitment` to establish its position in the tree.
   - Child blocks reference their parents, forming verifiable hierarchical relationships.
@@ -225,7 +225,7 @@ Unlike Bitcoin’s strictly linear chain, TreeChainTheorey allows **multiple chi
 - Structurally, it’s **not a recursive tree** — instead, it uses an **index map** to represent the hierarchy.
 - The **index map** allows constant-time access (`O(1)`) to any block using either its `queue_index` or `hash`.
 - This structure maintains the *tree logic* efficiently without deep recursive traversal.
-- The **PQP (Pending Queue of Parents)** acts as the linkage mechanism ensuring every new block is attached to a valid parent and a valid previous same aligned block, maintaining fairness in tree growth and parent order of blocks.
+- The **PQP (Parent Queue Pool)** acts as the linkage mechanism ensuring every new block is attached to a valid parent and a valid previous same aligned block, maintaining fairness in tree growth and parent order of blocks.
 - When a block is missed because its parent already received children, it becomes **stale**.
 - For every **stale or missing block**, a **placeholder block** is inserted into the index map to preserve structural integrity.
 - As a result, both **block lookup** (by index or hash) and **tree traversal** remain **O(1)** operations, combining performance with structural accuracy.
@@ -260,7 +260,99 @@ pub struct TreeChain {
 
 - Together, these maps let **TreeChain** act like a **logical tree**, but internally behave as an **index-based flat structure** — combining **structural clarity** with **O(1) access efficiency**.
 
+### ⚙️ Workflow
+- Unlike normal blockchains, **TreeChain** organizes blocks into a **series of aligned blocks**:
+  - **1-aligned block**
+  - **2-aligned block**
+  - …
+  - **CHILDREN-aligned block**
 
+- Each **parent block** can have a maximum of **`CHILDREN` children blocks**.
 
+- An **N-aligned block** must be mined such that:
+  - Its **`parent_hash`** equals the **current parent’s**`(or next parent's -> when the same aligned block already exists for the current parent)` **block hash**.
+  - Its **`prev_pqp_commitment`** equals the **PQP commitment** of the previous **N-aligned block**.
+  - The **parent hash** ensures **tree structure**.
+  - The **previous PQP commitment** ensures **chain continuity** — meaning hashing **never stops** across aligned blocks, making it **difficult to manipulate** data of any aligned block.
+
+- After mining an **N-aligned block**:
+  - The block is **added to the TreeChain**.
+  - Its **PQP entry** is added to the **PQP**, along with:
+    - The **alignment index**
+    - The **block hash**
+    - The **miner’s address**
+- The **PQP (Parent Queue Pool)** represents an **ordered series of blocks** arranged by their **`queue_index`**, ensuring **parenting occurs in the correct order**.
+
+- When an **N-aligned node** successfully mines the **N-aligned block** of the **current parent**:
+  - That node immediately starts mining the **N-aligned block of the next parent**,  
+    regardless of whether it has received **sibling blocks** of the current parent.
+  - The **remaining aligned nodes** must finish mining their respective aligned blocks **before** this node finishes mining the next parent’s aligned block.  
+    → This defines the **Parent-Child Completion Constraint**.
+
+- Nodes mining blocks for the **current parent** should **immediately stop mining** when a block is received that is a **child of the next parent**.
+  - At that moment, the **next parent becomes the new current parent**.
+  - And all the nodes now mine on this new Parent.
+  - This dynamic Parent switch is a **core feature of PQP** which ensures the compition not just among the same aligned nodes but also with all the other nodes
+
+## 🎨 PQP (Parent Queue Pool)
+
+- The **Parent Queue Pool (PQP)** maintains the **ordering and alignment** of all mined blocks in TreeChain.  
+- It acts as a **queue**, allowing blocks to be appended from back and removed efficiently from front.
+
+```rust
+pub struct ParentQueueEntry {
+    pub queue_index: u32,
+    pub align: u8,
+    pub block_hash: String,
+    pub parent_hash: String,
+    pub miner_address: String,
+    pub prev_pqp_commitment: String,
+    pub signature: String,
+    pub pqp_commitment: String,
+}
+
+pub struct PQP {
+    pub pool: Vec<ParentQueueEntry>,
+}
+```
+- **`ParentQueueEntry`** represents a single entry in the **PQP**:
+
+  - **`queue_index`** → Position of the block in the PQP sequence.  
+  - **`align`** → Alignment level of the block (1-aligned, 2-aligned, …).  
+  - **`block_hash`** → Hash of the block.  
+  - **`parent_hash`** → Hash of the block’s parent.  
+  - **`miner_address`** → Address of the node that mined the block.  
+  - **`prev_pqp_commitment`** → Commitment of the previous aligned block.  
+  - **`signature`** → Signature proving block validity.  
+  - **`pqp_commitment`** → Final hash commitment for PQP linkage.  
+
+- **`PQP`** holds all `ParentQueueEntry` instances inside its **`pool`**, which behaves as a **double-ended queue**.
+
+- When a **new block** is created:
+  - Its **PQP entry** (with additional metadata) is **added to the end** of the PQP pool.  
+  - Initially, the PQP starts with only the **genesis entry**.  
+  - The **first entry** in the PQP pool represents the **current parent**.  
+  - The **second entry** represents the **next parent**.
+ 
+
+- **Parent update conditions:**
+  - When the **current parent** receives the maximum number of **`CHILDREN`** blocks (all pointing to its `block_hash`), it is **discarded**.  
+  - If the **next parent** receives **any child block** (whose `parent_hash` equals the next parent’s `block_hash`):  
+    - The **current parent** is **discarded**, and  
+    - The **next parent** becomes the **new current parent**.
+   
+- **While creating a new block:**
+  - It uses the **current parent’s `block_hash`** as its **`parent_hash`**.  
+  - To determine **`prev_pqp_commitment`**:
+    - It **iterates from the back** of the PQP pool, searching for an entry with the **same alignment**.  
+    - If not found, it queries the **TreeChain (IndexMap)** starting from the **first entry’s `queue_index` → 0**,  
+      until it finds a block of the same alignment.  
+    - If found, it takes that block’s **`pqp_commitment`** as the **`prev_pqp_commitment`**.  
+    - If no such aligned block exists, it defaults to the **genesis commitment**.
+      
+- **This mechanism ensures:**
+  - **Order-preserving linkage** between aligned blocks.  
+  - **Efficient parent updates** as the tree grows.  
+  - **Continuous hashing** across all alignment levels — maintaining both **tree structure** and **sequential security**.  
 ---
 
