@@ -377,6 +377,7 @@ pub struct PQP {
 - Here **2** is **current parent** , but even beforet the 3rd aligned child is mined , 1st aligned child of **next parent** got mined. so the **next parent now becomes the current parent**.
 - The current parent is now **removed** from the **PQPool**
 - You can see the **queue_index** is preserved in the bfs left to right ordering even if a child is missed.
+
 > **queue_index**: In a K-ary tree (e.g., a 3-ary tree, here K = CHILDREN), if all possible node positions are numbered sequentially from the genesis node (0) to the last node, from left to right and level by level, then each block’s queue_index equals the index of its intended position — even if one or more earlier positions (blocks) are missing.
 
 ### Prev PQP Commitment connection
@@ -391,4 +392,120 @@ pub struct PQP {
 > - Without this connection, when a block is mined, its hash is **not continued** until it becomes a parent block.  
 > - This breaks the cryptographic linkage (unlike Bitcoin’s continuous block hash chain).  
 > - Lack of continuity makes it **easier for attackers** to manipulate or rewrite parts of the TreeChain.
-> - However in POS/POH the case is different but still the pqp commitment connection is needed `(but in different forms)`. 
+> - However in POS/POH the case is different but still the pqp commitment connection is needed `(but in different forms)`.
+
+# 💸 Transactions
+
+## 👉 **Key points**
+  - Follows the **same Bitcoin transaction cryptography and model**.  
+  - Supports **P2PKH** and **Multisig** transactions.  
+  - **Timelocked transactions** will be added in the future.  
+  - Currently, there is **no witness support**.  
+  - Fully compatible with **P2PKH transactions**, working exactly like Bitcoin.  
+  - For **Multisig transactions (P2SH)**, this model supports **spending only one multisig UTXO at a time** (no multiple multisig UTXOs accepted).
+
+## **Transaction Structure**
+  - Each transaction has:
+    - `txid`
+    - `vin`
+    - `vout`
+    - `witness`
+  - Every `vin` contains a `script_sig`, which holds the **signature + public key** just like bitcoin.  
+  - From the `pubkey`, the **last digit** is extracted, and the following operation is performed:
+    - `last_digit % CHILDREN += 1`
+  - The result gives a number between **1 and CHILDREN**, indicating **which aligned miner** can pick that transaction to mine.
+
+
+- **For Multisig Transactions**
+  - By theory, the **parent_hash** of the block could be takend and perform the same operation (`This holds for all other types of txns`).  
+  - But in this model, since only one multisig UTXO can be spent at a time,  
+    the **UTXO’s transaction ID** is taken, and the same operation is performed:  
+    - `last_digit % CHILDREN += 1`
+      
+- **Purpose of Alignment Operation**
+  - Prevents **transaction repetition**, where the same transaction might appear in multiple child blocks.  
+  - To avoid this, transactions are **divided based on alignment**, determined by the sender’s key or contract.
+ 
+> **TreeChainTheory Transaction Alignment**
+> - **Normal token transfer:**  
+>   - Uses the **sender’s pubkey**, applies `last_digit % CHILDREN += 1`,  
+>     and assigns the transaction to the corresponding aligned miner.
+> - **Smart contract creation:**  
+>   - Also uses the **sender’s pubkey**.
+> - **Smart contract interaction:**  
+>   - Uses the **contract address** instead of the sender’s pubkey,  
+>     but ensures **no transaction in that block** shares the same sender pubkey.
+
+- **Why Use Sender Pubkey Instead of TxID or any other**
+  - If `txid` were used, a sender could spend multiple inputs and generate several transactions with **different aligns**,  
+    which might all appear valid to different aligned miners.  
+  - By using the **sender’s pubkey**, all of that sender’s transactions are processed by the **same aligned miner or validator**,  
+    preventing **exploitation or manipulation** of the mining/validation process.
+  - For the other types of txns like multisig & timelocked(cltv,csv) , parent_hash of the block is taken and performed the same operation. so that its some aligned miner gets all these txns and validate **faily** making no chance of **exploitation**
+ 
+- **Coinbase**:
+  - Every block includes the 1st txn as **coinbase** just like bitcoin.
+  - It cannot be spent untli **10 Blocks**.
+  - The Halving interval is by default 1000 blocks.
+> This can be changed in `src/config.rs` file.
+
+- **Summary**
+  - The **UTXO , Transaction Pool & transaction model** is **exactly like Bitcoin**,  
+    with additional alignment logic to ensure **non-repetition**, **fair miner distribution**, and **security against manipulation**.
+
+
+# 𝌸 Constants
+
+- **CHILDREN**
+  - Maximum number of **child blocks per parent block**.  
+  - Can be changed as desired.  
+  - Example: `pub const CHILDREN: u8 = 3;`
+
+- **BITS**
+  - Defines the **default mining difficulty bits**.  
+  - Can be adjusted to make mining easier or harder.  
+  - Example:  
+    `pub const BITS: &str = "1e1fffff";`  
+    - `1e1fffff` → Default  
+    - `1e0fffff` → 100× Harder  
+    - `1e7fffff` → 40× Harder  
+    - `1f0fffff` → 10× Harder  
+    - `207fffff` → Easier  
+
+- **INITIAL_SUBSIDY**
+  - The **starting block reward** (in satoshis).  
+  - Example: `pub const INITIAL_SUBSIDY: u64 = 50 * 100_000_000;` → 50 BTC  
+  - Can be changed as required.
+
+- **HALVING_INTERVAL**
+  - Defines after how many blocks the **block reward halves**.  
+  - Example: `pub const HALVING_INTERVAL: u64 = 1000;` → Every 1000 blocks  
+  - Can be modified.
+
+- **MINING_RATE**
+  - Expected **average mining time per block** in milliseconds.  
+  - Example: `pub const MINING_RATE: i32 = 100_000;` → 100 seconds  
+  - Can be tuned for network performance.
+
+- **EXPECTED_TIME**
+  - Defines the **target timeframe** (in milliseconds) to produce  
+    `CHILDREN * (EXPECTED_TIME / MINING_RATE)` blocks.  
+  - Example: `pub const EXPECTED_TIME: i128 = 10_000_000;` → 10,000 seconds  
+  - Can be modified as needed.  
+  - **Note:** Do not exceed `4,294,967,295` total queue index (u32 overflow).
+
+- **Adjustment Rules**
+  - For every `CHILDREN * (EXPECTED_TIME / MINING_RATE)` blocks → **Difficulty (BITS)** gets **adjusted**.  
+  - For every `HALVING_INTERVAL` blocks → **Block reward (SUBSIDY)** gets **halved**.
+
+> 🤗 All The above constants **can be modified** in `src/config.rs` file.
+
+- **Other Constants (Do Not Change)**
+  - `INVMESSAGE_LIMIT: u16 = 40`  
+  - `GETDATA_LIMIT: u16 = 20`  
+  - `TESTING_WALLET_BALANCE: u64 = 500`  
+  - `USER_TXN_FREERATE: u64 = 3`  
+  - `SIGHASH_ALL: u32 = 0x01`  
+  - **These constants are system-defined and must not be altered.**
+  
+
