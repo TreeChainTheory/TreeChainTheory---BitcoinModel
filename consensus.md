@@ -354,7 +354,8 @@ pub struct PQP {
 - **This mechanism ensures:**
   - **Order-preserving linkage** between aligned blocks.  
   - **Efficient parent updates** as the tree grows.  
-  - **Continuous hashing** across all alignment levels — maintaining both **tree structure** and **sequential security**.  
+  - **Continuous hashing** across all alignment levels — maintaining both **tree structure** and **sequential security**.
+    
 ---
 
 # 👓 Visualization & Explanation 
@@ -393,6 +394,8 @@ pub struct PQP {
 > - This breaks the cryptographic linkage (unlike Bitcoin’s continuous block hash chain).  
 > - Lack of continuity makes it **easier for attackers** to manipulate or rewrite parts of the TreeChain.
 > - However in POS/POH the case is different but still the pqp commitment connection is needed `(but in different forms)`.
+
+---
 
 # 💸 Transactions
 
@@ -453,6 +456,7 @@ pub struct PQP {
   - The **UTXO , Transaction Pool & transaction model** is **exactly like Bitcoin**,  
     with additional alignment logic to ensure **non-repetition**, **fair miner distribution**, and **security against manipulation**.
 
+---
 
 # 𝌸 Constants
 
@@ -507,5 +511,76 @@ pub struct PQP {
   - `USER_TXN_FREERATE: u64 = 3`  
   - `SIGHASH_ALL: u32 = 0x01`  
   - **These constants are system-defined and must not be altered.**
-  
+ 
+---
 
+# 🛜 P2P Network
+
+- **Overview**
+  - The P2P layer forms the **communication backbone** of TreeChain, similar to Bitcoin’s peer-to-peer architecture.  
+  - Each node maintains **direct TCP connections** with its peers and exchanges blocks, transactions, and metadata asynchronously.  
+  - Built on **Tokio’s async runtime**, ensuring efficient non-blocking networking and scalability across many peers.
+
+- **Node Setup**
+  - Every node runs independently with the following environment variables:  
+    - `ALIGN` → Determines the alignment level of the node (e.g., 1, 2, 3, …).  
+    - `HTTP_PORT` → Used for REST/HTTP communication.  
+    - `P2P_PORT` → Used for peer-to-peer TCP connections.  
+  - Example startup commands:  
+    ```
+    ALIGN=1 HTTP_PORT=3001 P2P_PORT=5001 cargo run --bin TreeChainTheorey
+    ALIGN=2 HTTP_PORT=3002 P2P_PORT=5002 cargo run --bin TreeChainTheorey
+    ALIGN=3 HTTP_PORT=3003 P2P_PORT=5003 cargo run --bin TreeChainTheorey
+    ```
+
+- **Connection to Ports Server**
+  - Each node connects to a **central `ports_server`** running on a known port.  
+  - This server maintains a **registry of active peers** (IP, P2P_PORT, ALIGN).  
+  - On startup:
+    - The node **registers itself** with the ports server.  
+    - Fetches the **list of all other peers** currently online.  
+    - Initiates TCP connections to synchronize with them.
+  - This mechanism ensures **automatic peer discovery** and **network stability**, avoiding manual configuration.
+
+- **Message Types**
+  - Communication happens through **serialized JSON messages** using predefined message types:
+    - `CONNECTION_INFO` → Handshake details and node metadata.  
+    - `REGISTER`, `PEER_LIST`, `UPDATE` → Peer registration and network updates.  
+    - `GETBLOCKS`, `BLOCK`, `MINED_BLOCK` → Block sharing and propagation.  
+    - `GETDATA`, `INVMESSAGE` → Request and announce block or transaction data.  
+    - `TRANSACTION`, `GET_TRANSACTION_POOL` → Transaction relay and synchronization.  
+    - `GET_PQP`, `PQP_RESPONSE` → Synchronization of Parent Queue Protocol (PQP) state.
+
+- **Synchronization & Behavior**
+  - Continuously listens on `P2P_PORT` for incoming messages using `tokio::net::TcpListener`.  
+  - Uses **async read/write** (`AsyncReadExt`, `AsyncWriteExt`) for bidirectional communication.  
+  - Maintains a **peer list** in memory using `HashMap` and `Arc<Mutex>` for thread-safe access.  
+  - Periodically exchanges:
+    - **Blocks** → For maintaining consistent TreeChain state.  
+    - **Transaction Pool** → For pending transactions.  
+    - **PQP Data** → For alignment continuity and block ordering.  
+  - Automatically re-attempts connection to dropped peers after short timeouts.
+
+- **Bitcoin-Like Similarities**
+  - Inspired by Bitcoin’s **Gossip Protocol**, where nodes relay blocks and transactions to connected peers.  
+  - Follows a similar **propagation model**, ensuring eventual consistency without central authority.  
+  - Uses **inventory (INV) messages** and **GETDATA requests** — same as Bitcoin — to prevent redundant data transfer.  
+  - Each node independently **validates** incoming blocks and transactions before relaying them further.  
+  - Ensures **decentralized consensus** and **fault tolerance** without relying on a single server (except the optional ports server for discovery).
+
+- **Summary**
+  - The TreeChain P2P layer is:
+    - **Asynchronous**, **peer-synchronized**, and **self-healing**.  
+    - **Bitcoin-inspired** in protocol structure and validation flow.  
+    - **Extended** with alignment and PQP synchronization for TreeChain’s multi-aligned block model.
+
+
+---
+
+# 🧩 Conclusion
+
+- **TreeChainTheorey** introduces a **parallelized blockchain structure**, increasing throughput while preserving Bitcoin’s Proof-of-Work security principles.  
+- The **Parent Queue Pool (PQP)** ensures fair and deterministic parent rotation, maintaining **alignment continuity** and **hash-chain integrity**.  
+- The system achieves **O(1) block access**, **balanced transaction alignment**, and **verifiable on-chain commitments**, delivering scalability without losing decentralization.  
+
+➡️ [Follow the steps to install and test TreeChainTheorey Bitcoin Model](./HowToRun.md)
