@@ -22,6 +22,10 @@ Instead of a linear chain, blocks are organized in a **tree**, allowing **parall
 Each **block** will have a specified number of **Children**, denoted as **CHILDREN** num. Every child is assigned an alignment value **(align:N)** from 1 to CHILDREN, referred to as **1-aligned miner, 2-aligned miner**, and so on.
 These different **aligned miners** mine their respective aligned blocks under one **condition:** they must complete mining their aligned block for the current parent **before** the next parent receives any children, this is called **Parent-Child Completion Constraint**.
 
+> **CHILDREN** — a configurable constant defined in `src/config.rs`. (can be modified as you wish) 
+> It specifies the **maximum number of child blocks** that any parent block can produce.
+
+
 **Parent-Child Completion Constraint** – if N aligned miner finishes mining the N aligned block for the current parent , then that miner can start mining the N aligned block for the next parent And all aligned miners must finish their block work for the current parent before the next parent gets any children.  
 
 ---
