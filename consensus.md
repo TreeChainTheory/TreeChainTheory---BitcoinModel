@@ -357,7 +357,7 @@ pub struct PQP {
   - **Continuous hashing** across all alignment levels — maintaining both **tree structure** and **sequential security**.  
 ---
 
-# Visualization & Explanation 
+# 👓 Visualization & Explanation 
 ### Genisis Child Propagation (CHILDREN = 3)
 <img width="450" height="300" alt="image" src="https://github.com/user-attachments/assets/d6b3b6e9-7018-4821-9f66-ccc8f4759316" />
 
@@ -390,4 +390,5 @@ pub struct PQP {
 > - Ensures **hash continuity** among different aligned blocks in the TreeChain.  
 > - Without this connection, when a block is mined, its hash is **not continued** until it becomes a parent block.  
 > - This breaks the cryptographic linkage (unlike Bitcoin’s continuous block hash chain).  
-> - Lack of continuity makes it **easier for attackers** to manipulate or rewrite parts of the TreeChain.  
+> - Lack of continuity makes it **easier for attackers** to manipulate or rewrite parts of the TreeChain.
+> - However in POS/POH the case is different but still the pqp commitment connection is needed `(but in different forms)`. 
