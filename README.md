@@ -23,7 +23,7 @@ Each **block** will have a specified number of **Children**, denoted as **CHILDR
 These different **aligned miners** mine their respective aligned blocks under one **condition:** they must complete mining their aligned block for the current parent **before** the next parent receives any children, this is called **Parent-Child Completion Constraint**.
 
 > **CHILDREN** — a configurable constant defined in `src/config.rs`. (can be modified as you wish) 
-> It specifies the **maximum number of child blocks** that any parent block can produce.
+> It specifies the **maximum number of child blocks** that any parent block can get.
 
 
 **Parent-Child Completion Constraint** – if N aligned miner finishes mining the N aligned block for the current parent , then that miner can start mining the N aligned block for the next parent And all aligned miners must finish their block work for the current parent before the next parent gets any children.  
@@ -39,6 +39,9 @@ This introduces **parallelism**, **fairness**, and **decentralization** into the
 - **🌳 Branching:**  
   Each parent block produces up to `CHILDREN` (default `3`) children.  
   The system supports **N-ary trees** via config changes.
+    > **CHILDREN** — a configurable constant defined in `src/config.rs`.  
+    > It specifies the **maximum number of child blocks** that any parent block can produce.
+
 - **⚡ Parallel Mining:**  
   Multiple leaders mine simultaneously — one per align (child position).
 - **🔄 Dynamic Scheduling (PQP):**  
@@ -56,7 +59,10 @@ This introduces **parallelism**, **fairness**, and **decentralization** into the
   Miner selects txns where `(last_digit % CHILDREN) + 1 == align` to ensure even load.  
 - The **PoW model** does not guarantee exactly `CHILDREN` blocks per parent as we are following the **Parent-Child Completion Constraint** — but future **PoS/PoH** models will.
 
-> 🔗 *For full consensus and PQP validation process, see [consensus.md](./consensus.md).*
+   > **CHILDREN** — a configurable constant defined in `src/config.rs`.  
+   > It specifies the **maximum number of child blocks** that any parent block can produce.
+
+
 
 ---
 
@@ -75,6 +81,7 @@ This introduces **parallelism**, **fairness**, and **decentralization** into the
 - **Parent-Child Completion Constraint**
   A miner must mine its aligned block **before the next parent** gets any children.
 
+> 🔗 *For full consensus and PQP validation process, see [consensus.md](./consensus.md).*
 ---
 
 ## 💰 UTXO & Transaction Layer
