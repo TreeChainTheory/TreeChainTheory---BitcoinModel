@@ -356,3 +356,9 @@ pub struct PQP {
   - **Continuous hashing** across all alignment levels — maintaining both **tree structure** and **sequential security**.  
 ---
 
+# Visualization & Explanation 
+### Genisis Child Propagation
+<img width="450" height="300" alt="image" src="https://github.com/user-attachments/assets/d6b3b6e9-7018-4821-9f66-ccc8f4759316" />
+
+
+
