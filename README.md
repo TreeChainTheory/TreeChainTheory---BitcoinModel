@@ -1,8 +1,14 @@
 # 🌳 TreeChainTheory – Bitcoin Model  
-> **Reinventing BlockChain with Tree-Structured Consensus**
+> **BlockChain with Tree-Structured Consensus**
 
 TreeChainTheory – Bitcoin Model extends the **TreeChainTheory** concept into a working prototype based on Bitcoin’s architecture.  
 Instead of a linear chain, blocks are organized in a **tree**, allowing **parallel mining**, **multi-leader operation**, and **scalable block production** — all while preserving **Bitcoin’s UTXO**, **PoW**, and **ECDSA** foundations.
+
+
+# 🔐 Note
+This repository is a research and educational reference implementation of the Treechain model applied to a Bitcoin-like system.
+It is NOT Qenoid.
+Qenoid is a separate system that builds on Treechain with additional constraints, optimizations, and protocol-level changes.
 
 ---
 
