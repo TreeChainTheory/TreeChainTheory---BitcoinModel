@@ -215,6 +215,22 @@ out["parent_age"] = {"median_parent_time_over_block_time": round(statistics.medi
                      "median_count_ratio_second_half": round(statistics.median(clate), 3) if clate else None,
                      "predicted_1_over_fill_rate_times_N": round(1 / (fill * N), 3) if fill else None}
 
+# ---- who finds the next block ----------------------------------------------------
+# With equal miners, the next block comes from the same node with probability 1/6 and from
+# the same lane with probability 1/3. A higher same-node share means the finder has a head start.
+order = sorted(real, key=lambda b: b["timestamp"])
+miner = [node_of_address.get(b["pqp_entry"]["miner_address"]) for b in order]
+lane_seq = [b["align"] for b in order]
+pairs_n = len(order) - 1
+p_same = sum(a == b for a, b in zip(miner, miner[1:])) / pairs_n
+out["next_block"] = {
+    "same_node": round(p_same, 3),
+    "same_lane_partner_node": round(sum(la == lb and a != b for a, b, la, lb in zip(miner, miner[1:], lane_seq, lane_seq[1:])) / pairs_n, 3),
+    "same_lane": round(sum(a == b for a, b in zip(lane_seq, lane_seq[1:])) / pairs_n, 3),
+    "expected_same_node_equal_miners": round(1 / 6, 3),
+    "finder_weight_estimate": round(5 * p_same / (1 - p_same), 3),  # p = k / (k + 5) with 6 miners
+}
+
 # ---- transactions -------------------------------------------------------------
 txlog = [json.loads(line) for line in open(os.path.join(D, "tx_log.jsonl"))]
 submitted = len(txlog)

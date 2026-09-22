@@ -1,0 +1,256 @@
+200 heights from 915567 to 968126 (seed 20260922)
+[  1/200] height 916071 1.64 MB ok
+[  2/200] height 916200 1.63 MB ok
+[  3/200] height 916660 1.49 MB ok
+[  4/200] height 916722 1.57 MB ok
+  retry 1 for /block-height/916794: URLError(OSError(65, 'No route to host'))
+  retry 2 for /block-height/916794: URLError(gaierror(8, 'nodename nor servname provided, or not known'))
+  retry 3 for /block-height/916794: URLError(gaierror(8, 'nodename nor servname provided, or not known'))
+  retry 4 for /block-height/916794: URLError(gaierror(8, 'nodename nor servname provided, or not known'))
+  retry 5 for /block-height/916794: URLError(gaierror(8, 'nodename nor servname provided, or not known'))
+  retry 6 for /block-height/916794: URLError(gaierror(8, 'nodename nor servname provided, or not known'))
+Traceback (most recent call last):
+  File "/Users/maheshkarri/Desktop/Fullstack/crypto/TreeChainTheorey/experiments/bitcoin_lane_analysis/fetch_blocks.py", line 86, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/maheshkarri/Desktop/Fullstack/crypto/TreeChainTheorey/experiments/bitcoin_lane_analysis/fetch_blocks.py", line 63, in main
+    block_hash = get(f"/block-height/{h}")
+  File "/Users/maheshkarri/Desktop/Fullstack/crypto/TreeChainTheorey/experiments/bitcoin_lane_analysis/fetch_blocks.py", line 38, in get
+    raise RuntimeError(f"giving up on {path}")
+RuntimeError: giving up on /block-height/916794
+200 heights from 915567 to 968126 (seed 20260922)
+[  1/200] height 916071 1.64 MB ok
+[  2/200] height 916200 1.63 MB ok
+[  3/200] height 916660 1.49 MB ok
+[  4/200] height 916722 1.57 MB ok
+[  5/200] height 916794 1.62 MB ok
+[  6/200] height 916942 1.51 MB ok
+[  7/200] height 917074 1.59 MB ok
+[  8/200] height 917709 1.59 MB ok
+[  9/200] height 917813 0.05 MB ok
+--- restart with parallel downloads Tue Sep 22 14:54:23 IST 2026
+200 heights from 915567 to 968126 (seed 20260922)
+[  2/200] height 916200 1.63 MB ok
+[  6/200] height 916942 1.51 MB ok[  1/200] height 916071 1.64 MB ok
+
+[  4/200] height 916722 1.57 MB ok[  5/200] height 916794 1.62 MB ok
+
+[  3/200] height 916660 1.49 MB ok
+[  9/200] height 917813 0.05 MB ok
+[  8/200] height 917709 1.59 MB ok
+[  7/200] height 917074 1.59 MB ok
+[ 11/200] height 917895 1.43 MB ok
+[ 13/200] height 918111 1.33 MB ok
+[ 14/200] height 918131 2.05 MB ok
+[ 10/200] height 917869 1.73 MB ok
+[ 16/200] height 919021 1.67 MB ok
+[ 17/200] height 919084 1.67 MB ok
+[ 19/200] height 919521 1.52 MB ok
+[ 20/200] height 919539 1.49 MB ok
+[ 22/200] height 919753 1.44 MB ok
+[ 23/200] height 919846 1.60 MB ok
+[ 25/200] height 920511 1.74 MB ok
+[ 26/200] height 920831 1.77 MB ok
+--- restart with curl-based downloads Tue Sep 22 14:58:08 IST 2026
+200 heights from 915567 to 968126 (seed 20260922)
+[  2/200] height 916200 1.63 MB ok
+[  1/200] height 916071 1.64 MB ok
+[  4/200] height 916722 1.57 MB ok
+[  3/200] height 916660 1.49 MB ok[  5/200] height 916794 1.62 MB ok
+[  6/200] height 916942 1.51 MB ok
+
+[  9/200] height 917813 0.05 MB ok
+[  7/200] height 917074 1.59 MB ok
+[ 10/200] height 917869 1.73 MB ok[  8/200] height 917709 1.59 MB ok
+
+[ 14/200] height 918131 2.05 MB ok[ 11/200] height 917895 1.43 MB ok
+
+[ 16/200] height 919021 1.67 MB ok
+[ 13/200] height 918111 1.33 MB ok
+[ 17/200] height 919084 1.67 MB ok
+[ 19/200] height 919521 1.52 MB ok
+[ 20/200] height 919539 1.49 MB ok
+[ 12/200] height 917992 0.03 MB ok
+[ 22/200] height 919753 1.44 MB ok
+[ 23/200] height 919846 1.60 MB ok
+[ 15/200] height 918936 1.56 MB ok
+[ 25/200] height 920511 1.74 MB ok
+[ 26/200] height 920831 1.77 MB ok
+[ 24/200] height 920124 1.56 MB ok
+[ 21/200] height 919661 1.65 MB ok
+[ 27/200] height 921247 0.30 MB ok
+[ 28/200] height 921689 1.88 MB ok
+[ 29/200] height 921975 1.69 MB ok
+[ 18/200] height 919225 1.60 MB ok
+[ 31/200] height 922200 1.57 MB ok
+[ 32/200] height 922272 1.97 MB ok
+[ 34/200] height 922444 1.23 MB ok
+[ 35/200] height 922566 1.67 MB ok
+[ 37/200] height 922799 0.15 MB ok
+[ 38/200] height 923094 1.52 MB ok
+[ 30/200] height 922156 1.92 MB ok
+[ 33/200] height 922380 1.96 MB ok
+[ 40/200] height 923402 1.71 MB ok
+[ 36/200] height 922646 1.57 MB ok
+[ 41/200] height 923570 1.69 MB ok
+[ 44/200] height 924034 1.54 MB ok
+[ 43/200] height 923902 1.66 MB ok
+[ 46/200] height 924302 1.92 MB ok
+[ 39/200] height 923362 1.66 MB ok
+[ 47/200] height 924465 1.84 MB ok
+[ 45/200] height 924185 0.89 MB ok
+[ 49/200] height 925311 1.99 MB ok
+[ 50/200] height 925541 1.74 MB ok
+[ 42/200] height 923592 1.87 MB ok
+[ 52/200] height 925795 1.57 MB ok
+[ 54/200] height 926827 0.22 MB ok
+[ 48/200] height 925034 1.56 MB ok
+[ 55/200] height 927336 0.40 MB ok
+[ 56/200] height 927470 0.78 MB ok
+[ 58/200] height 928302 0.02 MB ok
+[ 59/200] height 928943 0.14 MB ok
+[ 51/200] height 925654 1.67 MB ok
+[ 53/200] height 926408 2.23 MB ok
+[ 60/200] height 928989 0.02 MB ok
+[ 61/200] height 929044 1.71 MB ok
+[ 62/200] height 929190 1.59 MB ok
+[ 64/200] height 929593 1.72 MB ok
+[ 65/200] height 929727 1.48 MB ok
+[ 57/200] height 927489 1.58 MB ok
+[ 67/200] height 930505 0.12 MB ok
+[ 68/200] height 930542 0.63 MB ok
+[ 70/200] height 931515 1.65 MB ok
+[ 69/200] height 931111 0.37 MB ok
+[ 66/200] height 929901 1.73 MB ok
+[ 71/200] height 932380 1.64 MB ok
+[ 63/200] height 929378 2.59 MB ok
+[ 74/200] height 932854 0.96 MB ok
+[ 73/200] height 932554 1.59 MB ok
+[ 76/200] height 933128 1.87 MB ok
+[ 77/200] height 933684 1.51 MB ok
+[ 72/200] height 932540 1.62 MB ok
+[ 75/200] height 932933 1.82 MB ok
+[ 79/200] height 934451 3.02 MB ok
+[ 80/200] height 934558 1.44 MB ok
+[ 82/200] height 936000 1.65 MB ok
+[ 83/200] height 936057 1.72 MB ok
+[ 78/200] height 933897 1.59 MB ok
+[ 85/200] height 936931 1.41 MB ok
+[ 86/200] height 937049 1.88 MB ok
+[ 88/200] height 937433 0.26 MB ok
+[ 84/200] height 936078 1.97 MB ok
+[ 81/200] height 935939 1.58 MB ok
+[ 89/200] height 937560 0.91 MB ok
+[ 91/200] height 938291 1.58 MB ok
+[ 92/200] height 938331 0.57 MB ok
+[ 94/200] height 938520 1.71 MB ok
+[ 87/200] height 937075 2.10 MB ok
+[ 95/200] height 938556 1.73 MB ok
+[ 93/200] height 938353 1.69 MB ok
+[ 90/200] height 937829 1.73 MB ok
+[ 97/200] height 939233 1.82 MB ok
+[ 96/200] height 938807 0.59 MB ok
+[ 98/200] height 939410 1.72 MB ok
+[100/200] height 940580 1.79 MB ok
+[101/200] height 940826 1.70 MB ok
+[103/200] height 940917 1.79 MB ok
+[104/200] height 941188 1.53 MB ok
+[106/200] height 942524 1.69 MB ok
+[ 99/200] height 939659 1.29 MB ok
+[102/200] height 940857 1.66 MB ok
+[107/200] height 942742 1.65 MB ok
+[109/200] height 943853 1.61 MB ok
+[110/200] height 943935 1.39 MB ok
+[112/200] height 944262 1.66 MB ok
+[105/200] height 941788 1.65 MB ok
+[108/200] height 943402 1.55 MB ok
+[113/200] height 944722 1.59 MB ok
+[115/200] height 945064 1.44 MB ok
+[116/200] height 945199 1.59 MB ok
+[118/200] height 946021 0.39 MB ok
+[111/200] height 944058 1.59 MB ok
+[119/200] height 946516 1.62 MB ok
+[114/200] height 945018 1.56 MB ok
+[121/200] height 948157 1.82 MB ok
+[117/200] height 945619 1.61 MB ok
+[122/200] height 948519 1.59 MB ok
+[124/200] height 948739 1.58 MB ok
+[125/200] height 949069 1.57 MB ok
+[120/200] height 946617 1.59 MB ok
+[127/200] height 949121 1.61 MB ok
+[128/200] height 949328 1.59 MB ok
+[130/200] height 949755 1.59 MB ok
+[123/200] height 948736 1.60 MB ok
+[131/200] height 950049 1.58 MB ok
+[126/200] height 949093 1.59 MB ok
+[133/200] height 950545 1.66 MB ok
+[134/200] height 950554 1.57 MB ok
+[129/200] height 949604 1.60 MB ok
+[136/200] height 950968 1.79 MB ok
+[137/200] height 951048 1.59 MB ok
+[139/200] height 951444 1.63 MB ok
+[135/200] height 950907 1.63 MB ok
+[132/200] height 950382 1.63 MB ok
+[140/200] height 951673 1.59 MB ok
+[142/200] height 952348 1.59 MB ok
+[143/200] height 952686 1.67 MB ok
+[138/200] height 951270 1.65 MB ok
+[145/200] height 953331 1.60 MB ok
+[146/200] height 953701 1.62 MB ok
+[148/200] height 954072 1.57 MB ok
+[144/200] height 952921 1.62 MB ok
+[141/200] height 951765 1.64 MB ok
+[149/200] height 954272 1.75 MB ok
+[151/200] height 954532 1.53 MB ok
+[153/200] height 954952 0.20 MB ok
+[147/200] height 953725 1.62 MB ok
+[154/200] height 955237 1.54 MB ok
+[152/200] height 954784 1.58 MB ok
+[155/200] height 955362 1.60 MB ok
+[150/200] height 954327 1.57 MB ok
+[157/200] height 956586 1.57 MB ok
+[158/200] height 957042 1.55 MB ok
+[160/200] height 957316 1.63 MB ok
+[161/200] height 957332 1.57 MB ok
+[156/200] height 956273 1.54 MB ok
+[163/200] height 957833 0.20 MB ok
+[159/200] height 957057 1.83 MB ok
+[164/200] height 958122 1.67 MB ok
+[162/200] height 957389 1.56 MB ok
+[166/200] height 958698 1.55 MB ok
+[167/200] height 959398 1.49 MB ok
+[169/200] height 959643 1.53 MB ok
+[170/200] height 959807 1.58 MB ok
+[165/200] height 958155 1.67 MB ok
+[172/200] height 960042 1.85 MB ok
+[173/200] height 960047 1.68 MB ok
+[168/200] height 959486 1.54 MB ok
+[175/200] height 960634 1.83 MB ok
+[176/200] height 960735 1.59 MB ok
+[171/200] height 960038 1.58 MB ok
+[178/200] height 961729 1.52 MB ok
+[179/200] height 962097 1.56 MB ok
+[174/200] height 960593 1.54 MB ok
+[182/200] height 962717 0.37 MB ok
+[181/200] height 962651 1.66 MB ok
+[184/200] height 963219 1.55 MB ok
+[177/200] height 960748 1.60 MB ok
+[185/200] height 963220 1.68 MB ok
+[183/200] height 962927 1.69 MB ok
+[187/200] height 964402 1.50 MB ok
+[180/200] height 962394 1.61 MB ok
+[188/200] height 964610 1.63 MB ok
+[190/200] height 964936 1.50 MB ok
+[191/200] height 965053 1.60 MB ok
+[186/200] height 963518 1.48 MB ok
+[193/200] height 965842 1.51 MB ok
+[189/200] height 964831 1.50 MB ok
+[192/200] height 965189 1.62 MB ok
+[194/200] height 965959 1.65 MB ok
+[197/200] height 966358 1.47 MB ok
+[196/200] height 966259 1.59 MB ok
+[199/200] height 967269 1.60 MB ok
+[195/200] height 966202 1.63 MB ok
+[200/200] height 967292 1.70 MB ok
+[198/200] height 966942 1.77 MB ok
+done: 200 blocks, 300.6 MB in ./raw_blocks

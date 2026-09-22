@@ -129,9 +129,15 @@ The target is one block per lane every 15 s, so one block every 5 s across the t
 | Highest slot index | **3,785**, so each node stores about 3,530 placeholder records for 251 real blocks |
 
 A Monte Carlo of the window rule alone (`fill_rate_montecarlo.py`: equal hash power per lane, zero delay) predicts a 63.0% fill rate for N = 3. With this run's lane split (94 / 78 / 79) the prediction is 62.7%.
-- **Compared with the prediction:** 59.3% is 1.7 standard deviations below it. A 140-group sample of the model comes out this low about 5% of the time.
-- **Possible causes:** chance can explain the gap. The small delays on a loaded machine (block propagation, template rebuilds) may also add to it.
-- **Earlier run:** the first run (default config) measured 62.4%.
+- **Compared with the prediction:** 59.3% is 1.7 standard deviations below it, and the gap is mostly in single-child parents: 60 of 140 (43%) against 33% in the model. The model produces that many single-child parents in a 140-group sample only about 1% of the time, so chance alone is an unlikely explanation.
+- **Cause: the finder's head start.**
+  - When a node receives a block, it stops mining, validates the block, sleeps 100 ms and rebuilds its template. The node that found the block starts its next template at once.
+  - In this run the next block came from the **same node 23.6%** of the time, against 16.7% for six equal miners. The other miner of the same lane had no advantage (16.4%).
+  - A parent ends with one child exactly when one lane finds two blocks in a row, so the head start adds single-child parents.
+  - `fill_rate_montecarlo.simulate_with_finder_advantage` adds this head start to the model, with the finder's rate ×1.55, calibrated to the measured 23.6%. It then predicts a **59.9%** fill rate and 39% single-child parents, close to the measured 59.3% and 43%.
+  - Numbers: `analysis.json` → `next_block`.
+- **What to take from it:** the fill rate depends on the mining loop as well as on the window rule. A miner should restart only when an incoming block takes its slot or retires its parent, not on every block.
+- **Earlier run:** the first run (default config, blocks every ~11 s, so restarts mattered less) measured 62.4%, and there the same node found the next block 15.9% of the time.
 
 The conclusions for the paper stay the same:
 - Empty slots come from the window rule itself, not from the network.
@@ -187,13 +193,15 @@ After t = 242 s every submission was accepted. Blocks carried 1.25 user transact
 |---|---|
 | `run_local_testbed.py` | Starts the nodes, drives the workload, takes snapshots, dumps the final state |
 | `analyze_run.py` → `analysis.json` | All numbers in this file, including the offline check of every block's bits |
-| `fill_rate_montecarlo.py` | Monte Carlo of the window rule |
+| `fill_rate_montecarlo.py` | Monte Carlo of the window rule, with and without the finder's head start |
 | `config_used.json` | The config values used for this run |
 | `meta.json`, `driver.log` | Run parameters, wallets, code version, and the driver's log |
 | `timeline.jsonl` | 30-second snapshots of every node |
 | `tx_log.jsonl` | Every transaction submission and its result |
 | `final/` | Per-node final dumps, including blocks, PQP and verification results |
 | `logs/` | Full logs of the 6 nodes and the ports server (gzipped; read them with `gunzip -c`) |
+
+The routing analysis on real Bitcoin transactions (Section VII-G of the paper) is in `experiments/bitcoin_lane_analysis/`, which has its own README.
 
 To re-analyze this run (from the repository root):
 
