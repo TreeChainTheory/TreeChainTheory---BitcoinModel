@@ -1,5 +1,5 @@
 use crate::chain_util::ChainUtil;
-use crate::config::{BITS, CHILDREN, EXPECTED_TIME, MINING_RATE, SIGHASH_ALL};
+use crate::config::{CHILDREN, EXPECTED_TIME, MINING_RATE, SIGHASH_ALL};
 
 use crate::p2p_server::P2PServer;
 
@@ -139,70 +139,36 @@ async fn start_mining(
 
                 // Sign the data
                 let signature = wallet.sign_data(&sig_data);
-                let mut bits_to_use;
+                let bits_to_use;
 
                 let num = EXPECTED_TIME as u32 / MINING_RATE as u32;
 
                 // CONCATENATE signature with wallet.public_key
                 let combined_signature = format!("{}{}", signature, wallet.public_key);
 
-                let upcount;
                 {
+                    // Same deterministic rule as the verifier: every block of a retarget period
+                    // gets the bits derived from blocks that precede its sibling group.
                     let tree = treechain.lock().await;
-                    bits_to_use = tree.get_latest_bits();
                     let count = tree.get_count_upto_uncle(parent_hash) as u32;
-                    println!("count {}", count.clone());
-                    upcount = count + align as u32;
-
+                    let upcount = count + align as u32;
+                    bits_to_use = tree.bits_for_upcount(upcount);
+                    if upcount >= num * CHILDREN as u32 && upcount % (num * CHILDREN as u32) < CHILDREN as u32 {
+                        println!(
+                            "🔧 Adjusted bits for queue_index {}: {} (upcount {})",
+                            queue_index, bits_to_use, upcount
+                        );
+                    }
                     drop(tree);
-                }
-
-                //here suppose the blocks are upto 299 , and now its time for 300 , 301 , 302 then they calculate (CHILDREN =3)
-                if (upcount % (num * CHILDREN as u32) < CHILDREN as u32)
-                    && upcount >= num * CHILDREN as u32
-                {
-                    // Lock tree for read to compute adjustment
-                    let remainder = upcount as u32 % (num * CHILDREN as u32);
-                    let tree_read = treechain.lock().await;
-                    let mut target_first =
-                        upcount.saturating_sub(num * CHILDREN as u32 + remainder);
-                    if target_first == 0 {
-                        target_first = 1;
-                    }
-                    let target_last = upcount.saturating_sub(remainder + 1);
-                    let tf = tree_read.get_qi_from_count(target_first);
-                    let tl = tree_read.get_qi_from_count(target_last);
-                    if let (Some(tf), Some(tl)) = (tf, tl) {
-                        if let (Some(ft), Some(lt)) = (
-                            tree_read.find_timestamp_for_queue_le(tf),
-                            tree_read.find_timestamp_for_queue_le(tl),
-                        ) {
-                            if lt > ft {
-                                // Get prev_bits from parent (consistent with verify)
-                                let prev_bits =
-                                    tree_read.find_bits(tl as u32).unwrap_or(BITS.to_string());
-                                if let Some(new_bits) = Block::adjust_bits(&prev_bits, ft, lt) {
-                                    bits_to_use = new_bits.clone();
-                                    println!(
-                                        "🔧 Adjusted bits for queue_index {}: {} (time span: {}s)",
-                                        queue_index,
-                                        bits_to_use.clone(),
-                                        (lt - ft) as i128
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    drop(tree_read);
                 }
 
                 let block_template_opt;
                 {
+                    // Lock order used everywhere: treechain -> pqp -> utxo_set -> txn_pool
                     let tree = treechain.lock().await;
                     let mut pqp_guard = pqp.lock().await;
-                    let txn_pool = txn_pool.lock().await;
                     let utxo_set = utxo_set.lock().await;
+                    let txn_pool = txn_pool.lock().await;
                     block_template_opt = tree.prepare_block_template(
                         &mut pqp_guard,
                         align,
@@ -557,9 +523,9 @@ async fn create_txn(
         }));
     }
 
-    let utxo_set_guard = utxo_set.lock().await;
-
+    // Lock order used everywhere: wallet -> treechain -> utxo_set -> txn_pool
     let treechain_guard = data.0.lock().await; // Get TreeChain for current height
+    let utxo_set_guard = utxo_set.lock().await;
 
     let total_balance = Wallet::get_balance(&wallet_guard.address, &utxo_set_guard);
 
@@ -599,12 +565,17 @@ async fn create_txn(
     let mut txn_pool_guard = txn_pool.lock().await;
     match txn_pool_guard.add_transaction(tx.clone(), &utxo_set_guard, &treechain_guard) {
         Ok(_) => {
+            // Release every lock before network I/O so a slow peer cannot stall this node
+            let from_address = wallet_guard.address.clone();
+            drop(txn_pool_guard);
+            drop(utxo_set_guard);
             drop(treechain_guard);
+            drop(wallet_guard);
             p2p_server.broadcast_transaction(tx.clone()).await;
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "txid": tx.txid,
-                "from_address": wallet_guard.address,
+                "from_address": from_address,
                 "to_address": to_address,
                 "value": value,
                 "fee": fee,
@@ -931,11 +902,12 @@ async fn create_multisig_txn(
         Arc<Mutex<TransactionPool>>,
     )>,
 ) -> impl Responder {
-    let treechain_guard = data.0.lock().await;
     let p2p_server = data.3.clone();
     let wallet_arc = data.6.clone();
     let utxo_set = data.9.clone();
+    // Lock order used everywhere: wallet -> treechain -> utxo_set -> txn_pool
     let wallet = wallet_arc.lock().await;
+    let treechain_guard = data.0.lock().await;
     let pubkeys = body.pubkeys.clone();
     let m = body.m;
     let value = body.value;
@@ -969,6 +941,10 @@ async fn create_multisig_txn(
     txn = txn
         .clone()
         .sign_transaction(&wallet, &mut txn, &utxo_set_guard);
+    // Release every lock before network I/O so a slow peer cannot stall this node
+    drop(utxo_set_guard);
+    drop(treechain_guard);
+    drop(wallet);
     p2p_server.broadcast_transaction(txn.clone()).await;
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -1120,10 +1096,11 @@ async fn spend_multisig_txn(
     )>,
 ) -> impl Responder {
     let treechain = data.0.clone();
-    let treechain_guard = treechain.lock().await;
     let p2p_server = data.3.clone();
     let wallet_arc = data.6.clone();
+    // Lock order used everywhere: wallet -> treechain -> utxo_set -> txn_pool
     let wallet = wallet_arc.lock().await;
+    let treechain_guard = treechain.lock().await;
     let utxo_set = data.9.clone();
     let txn_pool = data.10.clone();
 
@@ -1233,7 +1210,11 @@ async fn spend_multisig_txn(
         match txn_pool_guard.add_transaction(spending_tx.clone(), &utxo_set_guard, &treechain_guard)
         {
             Ok(()) => {
+                // Release every lock before network I/O so a slow peer cannot stall this node
+                drop(txn_pool_guard);
+                drop(utxo_set_guard);
                 drop(treechain_guard);
+                drop(wallet);
                 println!(
                     "✅ Added multisig spending txn to pool: {} (input {}:{})",
                     spending_tx.txid, txid, vout

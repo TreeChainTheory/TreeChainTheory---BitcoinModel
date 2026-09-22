@@ -1,0 +1,75 @@
+[13:51:09] ports server up on :8080
+[13:51:12] all 6 node HTTP servers up
+[13:51:15] connected peers before mining: {1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 5}
+[13:51:15] sender lanes (last hex digit of pubkey % 3 + 1): node1->lane3, node2->lane1, node3->lane2, node4->lane1, node5->lane3, node6->lane3
+[13:51:15] start_mining node 1: {'message': 'Mining started', 'status': 'success'}
+[13:51:15] start_mining node 2: {'message': 'Mining started', 'status': 'success'}
+[13:51:15] start_mining node 3: {'message': 'Mining started', 'status': 'success'}
+[13:51:15] start_mining node 4: {'message': 'Mining started', 'status': 'success'}
+[13:51:15] start_mining node 5: {'message': 'Mining started', 'status': 'success'}
+[13:51:15] start_mining node 6: {'message': 'Mining started', 'status': 'success'}
+[13:51:15] t=   0.0s blocks per node=[1, 1, 1, 1, 1, 1] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:51:48] t=  32.1s blocks per node=[5, 5, 5, 5, 5, 5] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:52:16] t=  60.3s blocks per node=[8, 8, 8, 8, 8, 8] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:52:48] t=  92.4s blocks per node=[10, 10, 10, 10, 10, 10] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:53:16] t= 120.6s blocks per node=[12, 12, 12, 12, 12, 12] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:53:48] t= 152.7s blocks per node=[17, 17, 17, 17, 17, 17] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:54:16] t= 180.9s blocks per node=[18, 18, 18, 18, 18, 18] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:54:49] t= 213.1s blocks per node=[21, 21, 21, 21, 21, 21] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:55:17] t= 241.3s blocks per node=[22, 22, 22, 22, 22, 22] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:55:49] t= 273.5s blocks per node=[27, 27, 27, 27, 27, 27] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[13:56:17] t= 301.7s blocks per node=[33, 33, 33, 33, 33, 33] identical_views=True alive=6/6 http_errors=0 bits=1e429d7f
+[13:56:50] t= 334.0s blocks per node=[37, 37, 37, 37, 37, 37] identical_views=True alive=6/6 http_errors=0 bits=1e429d7f
+[13:57:18] t= 362.2s blocks per node=[40, 40, 40, 40, 40, 40] identical_views=True alive=6/6 http_errors=0 bits=1e429d7f
+[13:57:46] t= 390.4s blocks per node=[42, 42, 42, 42, 42, 42] identical_views=True alive=6/6 http_errors=0 bits=1e429d7f
+[13:58:18] t= 422.6s blocks per node=[48, 48, 48, 48, 48, 48] identical_views=True alive=6/6 http_errors=0 bits=1e429d7f
+[13:58:46] t= 450.9s blocks per node=[56, 56, 56, 56, 56, 56] identical_views=True alive=6/6 http_errors=0 bits=1e429d7f
+[13:59:19] t= 483.2s blocks per node=[57, 57, 57, 57, 57, 57] identical_views=True alive=6/6 http_errors=0 bits=1e429d7f
+[13:59:47] t= 511.4s blocks per node=[58, 58, 58, 58, 58, 58] identical_views=True alive=6/6 http_errors=0 bits=1e53a95f
+[14:00:19] t= 543.7s blocks per node=[64, 64, 64, 64, 64, 64] identical_views=True alive=6/6 http_errors=0 bits=1e53a95f
+[14:00:48] t= 572.0s blocks per node=[71, 71, 71, 71, 71, 71] identical_views=True alive=6/6 http_errors=0 bits=1e53a95f
+[14:01:16] t= 600.3s blocks per node=[74, 74, 74, 74, 74, 74] identical_views=True alive=6/6 http_errors=0 bits=1e53a95f
+[14:01:48] t= 632.6s blocks per node=[77, 77, 77, 77, 77, 77] identical_views=True alive=6/6 http_errors=0 bits=1e53a95f
+[14:02:17] t= 660.9s blocks per node=[82, 82, 82, 82, 82, 82] identical_views=True alive=6/6 http_errors=0 bits=1e53a95f
+[14:02:49] t= 693.3s blocks per node=[91, 91, 91, 91, 91, 91] identical_views=True alive=6/6 http_errors=0 bits=1e855f25
+[14:03:17] t= 721.6s blocks per node=[98, 98, 98, 98, 98, 98] identical_views=True alive=6/6 http_errors=0 bits=1e855f25
+[14:03:50] t= 754.0s blocks per node=[108, 108, 108, 108, 108, 108] identical_views=True alive=6/6 http_errors=0 bits=1e855f25
+[14:04:18] t= 782.3s blocks per node=[115, 115, 115, 115, 115, 115] identical_views=True alive=6/6 http_errors=0 bits=1e855f25
+[14:04:46] t= 810.6s blocks per node=[120, 120, 120, 120, 120, 120] identical_views=True alive=6/6 http_errors=0 bits=1e584256
+[14:05:19] t= 842.9s blocks per node=[129, 129, 129, 129, 129, 129] identical_views=True alive=6/6 http_errors=0 bits=1e584256
+[14:05:47] t= 871.3s blocks per node=[137, 137, 137, 137, 137, 137] identical_views=True alive=6/6 http_errors=0 bits=1e584256
+[14:06:19] t= 903.7s blocks per node=[142, 142, 142, 142, 142, 142] identical_views=True alive=6/6 http_errors=0 bits=1e584256
+[14:06:48] t= 932.0s blocks per node=[147, 147, 147, 147, 147, 147] identical_views=True alive=6/6 http_errors=0 bits=1e584256
+[14:07:16] t= 960.4s blocks per node=[158, 158, 158, 158, 158, 158] identical_views=True alive=6/6 http_errors=0 bits=1e4b55ec
+[14:07:48] t= 992.8s blocks per node=[162, 162, 162, 162, 162, 162] identical_views=True alive=6/6 http_errors=0 bits=1e4b55ec
+[14:08:17] t=1021.1s blocks per node=[167, 167, 167, 167, 167, 167] identical_views=True alive=6/6 http_errors=0 bits=1e4b55ec
+[14:08:49] t=1053.5s blocks per node=[171, 171, 171, 171, 171, 171] identical_views=True alive=6/6 http_errors=0 bits=1e4b55ec
+[14:09:18] t=1081.9s blocks per node=[181, 181, 181, 181, 181, 181] identical_views=True alive=6/6 http_errors=0 bits=1e4f27b7
+[14:09:46] t=1110.3s blocks per node=[187, 187, 187, 187, 187, 187] identical_views=True alive=6/6 http_errors=0 bits=1e4f27b7
+[14:10:18] t=1142.7s blocks per node=[191, 191, 191, 191, 191, 191] identical_views=True alive=6/6 http_errors=0 bits=1e4f27b7
+[14:10:47] t=1171.2s blocks per node=[199, 199, 199, 199, 199, 199] identical_views=True alive=6/6 http_errors=0 bits=1e4f27b7
+[14:11:19] t=1203.6s blocks per node=[204, 204, 204, 204, 204, 204] identical_views=True alive=6/6 http_errors=0 bits=1e4f27b7
+[14:11:48] t=1232.0s blocks per node=[205, 205, 205, 205, 205, 205] identical_views=True alive=6/6 http_errors=0 bits=1e4f27b7
+[14:12:16] t=1260.4s blocks per node=[207, 207, 207, 207, 207, 207] identical_views=True alive=6/6 http_errors=0 bits=1e4f27b7
+[14:12:49] t=1292.8s blocks per node=[211, 211, 211, 211, 211, 211] identical_views=True alive=6/6 http_errors=0 bits=1e599f1e
+[14:13:17] t=1321.3s blocks per node=[220, 220, 220, 220, 220, 220] identical_views=True alive=6/6 http_errors=0 bits=1e599f1e
+[14:13:50] t=1353.8s blocks per node=[224, 224, 224, 224, 224, 224] identical_views=True alive=6/6 http_errors=0 bits=1e599f1e
+[14:14:18] t=1382.2s blocks per node=[228, 228, 228, 228, 228, 228] identical_views=True alive=6/6 http_errors=0 bits=1e599f1e
+[14:14:46] t=1410.6s blocks per node=[230, 230, 230, 230, 230, 230] identical_views=True alive=6/6 http_errors=0 bits=1e599f1e
+[14:15:19] t=1443.1s blocks per node=[236, 236, 236, 236, 236, 236] identical_views=True alive=6/6 http_errors=0 bits=1e599f1e
+[14:15:47] t=1471.6s blocks per node=[247, 247, 247, 247, 247, 247] identical_views=True alive=6/6 http_errors=0 bits=1e750d16
+[14:16:16] mining window over: 318/485 transaction submissions accepted into mempools
+[14:16:16] stop_mining node 1: {'message': 'Mining stopped', 'status': 'success'}
+[14:16:16] stop_mining node 2: {'message': 'Mining stopped', 'status': 'success'}
+[14:16:16] stop_mining node 3: {'message': 'Mining stopped', 'status': 'success'}
+[14:16:16] stop_mining node 4: {'message': 'Mining stopped', 'status': 'success'}
+[14:16:16] stop_mining node 5: {'message': 'Mining stopped', 'status': 'success'}
+[14:16:16] stop_mining node 6: {'message': 'Mining stopped', 'status': 'success'}
+[14:16:36] t=1520.1s blocks per node=[252, 252, 252, 252, 252, 252] identical_views=True alive=6/6 http_errors=0 bits=1e750d16
+[14:16:38] final state dumped for node 1
+[14:16:40] final state dumped for node 2
+[14:16:42] final state dumped for node 3
+[14:16:44] final state dumped for node 4
+[14:16:46] final state dumped for node 5
+[14:16:48] final state dumped for node 6
+[14:16:50] all node processes stopped

@@ -7,8 +7,6 @@ Instead of a linear chain, blocks are organized in a **tree**, allowing **parall
 
 # 🔐 Note
 This repository is a research and educational reference implementation of the Treechain model applied to a Bitcoin-like system.
-It is NOT Qenoid.
-Qenoid is a separate system that builds on Treechain with additional constraints, optimizations, and protocol-level changes.
 
 ---
 

@@ -809,6 +809,48 @@ impl TreeChain {
         }
         None
     }
+    /// Difficulty bits for the retarget period that contains `upcount`.
+    ///
+    /// All blocks whose upcount falls in period k (upcount in [k*P, (k+1)*P), with
+    /// P = CHILDREN * EXPECTED_TIME / MINING_RATE) get the same bits. Period k's bits are derived
+    /// from period k-1's bits and the timestamps of the real blocks with counts
+    /// (k-1)*P - CHILDREN ..= k*P - CHILDREN (count 1 is genesis). Those blocks precede every
+    /// sibling group whose upcount lies in period k, so every node that agrees on them computes
+    /// the same value, whatever order later blocks arrive in.
+    pub fn bits_for_upcount(&self, upcount: u32) -> String {
+        let period = (EXPECTED_TIME as u32 / MINING_RATE as u32) * CHILDREN as u32;
+        let genesis_bits = Block::genesis().bits;
+        if period == 0 || upcount < period {
+            return genesis_bits;
+        }
+        // Real blocks in slot order: count c is real[c - 1].
+        let real: Vec<&Block> = self
+            .blocks
+            .values()
+            .filter(|b| !b.position.is_empty())
+            .collect();
+        let mut bits = genesis_bits;
+        for k in 1..=(upcount / period) {
+            let end = k * period - CHILDREN as u32;
+            // the first window starts after genesis, whose timestamp is 0
+            let start = if k == 1 { 2 } else { (k - 1) * period - CHILDREN as u32 };
+            if start >= end || end as usize > real.len() {
+                break;
+            }
+            let first_ts = real[(start - 1) as usize].timestamp;
+            let last_ts = real[(end - 1) as usize].timestamp;
+            if last_ts <= first_ts {
+                continue;
+            }
+            // scale the observed span to `period` block intervals before comparing with EXPECTED_TIME
+            let span = (last_ts - first_ts) * period as u128 / (end - start) as u128;
+            if let Some(new_bits) = Block::adjust_bits(&bits, 0, span) {
+                bits = new_bits;
+            }
+        }
+        bits
+    }
+
     pub fn get_latest_bits(&self) -> String {
         self.blocks
             .iter()
@@ -1854,44 +1896,15 @@ impl TreeChain {
                 return false;
             }
         } else {
-            let num = EXPECTED_TIME as u32 / MINING_RATE as u32;
-            let queue_index = block.pqp_entry.queue_index;
+            let period = (EXPECTED_TIME as u32 / MINING_RATE as u32) * CHILDREN as u32;
             let count = self.get_count_upto_uncle(block.parent_hash.clone()) as u32;
             let upcount = count + block.align as u32;
-            let is_adjustment = (upcount % (num * CHILDREN as u32) < CHILDREN as u32)
-                && upcount >= num * CHILDREN as u32;
-            let mut expected_bits = self.get_latest_bits();
-
-            if is_adjustment {
-                let remainder = upcount % (num * CHILDREN as u32);
-                let mut target_first = upcount.saturating_sub(num * CHILDREN as u32 + remainder);
-                if target_first == 0 {
-                    target_first = 1;
-                }
-                let target_last = upcount.saturating_sub(remainder + 1);
-                println!("target first:{}", target_first);
-                let tf = self.get_qi_from_count(target_first);
-                let tl = self.get_qi_from_count(target_last);
-                if let (Some(tf), Some(tl)) = (tf, tl) {
-                    if let (Some(ft), Some(lt)) = (
-                        self.find_timestamp_for_queue_le(tf),
-                        self.find_timestamp_for_queue_le(tl),
-                    ) {
-                        if lt > ft {
-                            let prev_bits = self.find_bits(tl).unwrap_or(BITS.to_string());
-                            println!("first {} - {}, last {} - {}", ft, tf, lt, tl);
-                            if let Some(new_bits) = Block::adjust_bits(&prev_bits, ft, lt) {
-                                expected_bits = new_bits;
-                                println!(
-                                    "🔍 Verified adjustment for queue_index {}: {} (time span: {}ms)",
-                                    queue_index,
-                                    expected_bits.clone(),
-                                    (lt - ft) as i128
-                                );
-                            }
-                        }
-                    }
-                }
+            let expected_bits = self.bits_for_upcount(upcount);
+            if upcount >= period && upcount % period < CHILDREN as u32 {
+                println!(
+                    "🔍 Verified adjustment for queue_index {}: {} (upcount {})",
+                    block.pqp_entry.queue_index, expected_bits, upcount
+                );
             }
 
             if block.bits != expected_bits {

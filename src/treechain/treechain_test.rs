@@ -616,3 +616,38 @@ fn test_get_prev_pqp_after_removing_previous_parent() {
     assert_eq!(pqp.get_prev_pqp(3), "d3_commit");
     assert_eq!(pqp.get_prev_pqp(4), "d3_commit"); // Fallback to max (d3)
 }
+
+#[test]
+fn bits_for_upcount_is_fixed_per_period_and_ignores_later_blocks() {
+    use crate::config::{CHILDREN, EXPECTED_TIME, MINING_RATE};
+    let period = (EXPECTED_TIME as u32 / MINING_RATE as u32) * CHILDREN as u32;
+    let genesis = Block::genesis();
+    let mut tree = TreeChain::new();
+    let add = |tree: &mut TreeChain, q: u32| {
+        let mut b = Block::empty_placeholder(q);
+        b.position = format!("synthetic.{}", q); // non-empty position: counted as a real block
+        b.hash = format!("h{}", q);
+        b.parent_hash = genesis.hash.clone();
+        b.timestamp = 1_000_000 + (q as u128) * 1_000; // one block per second
+        b.bits = genesis.bits.clone();
+        tree.add_block(b);
+    };
+    for q in 1..=(2 * period) {
+        add(&mut tree, q);
+    }
+    // period 0 keeps the genesis target
+    assert_eq!(tree.bits_for_upcount(period - 1), genesis.bits);
+    // every upcount of period 1 gets the same value, and blocks that came faster than
+    // EXPECTED_TIME make the target harder
+    let p1 = tree.bits_for_upcount(period);
+    assert_ne!(p1, genesis.bits);
+    for u in period..(2 * period) {
+        assert_eq!(tree.bits_for_upcount(u), p1);
+    }
+    // blocks added later never change an earlier period's value
+    for q in (2 * period + 1)..=(3 * period) {
+        add(&mut tree, q);
+    }
+    assert_eq!(tree.bits_for_upcount(period + 1), p1);
+    assert_ne!(tree.bits_for_upcount(2 * period), p1);
+}

@@ -1,0 +1,1008 @@
+{
+  "meta": {
+    "started_at": "2026-09-22 13:51:08 IST",
+    "finished_at": "2026-09-22 14:16:48 IST",
+    "mining_seconds": 1500,
+    "peers_before_mining": {
+      "1": 5,
+      "2": 5,
+      "3": 5,
+      "4": 5,
+      "5": 5,
+      "6": 5
+    }
+  },
+  "sender_lanes": {
+    "1": 3,
+    "2": 1,
+    "3": 2,
+    "4": 1,
+    "5": 3,
+    "6": 3
+  },
+  "miner_lanes": {
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 1,
+    "5": 2,
+    "6": 3
+  },
+  "nodes_with_final_state": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "identical_final_views": true,
+  "real_blocks_per_node": {
+    "1": 252,
+    "2": 252,
+    "3": 252,
+    "4": 252,
+    "5": 252,
+    "6": 252
+  },
+  "tree": {
+    "real_blocks_excl_genesis": 251,
+    "max_slot_index": 3785,
+    "max_level": 8,
+    "blocks_per_lane": {
+      "1": 94,
+      "2": 78,
+      "3": 79
+    },
+    "blocks_per_miner_node": {
+      "1": 50,
+      "2": 44,
+      "3": 36,
+      "4": 44,
+      "5": 34,
+      "6": 43
+    }
+  },
+  "checks": {
+    "slot_rule_q_eq_N_qparent_plus_lane": true,
+    "lane_links_point_to_lane_predecessor": true,
+    "node_self_verification": {
+      "1": {
+        "verify_tree": "Tree is valid",
+        "verify_pqp": "PQP is valid"
+      },
+      "2": {
+        "verify_tree": "Tree is valid",
+        "verify_pqp": "PQP is valid"
+      },
+      "3": {
+        "verify_tree": "Tree is valid",
+        "verify_pqp": "PQP is valid"
+      },
+      "4": {
+        "verify_tree": "Tree is valid",
+        "verify_pqp": "PQP is valid"
+      },
+      "5": {
+        "verify_tree": "Tree is valid",
+        "verify_pqp": "PQP is valid"
+      },
+      "6": {
+        "verify_tree": "Tree is valid",
+        "verify_pqp": "PQP is valid"
+      }
+    }
+  },
+  "sibling_groups": {
+    "closed_parents": 140,
+    "current_parent_slot": 1261,
+    "slots_in_closed_groups": 420,
+    "filled": 249,
+    "empty": 171,
+    "fill_rate": 0.5929,
+    "children_per_closed_parent": {
+      "1": 60,
+      "2": 51,
+      "3": 29
+    }
+  },
+  "timing": {
+    "first_block_s": -0.0,
+    "last_block_s": 1489.3,
+    "blocks_per_minute": 10.11,
+    "mean_interval_any_lane_s": 5.96,
+    "median_interval_any_lane_s": 3.97,
+    "per_lane": {
+      "1": {
+        "blocks": 94,
+        "mean_interval_s": 16.0,
+        "median_interval_s": 10.3
+      },
+      "2": {
+        "blocks": 78,
+        "mean_interval_s": 19.0,
+        "median_interval_s": 12.3
+      },
+      "3": {
+        "blocks": 79,
+        "mean_interval_s": 18.8,
+        "median_interval_s": 10.8
+      }
+    },
+    "blocks_per_300s_window": {
+      "0-300": 31,
+      "300-600": 42,
+      "600-900": 68,
+      "900-1200": 62,
+      "1200-1500": 47
+    },
+    "bits_values_seen": [
+      "1e1fffff",
+      "1e429d7f",
+      "1e4b55ec",
+      "1e4f27b7",
+      "1e53a95f",
+      "1e584256",
+      "1e599f1e",
+      "1e750d16",
+      "1e855f25"
+    ]
+  },
+  "difficulty": {
+    "target_interval_per_lane_s": 15.0,
+    "target_interval_any_lane_s": 5.0,
+    "retarget_every_counts": 30,
+    "retargets_in_final_tree": 8,
+    "blocks_checked": 251,
+    "blocks_whose_bits_match_offline_recomputation": 251,
+    "mismatches": [],
+    "periods": [
+      {
+        "period": 0,
+        "upcounts": "0-29",
+        "bits": "1e1fffff",
+        "difficulty_vs_genesis": 1.0,
+        "blocks": 28,
+        "first_block_s": -0.0,
+        "last_block_s": 285.0,
+        "mean_interval_s": 10.56
+      },
+      {
+        "period": 1,
+        "upcounts": "30-59",
+        "bits": "1e429d7f",
+        "difficulty_vs_genesis": 0.48,
+        "blocks": 30,
+        "first_block_s": 287.5,
+        "last_block_s": 517.8,
+        "mean_interval_s": 7.94,
+        "retarget": {
+          "window_counts": "2-27",
+          "window_duration_s": 260.2,
+          "span_scaled_to_P_s": 312.3,
+          "clamped_factor": 2.082
+        }
+      },
+      {
+        "period": 2,
+        "upcounts": "60-89",
+        "bits": "1e53a95f",
+        "difficulty_vs_genesis": 0.382,
+        "blocks": 30,
+        "first_block_s": 472.1,
+        "last_block_s": 689.3,
+        "mean_interval_s": 7.49,
+        "retarget": {
+          "window_counts": "27-57",
+          "window_duration_s": 188.4,
+          "span_scaled_to_P_s": 188.4,
+          "clamped_factor": 1.256
+        }
+      },
+      {
+        "period": 3,
+        "upcounts": "90-119",
+        "bits": "1e855f25",
+        "difficulty_vs_genesis": 0.24,
+        "blocks": 30,
+        "first_block_s": 689.5,
+        "last_block_s": 790.5,
+        "mean_interval_s": 3.48,
+        "retarget": {
+          "window_counts": "57-87",
+          "window_duration_s": 239.1,
+          "span_scaled_to_P_s": 239.1,
+          "clamped_factor": 1.594
+        }
+      },
+      {
+        "period": 4,
+        "upcounts": "120-149",
+        "bits": "1e584256",
+        "difficulty_vs_genesis": 0.363,
+        "blocks": 30,
+        "first_block_s": 787.8,
+        "last_block_s": 934.2,
+        "mean_interval_s": 5.05,
+        "retarget": {
+          "window_counts": "87-117",
+          "window_duration_s": 99.3,
+          "span_scaled_to_P_s": 99.3,
+          "clamped_factor": 0.662
+        }
+      },
+      {
+        "period": 5,
+        "upcounts": "150-179",
+        "bits": "1e4b55ec",
+        "difficulty_vs_genesis": 0.425,
+        "blocks": 28,
+        "first_block_s": 940.1,
+        "last_block_s": 1072.6,
+        "mean_interval_s": 4.91,
+        "retarget": {
+          "window_counts": "117-147",
+          "window_duration_s": 128.0,
+          "span_scaled_to_P_s": 128.0,
+          "clamped_factor": 0.854
+        }
+      },
+      {
+        "period": 6,
+        "upcounts": "180-209",
+        "bits": "1e4f27b7",
+        "difficulty_vs_genesis": 0.404,
+        "blocks": 32,
+        "first_block_s": 1073.4,
+        "last_block_s": 1263.8,
+        "mean_interval_s": 6.14,
+        "retarget": {
+          "window_counts": "147-177",
+          "window_duration_s": 157.6,
+          "span_scaled_to_P_s": 157.6,
+          "clamped_factor": 1.051
+        }
+      },
+      {
+        "period": 7,
+        "upcounts": "210-239",
+        "bits": "1e599f1e",
+        "difficulty_vs_genesis": 0.357,
+        "blocks": 30,
+        "first_block_s": 1270.8,
+        "last_block_s": 1450.8,
+        "mean_interval_s": 6.21,
+        "retarget": {
+          "window_counts": "177-207",
+          "window_duration_s": 169.8,
+          "span_scaled_to_P_s": 169.8,
+          "clamped_factor": 1.132
+        }
+      },
+      {
+        "period": 8,
+        "upcounts": "240-269",
+        "bits": "1e750d16",
+        "difficulty_vs_genesis": 0.273,
+        "blocks": 13,
+        "first_block_s": 1453.2,
+        "last_block_s": 1489.3,
+        "mean_interval_s": 3.01,
+        "retarget": {
+          "window_counts": "207-237",
+          "window_duration_s": 195.9,
+          "span_scaled_to_P_s": 195.9,
+          "clamped_factor": 1.306
+        }
+      }
+    ]
+  },
+  "parent_age": {
+    "median_parent_time_over_block_time": 0.614,
+    "median_for_second_half_of_run": 0.622,
+    "median_parent_count_over_block_count": 0.55,
+    "median_count_ratio_second_half": 0.56,
+    "predicted_1_over_fill_rate_times_N": 0.562
+  },
+  "transactions": {
+    "submission_attempts": 485,
+    "accepted_into_mempool": 318,
+    "rejections": {
+      "Insufficient funds: need #, available #": 80,
+      "Failed to add to mempool: Coinbase UTXO not mature (requires # confirm": 87
+    },
+    "confirmed_in_blocks": 314,
+    "confirmed_per_lane": {
+      "1": 119,
+      "2": 51,
+      "3": 144
+    },
+    "every_tx_in_block_of_its_sender_lane": true,
+    "confirmation_latency_s": {
+      "median": 13.5,
+      "mean": 18.3,
+      "p90": 46.2
+    },
+    "confirmed_tx_per_minute": 12.65,
+    "mempool_left_at_end": {
+      "1": 4,
+      "2": 4,
+      "3": 4,
+      "4": 4,
+      "5": 4,
+      "6": 4
+    }
+  },
+  "log_events_per_node": {
+    "1": {
+      "resync_to_genesis": 0,
+      "slot_already_taken": 0,
+      "parent_outside_window": 0,
+      "failed_to_add_block": 0,
+      "mining_aborted_new_block": 194,
+      "blocks_mined_locally": 50,
+      "pending_block_queued": 0,
+      "pending_block_requeued": 0,
+      "resync_best_peer_longer": 0,
+      "bits_mismatch_rejections": 0,
+      "retargets_computed_by_miner": 23,
+      "retargets_verified": 48,
+      "coinbase_or_tx_rejections": 0
+    },
+    "2": {
+      "resync_to_genesis": 0,
+      "slot_already_taken": 0,
+      "parent_outside_window": 0,
+      "failed_to_add_block": 0,
+      "mining_aborted_new_block": 203,
+      "blocks_mined_locally": 44,
+      "pending_block_queued": 0,
+      "pending_block_requeued": 0,
+      "resync_best_peer_longer": 0,
+      "bits_mismatch_rejections": 0,
+      "retargets_computed_by_miner": 22,
+      "retargets_verified": 48,
+      "coinbase_or_tx_rejections": 0
+    },
+    "3": {
+      "resync_to_genesis": 0,
+      "slot_already_taken": 0,
+      "parent_outside_window": 0,
+      "failed_to_add_block": 0,
+      "mining_aborted_new_block": 210,
+      "blocks_mined_locally": 36,
+      "pending_block_queued": 0,
+      "pending_block_requeued": 0,
+      "resync_best_peer_longer": 0,
+      "bits_mismatch_rejections": 0,
+      "retargets_computed_by_miner": 27,
+      "retargets_verified": 48,
+      "coinbase_or_tx_rejections": 0
+    },
+    "4": {
+      "resync_to_genesis": 0,
+      "slot_already_taken": 0,
+      "parent_outside_window": 0,
+      "failed_to_add_block": 0,
+      "mining_aborted_new_block": 204,
+      "blocks_mined_locally": 44,
+      "pending_block_queued": 0,
+      "pending_block_requeued": 0,
+      "resync_best_peer_longer": 0,
+      "bits_mismatch_rejections": 0,
+      "retargets_computed_by_miner": 24,
+      "retargets_verified": 48,
+      "coinbase_or_tx_rejections": 0
+    },
+    "5": {
+      "resync_to_genesis": 0,
+      "slot_already_taken": 1,
+      "parent_outside_window": 0,
+      "failed_to_add_block": 0,
+      "mining_aborted_new_block": 211,
+      "blocks_mined_locally": 34,
+      "pending_block_queued": 0,
+      "pending_block_requeued": 0,
+      "resync_best_peer_longer": 0,
+      "bits_mismatch_rejections": 0,
+      "retargets_computed_by_miner": 22,
+      "retargets_verified": 48,
+      "coinbase_or_tx_rejections": 0
+    },
+    "6": {
+      "resync_to_genesis": 0,
+      "slot_already_taken": 0,
+      "parent_outside_window": 0,
+      "failed_to_add_block": 0,
+      "mining_aborted_new_block": 204,
+      "blocks_mined_locally": 43,
+      "pending_block_queued": 0,
+      "pending_block_requeued": 0,
+      "resync_best_peer_longer": 0,
+      "bits_mismatch_rejections": 0,
+      "retargets_computed_by_miner": 28,
+      "retargets_verified": 48,
+      "coinbase_or_tx_rejections": 0
+    }
+  },
+  "timeline_blocks": [
+    {
+      "t_s": 0.0,
+      "blocks": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "t_s": 32.1,
+      "blocks": [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ]
+    },
+    {
+      "t_s": 60.3,
+      "blocks": [
+        8,
+        8,
+        8,
+        8,
+        8,
+        8
+      ]
+    },
+    {
+      "t_s": 92.4,
+      "blocks": [
+        10,
+        10,
+        10,
+        10,
+        10,
+        10
+      ]
+    },
+    {
+      "t_s": 120.6,
+      "blocks": [
+        12,
+        12,
+        12,
+        12,
+        12,
+        12
+      ]
+    },
+    {
+      "t_s": 152.7,
+      "blocks": [
+        17,
+        17,
+        17,
+        17,
+        17,
+        17
+      ]
+    },
+    {
+      "t_s": 180.9,
+      "blocks": [
+        18,
+        18,
+        18,
+        18,
+        18,
+        18
+      ]
+    },
+    {
+      "t_s": 213.1,
+      "blocks": [
+        21,
+        21,
+        21,
+        21,
+        21,
+        21
+      ]
+    },
+    {
+      "t_s": 241.3,
+      "blocks": [
+        22,
+        22,
+        22,
+        22,
+        22,
+        22
+      ]
+    },
+    {
+      "t_s": 273.5,
+      "blocks": [
+        27,
+        27,
+        27,
+        27,
+        27,
+        27
+      ]
+    },
+    {
+      "t_s": 301.7,
+      "blocks": [
+        33,
+        33,
+        33,
+        33,
+        33,
+        33
+      ]
+    },
+    {
+      "t_s": 334.0,
+      "blocks": [
+        37,
+        37,
+        37,
+        37,
+        37,
+        37
+      ]
+    },
+    {
+      "t_s": 362.2,
+      "blocks": [
+        40,
+        40,
+        40,
+        40,
+        40,
+        40
+      ]
+    },
+    {
+      "t_s": 390.4,
+      "blocks": [
+        42,
+        42,
+        42,
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "t_s": 422.6,
+      "blocks": [
+        48,
+        48,
+        48,
+        48,
+        48,
+        48
+      ]
+    },
+    {
+      "t_s": 450.9,
+      "blocks": [
+        56,
+        56,
+        56,
+        56,
+        56,
+        56
+      ]
+    },
+    {
+      "t_s": 483.2,
+      "blocks": [
+        57,
+        57,
+        57,
+        57,
+        57,
+        57
+      ]
+    },
+    {
+      "t_s": 511.4,
+      "blocks": [
+        58,
+        58,
+        58,
+        58,
+        58,
+        58
+      ]
+    },
+    {
+      "t_s": 543.7,
+      "blocks": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        64
+      ]
+    },
+    {
+      "t_s": 572.0,
+      "blocks": [
+        71,
+        71,
+        71,
+        71,
+        71,
+        71
+      ]
+    },
+    {
+      "t_s": 600.3,
+      "blocks": [
+        74,
+        74,
+        74,
+        74,
+        74,
+        74
+      ]
+    },
+    {
+      "t_s": 632.6,
+      "blocks": [
+        77,
+        77,
+        77,
+        77,
+        77,
+        77
+      ]
+    },
+    {
+      "t_s": 660.9,
+      "blocks": [
+        82,
+        82,
+        82,
+        82,
+        82,
+        82
+      ]
+    },
+    {
+      "t_s": 693.3,
+      "blocks": [
+        91,
+        91,
+        91,
+        91,
+        91,
+        91
+      ]
+    },
+    {
+      "t_s": 721.6,
+      "blocks": [
+        98,
+        98,
+        98,
+        98,
+        98,
+        98
+      ]
+    },
+    {
+      "t_s": 754.0,
+      "blocks": [
+        108,
+        108,
+        108,
+        108,
+        108,
+        108
+      ]
+    },
+    {
+      "t_s": 782.3,
+      "blocks": [
+        115,
+        115,
+        115,
+        115,
+        115,
+        115
+      ]
+    },
+    {
+      "t_s": 810.6,
+      "blocks": [
+        120,
+        120,
+        120,
+        120,
+        120,
+        120
+      ]
+    },
+    {
+      "t_s": 842.9,
+      "blocks": [
+        129,
+        129,
+        129,
+        129,
+        129,
+        129
+      ]
+    },
+    {
+      "t_s": 871.3,
+      "blocks": [
+        137,
+        137,
+        137,
+        137,
+        137,
+        137
+      ]
+    },
+    {
+      "t_s": 903.7,
+      "blocks": [
+        142,
+        142,
+        142,
+        142,
+        142,
+        142
+      ]
+    },
+    {
+      "t_s": 932.0,
+      "blocks": [
+        147,
+        147,
+        147,
+        147,
+        147,
+        147
+      ]
+    },
+    {
+      "t_s": 960.4,
+      "blocks": [
+        158,
+        158,
+        158,
+        158,
+        158,
+        158
+      ]
+    },
+    {
+      "t_s": 992.8,
+      "blocks": [
+        162,
+        162,
+        162,
+        162,
+        162,
+        162
+      ]
+    },
+    {
+      "t_s": 1021.1,
+      "blocks": [
+        167,
+        167,
+        167,
+        167,
+        167,
+        167
+      ]
+    },
+    {
+      "t_s": 1053.5,
+      "blocks": [
+        171,
+        171,
+        171,
+        171,
+        171,
+        171
+      ]
+    },
+    {
+      "t_s": 1081.9,
+      "blocks": [
+        181,
+        181,
+        181,
+        181,
+        181,
+        181
+      ]
+    },
+    {
+      "t_s": 1110.3,
+      "blocks": [
+        187,
+        187,
+        187,
+        187,
+        187,
+        187
+      ]
+    },
+    {
+      "t_s": 1142.7,
+      "blocks": [
+        191,
+        191,
+        191,
+        191,
+        191,
+        191
+      ]
+    },
+    {
+      "t_s": 1171.2,
+      "blocks": [
+        199,
+        199,
+        199,
+        199,
+        199,
+        199
+      ]
+    },
+    {
+      "t_s": 1203.6,
+      "blocks": [
+        204,
+        204,
+        204,
+        204,
+        204,
+        204
+      ]
+    },
+    {
+      "t_s": 1232.0,
+      "blocks": [
+        205,
+        205,
+        205,
+        205,
+        205,
+        205
+      ]
+    },
+    {
+      "t_s": 1260.4,
+      "blocks": [
+        207,
+        207,
+        207,
+        207,
+        207,
+        207
+      ]
+    },
+    {
+      "t_s": 1292.8,
+      "blocks": [
+        211,
+        211,
+        211,
+        211,
+        211,
+        211
+      ]
+    },
+    {
+      "t_s": 1321.3,
+      "blocks": [
+        220,
+        220,
+        220,
+        220,
+        220,
+        220
+      ]
+    },
+    {
+      "t_s": 1353.8,
+      "blocks": [
+        224,
+        224,
+        224,
+        224,
+        224,
+        224
+      ]
+    },
+    {
+      "t_s": 1382.2,
+      "blocks": [
+        228,
+        228,
+        228,
+        228,
+        228,
+        228
+      ]
+    },
+    {
+      "t_s": 1410.6,
+      "blocks": [
+        230,
+        230,
+        230,
+        230,
+        230,
+        230
+      ]
+    },
+    {
+      "t_s": 1443.1,
+      "blocks": [
+        236,
+        236,
+        236,
+        236,
+        236,
+        236
+      ]
+    },
+    {
+      "t_s": 1471.6,
+      "blocks": [
+        247,
+        247,
+        247,
+        247,
+        247,
+        247
+      ]
+    },
+    {
+      "t_s": 1520.1,
+      "blocks": [
+        252,
+        252,
+        252,
+        252,
+        252,
+        252
+      ]
+    }
+  ],
+  "liveness": {
+    "snapshots": 51,
+    "node_snapshots": 306,
+    "node_snapshots_with_process_alive": 306,
+    "node_snapshots_with_process_state_recorded": 306,
+    "node_snapshots_with_http_error": 0,
+    "max_get_blocks_ms_per_node": {
+      "1": 40,
+      "2": 40,
+      "3": 40,
+      "4": 41,
+      "5": 41,
+      "6": 39
+    },
+    "snapshots_with_identical_block_sets": 51,
+    "max_spread_in_block_count": 0
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "started_at": "2026-09-22 13:51:08 IST",
+  "mining_seconds": 1500,
+  "nodes": [
+    [
+      1,
+      1,
+      3001,
+      5001
+    ],
+    [
+      2,
+      2,
+      3002,
+      5002
+    ],
+    [
+      3,
+      3,
+      3003,
+      5003
+    ],
+    [
+      4,
+      1,
+      3004,
+      5004
+    ],
+    [
+      5,
+      2,
+      3005,
+      5005
+    ],
+    [
+      6,
+      3,
+      3006,
+      5006
+    ]
+  ],
+  "tx_interval_s": 4.0,
+  "tx_fee_sat": 10000,
+  "workload": "closed loop, at most one unconfirmed payment per wallet",
+  "code": {
+    "head": "71c3b18",
+    "uncommitted_src_changes": [
+      "src/.DS_Store",
+      "src/config.rs",
+      "src/miner/p2p_server.rs",
+      "src/miner/routes.rs",
+      "src/treechain/treechain.rs",
+      "src/treechain/treechain_test.rs"
+    ]
+  },
+  "peers_before_mining": {
+    "1": 5,
+    "2": 5,
+    "3": 5,
+    "4": 5,
+    "5": 5,
+    "6": 5
+  },
+  "wallets": {
+    "1": {
+      "address": "18c14nRSbxo6gNRB6ctVWCJSgyXQb3icqF",
+      "public_key": "03820df785b8dc0d7f7ff87d03a2ce8fa18f8c7d140252d9a6aa2c4c5aa2118c3e",
+      "align": 1,
+      "tx_lane": 3
+    },
+    "2": {
+      "address": "121HiFXvLXc3dV6gMsJYb6Ro5uE9hfSGCS",
+      "public_key": "025de6868434756c717000000cc265c9468dd5779e50c538c67d764460a7187a13",
+      "align": 2,
+      "tx_lane": 1
+    },
+    "3": {
+      "address": "1D7uzgJenSLoV9Njr5iw8DwXn92ep9vwmG",
+      "public_key": "022b1d9789b062146f950017b892d0fcc68472ddc70f17324b20eeca093f76cf3d",
+      "align": 3,
+      "tx_lane": 2
+    },
+    "4": {
+      "address": "1E39ZbUmVcuc3WgpAZpVLKqDiGd6fmheJc",
+      "public_key": "0210f25e9ce1d860889e6471da11a72ef5b7b732e8fdafa98844212be10f960a96",
+      "align": 1,
+      "tx_lane": 1
+    },
+    "5": {
+      "address": "1GW5pmnRRWVcvJ2wyc1xU57HnukFD7X1zh",
+      "public_key": "038d6bf5dde6041500dac04ccbf2aebf1187a76676a5394ee915655d6c78763692",
+      "align": 2,
+      "tx_lane": 3
+    },
+    "6": {
+      "address": "17PwgvHPK43681QHtQdDjCNb4VnG1hZHYd",
+      "public_key": "0269c5e07308570f69ed1816975a1a102a07badd81263022c22d4a31c8b9a57798",
+      "align": 3,
+      "tx_lane": 3
+    }
+  },
+  "mining_started_epoch_ms": 1790065275977,
+  "mining_stopped_epoch_ms": 1790066796199,
+  "finished_at": "2026-09-22 14:16:48 IST"
+}

@@ -308,13 +308,15 @@ impl P2PServer {
                     if !*ibd {
                         *ibd = true;
                         drop(ibd);
-                        let writers = self.peer_writers.lock().await;
-                        if let Some(w) = writers.get(&best_addr) {
+                        // Clone the writer and release the peer map before send_getblocks,
+                        // which locks the tree
+                        let writer = self.peer_writers.lock().await.get(&best_addr).cloned();
+                        if let Some(w) = writer {
                             println!(
                                 "Triggering sync with best peer {} (len={})",
                                 best_addr, best_len
                             );
-                            self.send_getblocks(w.clone()).await;
+                            self.send_getblocks(w).await;
                         }
                     }
                 } else {
@@ -325,12 +327,16 @@ impl P2PServer {
                     }
                 }
             }
-            // Check pending blocks and retry adding them
-            let mut pending_blocks = self.pending_blocks.lock().await;
-            if !pending_blocks.is_empty() {
-                let blocks: Vec<Block> = pending_blocks.values().cloned().collect();
+            // Check pending blocks and retry adding them. The pending map is only held while
+            // taking the blocks out and putting failures back, never together with the state locks.
+            let blocks: Vec<Block> = {
+                let mut pending_blocks = self.pending_blocks.lock().await;
+                let taken = pending_blocks.values().cloned().collect();
                 pending_blocks.clear();
-                drop(pending_blocks);
+                taken
+            };
+            if !blocks.is_empty() {
+                let mut requeue: Vec<Block> = Vec::new();
                 let mut treechain = self.treechain.lock().await;
                 let mut pqp = self.pqp.lock().await;
                 let mut utxo_set = self.utxo_set.lock().await;
@@ -357,7 +363,16 @@ impl P2PServer {
                         txn_pool = self.txn_pool.lock().await;
                     } else {
                         println!("❌ Failed to add pending block {}; re-queueing", block.hash);
-                        pending_blocks = self.pending_blocks.lock().await;
+                        requeue.push(block);
+                    }
+                }
+                drop(treechain);
+                drop(pqp);
+                drop(utxo_set);
+                drop(txn_pool);
+                if !requeue.is_empty() {
+                    let mut pending_blocks = self.pending_blocks.lock().await;
+                    for block in requeue {
                         pending_blocks.insert(block.hash.clone(), block);
                     }
                 }
@@ -475,14 +490,21 @@ impl P2PServer {
     }
 
     pub async fn send_minedblock(&self, block: Block) {
-        let writers = self.peer_writers.lock().await;
+        // Copy the peer list so the peer map is not held during network writes
+        let writers: Vec<(String, Arc<Mutex<OwnedWriteHalf>>)> = self
+            .peer_writers
+            .lock()
+            .await
+            .iter()
+            .map(|(a, w)| (a.clone(), w.clone()))
+            .collect();
         let message = serde_json::json!({
             "type": MESSAGE_TYPE_MINEDBLOCK,
             "block": block,
         });
-        for (addr, w) in writers.iter() {
+        for (addr, w) in writers {
             println!("Broadcasting MINED_BLOCK to {}", addr);
-            Self::send_message(w.clone(), &message, "MINED_BLOCK").await;
+            Self::send_message(w, &message, "MINED_BLOCK").await;
         }
         // Update own chain length
         self.update_registry_chain_length().await;
@@ -490,14 +512,21 @@ impl P2PServer {
 
     pub async fn broadcast_transaction(&self, txn: Transaction) {
         println!("called broadcast txn");
-        let writers = self.peer_writers.lock().await;
+        // Copy the peer list so the peer map is not held during network writes
+        let writers: Vec<(String, Arc<Mutex<OwnedWriteHalf>>)> = self
+            .peer_writers
+            .lock()
+            .await
+            .iter()
+            .map(|(a, w)| (a.clone(), w.clone()))
+            .collect();
         let message = serde_json::json!({
             "type": MESSAGE_TYPE_TRANSACTION,
             "transaction": txn,
         });
-        for (addr, w) in writers.iter() {
+        for (addr, w) in writers {
             println!("Broadcasting Txn to {}", addr);
-            Self::send_message(w.clone(), &message, "TRANSACTION").await;
+            Self::send_message(w, &message, "TRANSACTION").await;
         }
     }
 
@@ -911,24 +940,25 @@ impl P2PServer {
                                             .get("hashes")
                                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                                             .unwrap_or_default();
-                                        let treechain = self.treechain.lock().await;
-                                        for inv in hashes {
-                                            if let Some(block) =
-                                                treechain.get_block(&inv.block_hash)
-                                            {
-                                                let message = serde_json::json!({
-                                                    "type": MESSAGE_TYPE_BLOCK,
-                                                    "block": block,
-                                                });
-                                                Self::send_message(
-                                                    writer.clone(),
-                                                    &message,
-                                                    "BLOCK",
-                                                )
+                                        // Copy the requested blocks, then release the tree lock
+                                        // before sending them over the network
+                                        let requested: Vec<Block> = {
+                                            let treechain = self.treechain.lock().await;
+                                            hashes
+                                                .iter()
+                                                .filter_map(|inv| {
+                                                    treechain.get_block(&inv.block_hash).cloned()
+                                                })
+                                                .collect()
+                                        };
+                                        for block in requested {
+                                            let message = serde_json::json!({
+                                                "type": MESSAGE_TYPE_BLOCK,
+                                                "block": block,
+                                            });
+                                            Self::send_message(writer.clone(), &message, "BLOCK")
                                                 .await;
-                                            }
                                         }
-                                        drop(treechain);
                                     }
                                     MESSAGE_TYPE_BLOCK => {
                                         if let Some(block_val) = data.get("block") {
@@ -1189,29 +1219,36 @@ impl P2PServer {
                                                         *chain_length = treechain.count as u64;
                                                         drop(chain_length);
                                                     }
+                                                    // Release the state locks before network I/O so a
+                                                    // slow peer cannot stall block processing on this node
+                                                    drop(treechain);
+                                                    drop(pqp);
+                                                    drop(utxo_set);
+                                                    drop(txn_pool);
                                                     // Broadcast the mined block to all connected peers
                                                     let message = serde_json::json!({
                                                         "type": MESSAGE_TYPE_MINEDBLOCK,
                                                         "block": block.clone(),
                                                     });
-                                                    let writers = self.peer_writers.lock().await;
-                                                    for (addr, w) in writers.iter() {
+                                                    let targets: Vec<(String, Arc<Mutex<OwnedWriteHalf>>)> = self
+                                                        .peer_writers
+                                                        .lock()
+                                                        .await
+                                                        .iter()
+                                                        .map(|(a, w)| (a.clone(), w.clone()))
+                                                        .collect();
+                                                    for (addr, w) in targets {
                                                         println!(
                                                             "Broadcasting MINED_BLOCK to {}",
                                                             addr
                                                         );
                                                         Self::send_message(
-                                                            w.clone(),
+                                                            w,
                                                             &message,
                                                             "MINED_BLOCK",
                                                         )
                                                         .await;
                                                     }
-                                                    drop(writers);
-                                                    drop(treechain);
-                                                    drop(pqp);
-                                                    drop(utxo_set);
-                                                    drop(txn_pool);
                                                     self.update_registry_chain_length().await;
                                                     // Update peer_lengths and trigger sync if needed
                                                     let (local_len, _) =
@@ -1274,32 +1311,34 @@ impl P2PServer {
                                                             == block.pqp_entry.queue_index
                                                             && b.position.is_empty()
                                                     });
-                                                if block.pqp_entry.prev_pqp_commitment
+                                                let request_blocks = block
+                                                    .pqp_entry
+                                                    .prev_pqp_commitment
                                                     != expected_prev_pqp_commit
-                                                    || block_at_that_index_empty
-                                                {
+                                                    || block_at_that_index_empty;
+                                                // Release every state lock before touching other locks or
+                                                // the network (get_chain_info below re-locks the tree)
+                                                drop(treechain);
+                                                drop(pqp);
+                                                drop(utxo_set);
+                                                drop(txn_pool);
+                                                if request_blocks {
                                                     println!(
                                                         "Missing parent for MINED_BLOCK {}; queuing and requesting blocks",
                                                         block.hash
                                                     );
-                                                    let mut pending_blocks =
-                                                        self.pending_blocks.lock().await;
-                                                    pending_blocks
-                                                        .insert(block.hash.clone(), block.clone());
-                                                    drop(pending_blocks);
-                                                    drop(treechain);
-                                                    drop(pqp);
-                                                    self.send_getblocks(writer.clone()).await;
                                                 } else {
                                                     println!(
                                                         "Queuing MINED_BLOCK {} due to invalid PQP entry",
                                                         block.hash
                                                     );
-                                                    let mut pending_blocks =
-                                                        self.pending_blocks.lock().await;
-                                                    pending_blocks
-                                                        .insert(block.hash.clone(), block.clone());
-                                                    drop(pending_blocks);
+                                                }
+                                                self.pending_blocks
+                                                    .lock()
+                                                    .await
+                                                    .insert(block.hash.clone(), block.clone());
+                                                if request_blocks {
+                                                    self.send_getblocks(writer.clone()).await;
                                                 }
 
                                                 let (local_len, _) = self.get_chain_info().await;
@@ -1402,13 +1441,15 @@ impl P2PServer {
                                                 }
                                             };
                                             {
-                                                let mut txn_pool = self.txn_pool.lock().await;
-                                                let utxo_set = self.utxo_set.lock().await;
+                                                // Lock order used everywhere: treechain -> pqp -> utxo_set -> txn_pool
                                                 let treechain = self.treechain.lock().await;
+                                                let utxo_set = self.utxo_set.lock().await;
+                                                let mut txn_pool = self.txn_pool.lock().await;
                                                 let _ = txn_pool
                                                     .add_transaction(txn, &utxo_set, &treechain);
                                                 drop(txn_pool);
                                                 drop(utxo_set);
+                                                drop(treechain);
                                             }
                                         }
                                     }
@@ -1492,6 +1533,8 @@ impl P2PServer {
             })
             .take(INVMESSAGE_LIMIT as usize)
             .collect();
+        // Release the tree lock before sending over the network
+        drop(treechain);
         inventories.sort_by(|a, b| a.queue_index.cmp(&b.queue_index));
         if inventories.is_empty() {
             println!(
@@ -1506,7 +1549,6 @@ impl P2PServer {
             });
             Self::send_message(writer, &message, "INVMESSAGE").await;
         }
-        drop(treechain);
     }
 
     async fn remove_writer(&self, addr: &str) {
