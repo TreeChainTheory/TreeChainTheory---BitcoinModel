@@ -693,3 +693,114 @@
 //     assert!(pool.get_transaction(&signed_tx.txid).is_some());
 //     // assert_eq!(pool.utxo_set.utxos.len(), 2); // CSV and change outputs
 // }
+
+// ---- routing rule: lane of an output = hash of its locking script ----------------------------
+use crate::config::CHILDREN;
+use crate::wallet::transaction::{Transaction, TxInput, TxOutput};
+use crate::wallet::transaction_pool::TransactionPool;
+use crate::wallet::utxo::{Utxo, UtxoSet};
+
+fn p2pkh_script(seed: u32) -> String {
+    Transaction::create_p2pkh_script(&format!("{:040x}", seed))
+}
+
+fn tx_spending(outpoints: &[(String, u32)]) -> Transaction {
+    Transaction {
+        txid: "ff".repeat(32),
+        hash: "ff".repeat(32),
+        version: 1,
+        vin: outpoints
+            .iter()
+            .map(|(txid, vout)| TxInput {
+                txid: txid.clone(),
+                vout: *vout,
+                script_sig: String::new(),
+                sequence: 0xffffffff,
+            })
+            .collect(),
+        vout: vec![TxOutput { value: 1, script_pubkey: p2pkh_script(0) }],
+        witnesses: None,
+        locktime: 0,
+    }
+}
+
+#[test]
+fn lane_of_script_is_deterministic_in_range_and_spreads_owners() {
+    let mut per_lane = vec![0usize; CHILDREN as usize + 1];
+    for seed in 0..600u32 {
+        let script = p2pkh_script(seed);
+        let lane = TransactionPool::lane_of_script(&script);
+        assert_eq!(lane, TransactionPool::lane_of_script(&script));
+        assert!(lane >= 1 && lane <= CHILDREN);
+        per_lane[lane as usize] += 1;
+    }
+    // a hash spreads owners over all lanes (expected 200 each for N = 3)
+    for lane in 1..=CHILDREN as usize {
+        assert!(per_lane[lane] > 600 / CHILDREN as usize / 2, "lane {} got {}", lane, per_lane[lane]);
+    }
+}
+
+#[test]
+fn tx_lane_requires_all_inputs_in_one_lane() {
+    // two scripts in the same lane and one in another lane
+    let a = p2pkh_script(1);
+    let lane_a = TransactionPool::lane_of_script(&a);
+    let b = (2..).map(p2pkh_script).find(|s| TransactionPool::lane_of_script(s) == lane_a).unwrap();
+    let c = (2..).map(p2pkh_script).find(|s| TransactionPool::lane_of_script(s) != lane_a).unwrap();
+    let lane_c = TransactionPool::lane_of_script(&c);
+
+    let mut utxo_set = UtxoSet::new();
+    for (txid, script) in [("aa", &a), ("bb", &b), ("cc", &c)] {
+        let out = TxOutput { value: 1000, script_pubkey: script.clone() };
+        utxo_set.add_utxo(txid.repeat(32), 0, Utxo::new(out, 1, false));
+    }
+    let pool = TransactionPool::new();
+
+    let same_lane = tx_spending(&[("aa".repeat(32), 0), ("bb".repeat(32), 0)]);
+    assert_eq!(pool.tx_lane(&same_lane, &utxo_set), Ok(lane_a));
+    assert!(pool.tx_suitable_for_align(&same_lane, lane_a, &utxo_set));
+    assert!(!pool.tx_suitable_for_align(&same_lane, lane_c, &utxo_set));
+
+    let mixed = tx_spending(&[("aa".repeat(32), 0), ("cc".repeat(32), 0)]);
+    assert!(pool.tx_lane(&mixed, &utxo_set).is_err());
+    assert!(!pool.tx_suitable_for_align(&mixed, lane_a, &utxo_set));
+
+    let unknown = tx_spending(&[("dd".repeat(32), 0)]);
+    assert!(pool.tx_lane(&unknown, &utxo_set).is_err());
+}
+
+#[test]
+fn tx_lane_finds_outputs_of_unconfirmed_transactions() {
+    let script = p2pkh_script(7);
+    let mut pool = TransactionPool::new();
+    let out = TxOutput { value: 500, script_pubkey: script.clone() };
+    pool.utxo_set.add_utxo("ee".repeat(32), 1, Utxo::new(out, 0, false));
+    let child = tx_spending(&[("ee".repeat(32), 1)]);
+    assert_eq!(pool.tx_lane(&child, &UtxoSet::new()), Ok(TransactionPool::lane_of_script(&script)));
+}
+
+#[test]
+fn lane_aware_wallet_gets_an_address_in_the_requested_lane() {
+    use crate::wallet::wallet::Wallet;
+    for lane in 1..=CHILDREN {
+        let wallet = Wallet::new_in_lane(lane);
+        let script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+        assert_eq!(TransactionPool::lane_of_script(&script), lane);
+    }
+}
+
+#[test]
+fn coinbase_maturity_is_judged_at_the_spending_block_slot() {
+    use crate::wallet::transaction_pool::COINBASE_MATURITY;
+    let mut utxo_set = UtxoSet::new();
+    let out = TxOutput { value: 5000, script_pubkey: p2pkh_script(3) };
+    utxo_set.add_utxo("ab".repeat(32), 0, Utxo::new(out.clone(), 40, true)); // coinbase of slot 40
+    utxo_set.add_utxo("cd".repeat(32), 0, Utxo::new(out, 40, false)); // ordinary output of slot 40
+    let spend = tx_spending(&[("ab".repeat(32), 0)]);
+    // depends only on the slot of the block that would contain the spend
+    assert!(TransactionPool::spends_immature_coinbase(&spend, &utxo_set, 40 + COINBASE_MATURITY - 1));
+    assert!(!TransactionPool::spends_immature_coinbase(&spend, &utxo_set, 40 + COINBASE_MATURITY));
+    // ordinary outputs have no maturity delay
+    let ordinary = tx_spending(&[("cd".repeat(32), 0)]);
+    assert!(!TransactionPool::spends_immature_coinbase(&ordinary, &utxo_set, 41));
+}

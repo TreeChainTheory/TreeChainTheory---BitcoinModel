@@ -126,3 +126,35 @@ def classify_input(script_sig, witness):
     if witness[-1][-1:] == b"\xae":
         return "p2wsh_multisig", None
     return "other_segwit", None
+
+
+def hash160(data):
+    return hashlib.new("ripemd160", hashlib.sha256(data).digest()).digest()
+
+
+def _is_control_block(item):
+    # taproot script-path spend: the last witness item is a control block (33 + 32k bytes, leaf version 0xc0/0xc1)
+    return len(item) >= 33 and (len(item) - 33) % 32 == 0 and item[0] & 0xFE == 0xC0
+
+
+def locking_script(script_sig, witness):
+    """Rebuild the locking script (scriptPubKey) of the output an input spends, from what the
+    spending input reveals. Returns (kind, script bytes), or (kind, None) when the spend does not
+    reveal it (taproot, bare public keys, non-standard scripts)."""
+    kind, key = classify_input(script_sig, witness)
+    if kind == "p2pkh":
+        return kind, b"\x76\xa9\x14" + hash160(key) + b"\x88\xac"
+    if kind == "p2wpkh":
+        return kind, b"\x00\x14" + hash160(key)
+    if kind == "p2sh_p2wpkh":
+        return kind, b"\xa9\x14" + hash160(b"\x00\x14" + hash160(key)) + b"\x87"
+    pushes = script_pushes(script_sig)
+    if kind == "p2sh_multisig":
+        return kind, b"\xa9\x14" + hash160(pushes[-1]) + b"\x87"
+    if witness:
+        items = witness[:-1] if len(witness) >= 2 and witness[-1][:1] == b"\x50" else witness  # drop annex
+        if pushes and len(pushes) == 1 and len(pushes[0]) == 34 and pushes[0][:2] == b"\x00\x20" and len(items) >= 2:
+            return "p2sh_p2wsh", b"\xa9\x14" + hash160(pushes[0]) + b"\x87"
+        if script_sig == b"" and len(items) >= 2 and not _is_control_block(items[-1]):
+            return "p2wsh", b"\x00\x20" + hashlib.sha256(items[-1]).digest()
+    return kind, None

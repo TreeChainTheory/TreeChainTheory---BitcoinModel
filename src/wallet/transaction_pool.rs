@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const MAX_MEMPOOL_SIZE: usize = 100 * 1024 * 1024; // 100 MB in bytes
 pub const DEFAULT_MIN_FEE_RATE: u64 = USER_TXN_FREERATE; // satoshis per vB
 pub const MAX_TX_SIZE: usize = 100_000; // Bitcoin's max tx size (vB)
+pub const COINBASE_MATURITY: u64 = 10; // slots between a coinbase and the first block that may spend it
 
 #[derive(Debug)]
 pub enum Op {
@@ -48,6 +49,8 @@ pub struct MempoolEntry {
     pub added_time: u64,           // Unix timestamp (ms) when added
     pub depends: HashSet<String>,  // Parent txids this tx depends on
     pub children: HashSet<String>, // Child txids spending this tx's outputs
+    #[serde(default)]
+    pub lane: u8, // Lane of the outputs it spends (see lane_of_script), fixed at admission
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -71,12 +74,28 @@ impl TransactionPool {
         vsize
     }
 
+    /// Mempool check: timelocks and coinbase maturity are evaluated at the highest slot in the tree.
     pub fn validate_transaction(
         &self,
         tx: &Transaction,
         min_fee_rate: f64,
         utxo_set: &UtxoSet,
         treechain: &TreeChain,
+    ) -> Result<(u64, usize, f64, HashSet<String>), String> {
+        let height = treechain.get_max_queue_index();
+        self.validate_transaction_at(tx, min_fee_rate, utxo_set, treechain, height)
+    }
+
+    /// The same checks with timelocks and coinbase maturity evaluated at slot `height`. Block
+    /// validation passes the slot of the block that contains `tx`, so a block is valid or invalid
+    /// regardless of which other blocks a node holds or the order they arrived in.
+    pub fn validate_transaction_at(
+        &self,
+        tx: &Transaction,
+        min_fee_rate: f64,
+        utxo_set: &UtxoSet,
+        treechain: &TreeChain,
+        height: u64,
     ) -> Result<(u64, usize, f64, HashSet<String>), String> {
         // Check txid and hash
         if !Transaction::check_txid_and_hash(tx) {
@@ -120,10 +139,21 @@ impl TransactionPool {
                 depends.insert(input.txid.clone());
             }
         }
+        // Routing rule: all inputs must spend outputs of the same lane
+        let lanes: HashSet<u8> = utxos
+            .iter()
+            .map(|u| Self::lane_of_script(&u.out.script_pubkey))
+            .collect();
+        if lanes.len() > 1 {
+            return Err(format!(
+                "Inputs belong to different lanes {:?}; a transaction may only spend outputs of one lane",
+                lanes
+            ));
+        }
         println!("validate transaction here 2");
 
         // Current height for CSV checks
-        let current_height = treechain.get_max_queue_index();
+        let current_height = height;
 
         // Verify signatures, scripts, and timelocks for all inputs
         let witnesses = tx.witnesses.as_ref();
@@ -211,6 +241,7 @@ impl TransactionPool {
                 current_time,
                 witnesses.and_then(|w| w.get(i)),
                 treechain,
+                height,
             )?;
         }
 
@@ -267,6 +298,7 @@ impl TransactionPool {
         current_time: u32,
         witness: Option<&Vec<String>>,
         treechain: &TreeChain,
+        current_height: u64,
     ) -> Result<(), String> {
         println!("called verify input");
         let script_pubkey = &utxo.out.script_pubkey;
@@ -274,14 +306,7 @@ impl TransactionPool {
             hex::decode(script_pubkey).map_err(|e| format!("Invalid script_pubkey hex: {}", e))?;
         println!("verify input here 1");
 
-        let current_height = treechain
-            .blocks
-            .values()
-            .map(|b| b.pqp_entry.queue_index as u64)
-            .max()
-            .unwrap_or(0);
-
-        if utxo.f_coinbase && current_height < (utxo.queue_index as u64 + 10) {
+        if utxo.f_coinbase && current_height < utxo.queue_index as u64 + COINBASE_MATURITY {
             return Err("Coinbase UTXO not mature (requires 10 confirmations)".to_string());
         }
 
@@ -1068,6 +1093,8 @@ impl TransactionPool {
         let (fee, vsize, fee_rate, depends) =
             self.validate_transaction(&tx, DEFAULT_MIN_FEE_RATE as f64, utxo_set, treechain)?;
         println!("validated txn");
+        // computed before the spent outputs are removed from the mempool UTXO set below
+        let lane = self.tx_lane(&tx, utxo_set)?;
 
         let current_height = treechain.get_max_queue_index(); // Assume this method exists
         let current_time = std::time::SystemTime::now()
@@ -1128,6 +1155,7 @@ impl TransactionPool {
                 .as_millis() as u64,
             depends,
             children: HashSet::new(),
+            lane,
         };
 
         // Update parents' children
@@ -1330,7 +1358,7 @@ impl TransactionPool {
         &self,
         max_block_weight: usize,
         align: u8,
-        data: &String,
+        _data: &String,
     ) -> Vec<Transaction> {
         let mut sorted_entries: Vec<&MempoolEntry> = self.pool.values().collect();
         sorted_entries.sort_by(|a, b| b.fee_rate.partial_cmp(&a.fee_rate).unwrap());
@@ -1345,8 +1373,8 @@ impl TransactionPool {
                 entry.tx.txid, entry.fee_rate, tx_weight
             );
 
-            if !self.tx_suitable_for_align(&entry.tx, align, data) {
-                println!("  Skipped: tx_suitable_for_align failed (align={})", align);
+            if entry.lane != align {
+                println!("  Skipped: transaction is in lane {}, not {}", entry.lane, align);
                 continue;
             }
 
@@ -1382,27 +1410,58 @@ impl TransactionPool {
         selected_txs
     }
 
-    pub fn tx_suitable_for_align(
-        &self,
-        tx: &Transaction,
-        align: u8,
-        _parent_hash: &String,
-    ) -> bool {
-        // if align == 0 {
-        //     return true; // this is only for testing purposes
-        // }
-        let mut data = &tx.vin[0].script_sig;
-        if data.starts_with("00") {
-            data = &tx.vin[0].txid; // segwit txn, use txid instead
-        }
+    /// Lane of an output: (first 64 bits of SHA-256(locking script)) mod CHILDREN, plus 1.
+    /// The locking script states who may spend the output, so it identifies the owner, and every
+    /// node can compute the lane as soon as the output exists. All outputs locked to one address
+    /// (single key, multisig, or timelock script) share a lane.
+    pub fn lane_of_script(script_pubkey: &str) -> u8 {
+        let bytes = hex::decode(script_pubkey).unwrap_or_else(|_| script_pubkey.as_bytes().to_vec());
+        let digest = Sha256::digest(&bytes);
+        let mut first = [0u8; 8];
+        first.copy_from_slice(&digest[..8]);
+        (u64::from_be_bytes(first) % CHILDREN as u64) as u8 + 1
+    }
 
-        // Use first input's txid for alignment
-        if data.is_empty() {
-            return false;
+    /// Lane of a transaction: the common lane of the outputs it spends. Fails if an input's
+    /// output is unknown or if the inputs belong to different lanes.
+    pub fn tx_lane(&self, tx: &Transaction, utxo_set: &UtxoSet) -> Result<u8, String> {
+        let mut lane = None;
+        for input in &tx.vin {
+            let utxo = utxo_set
+                .get_utxo(&input.txid, input.vout)
+                .or_else(|| self.utxo_set.get_utxo(&input.txid, input.vout))
+                .ok_or(format!("UTXO not found: {}:{}", input.txid, input.vout))?;
+            let input_lane = Self::lane_of_script(&utxo.out.script_pubkey);
+            match lane {
+                None => lane = Some(input_lane),
+                Some(l) if l != input_lane => {
+                    return Err(format!("Inputs belong to different lanes ({} and {})", l, input_lane));
+                }
+                _ => {}
+            }
         }
-        let last_char = data.chars().last().unwrap();
-        let last_digit = u32::from_str_radix(&last_char.to_string(), 16).unwrap_or(0);
-        ((last_digit % CHILDREN as u32) + 1) == align as u32
+        lane.ok_or_else(|| "Transaction has no inputs".to_string())
+    }
+
+    /// True if `tx` spends a coinbase output that a block at slot `height` may not spend yet.
+    pub fn spends_immature_coinbase(tx: &Transaction, utxo_set: &UtxoSet, height: u64) -> bool {
+        tx.vin.iter().any(|input| {
+            utxo_set
+                .get_utxo(&input.txid, input.vout)
+                .map_or(false, |u| {
+                    u.f_coinbase && height < u.queue_index as u64 + COINBASE_MATURITY
+                })
+        })
+    }
+
+    pub fn tx_suitable_for_align(&self, tx: &Transaction, align: u8, utxo_set: &UtxoSet) -> bool {
+        match self.tx_lane(tx, utxo_set) {
+            Ok(lane) => lane == align,
+            Err(e) => {
+                println!("❌ Cannot determine lane of transaction {}: {}", tx.txid, e);
+                false
+            }
+        }
     }
 
     pub fn replace_transaction(

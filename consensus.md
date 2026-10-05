@@ -32,12 +32,11 @@
 - **PQP Commitments:**
   - Each entry includes a `prev_pqp_commitment` and a `pqp_commitment` — both SHA-256 hashes ensuring cryptographic linkage and verifiable updates.
   - `signature` (ECDSA) proves miner authenticity.
-- **Transaction Assignment P2PKH:**
-  - Transactions are distributed across alignments using:  
-    `(last_digit(tx.vin[0].script_sig) % CHILDREN) + 1 == align`
-  - Ensures **balanced transaction load** among child branches.
-- **Other Types of Transactions Exception:**
-  - For other types of transactions, `parent_hash` (or `vin.txid` in this Bitcoin model) is used for the alignment condition.
+- **Transaction Assignment (all transaction types):**
+  - Every output belongs to the lane  
+    `lane(output) = (first 64 bits of SHA-256(output.script_pubkey) % CHILDREN) + 1`
+  - A transaction is valid only if **all its inputs** spend outputs of the same lane, and only a miner with `align == lane` can include it.
+  - The same rule covers P2PKH, multisig (P2SH/P2WSH) and timelocked (CLTV/CSV) outputs: all outputs locked to one address share one lane.
 - **Rollback Mechanism:**
   - Malicious or invalid subtrees can be pruned and valid parents re-queued.
   - _Currently disabled in the Bitcoin model; reserved for future versions._
@@ -445,39 +444,33 @@ pub struct PQP {
   - `vin`
   - `vout`
   - `witness`
-- Every `vin` contains a `script_sig`, which holds the **signature + public key** just like bitcoin.
-- From the `pubkey`, the **last digit** is extracted, and the following operation is performed:
-  - `last_digit % CHILDREN += 1`
-- The result gives a number between **1 and CHILDREN**, indicating **which aligned miner** can pick that transaction to mine.
+- Every `vin` contains a `script_sig`, which holds the **signature + public key** just like bitcoin, and points to the output it spends.
+- **Lane of an output:** the locking script (`script_pubkey`) of the output is hashed with SHA-256, and  
+  `lane = (first 64 bits of the hash % CHILDREN) + 1`
+- **Lane of a transaction:** the common lane of the outputs it spends. A node looks each spent output up in its UTXO set (or among unconfirmed transactions), rejects a transaction whose inputs fall into different lanes, and stores the lane with the transaction in the mempool. A miner with `align = a` selects only lane-`a` transactions, and every validator recomputes the lane of each transaction in a block.
+- **Multisig and timelocked outputs** follow the same rule: all outputs locked to one multisig or timelock address share one lane, so they can be spent together.
 
-- **For Multisig Transactions**
-  - By theory, the **parent_hash** of the block could be takend and perform the same operation (`This holds for all other types of txns`).
-  - But in this model, since only one multisig UTXO can be spent at a time,  
-    the **UTXO’s transaction ID** is taken, and the same operation is performed:
-    - `last_digit % CHILDREN += 1`
-- **Purpose of Alignment Operation**
-  - Prevents **transaction repetition**, where the same transaction might appear in multiple child blocks.
-  - To avoid this, transactions are **divided based on alignment**, determined by the sender’s key or contract.
+- **Purpose of the Routing Rule**
+  - Prevents **conflicting spends in parallel blocks**: two transactions that spend the same output always land in the same lane, because the output's locking script is the same for both. Blocks of different lanes, including siblings under one parent, can therefore never conflict.
+  - Every node knows an output's lane **as soon as the output is created**, because the locking script is part of the output.
 
-> **TreeChainTheory Transaction Alignment**
+> **TreeChainTheory Transaction Routing**
 >
 > - **Normal token transfer:**
->   - Uses the **sender’s pubkey**, applies `last_digit % CHILDREN += 1`,  
->     and assigns the transaction to the corresponding aligned miner.
+>   - Routed by the locking script of the coins being spent, i.e. by the sender's address.
 > - **Smart contract creation:**
->   - Also uses the **sender’s pubkey**.
+>   - Also routed by the sender's address.
 > - **Smart contract interaction:**
->   - Token registration to that **contract address** uses the **sender’s pubkey**.
->   - Uses the **contract address** instead of the sender’s pubkey,  
->     but ensures **no transaction in that block** shares the same sender pubkey.
+>   - Token registration to a **contract address** is routed by the sender's address.
+>   - Contract calls are routed by the **contract address** (SHA-256 of the address, `% CHILDREN + 1`) instead of the sender's address,  
+>     but ensure **no transaction in that block** spends the same sender's coins.
 
-- **Why Use Sender Pubkey Instead of TxID or any other**
+- **Why the Locking Script Instead of the TxID or the Public Key's Last Digit**
 
-  - If `txid` were used, a sender could spend multiple inputs and generate several transactions with **different aligns**,  
+  - If `txid` were used, a sender could spend multiple inputs and generate several transactions with **different lanes**,  
     which might all appear valid to different aligned miners.
-  - By using the **sender’s pubkey**, all of that sender’s transactions are processed by the **same aligned miner or validator**,  
-    preventing **exploitation or manipulation** of the mining/validation process.
-  - For the other types of txns like multisig & timelocked(cltv,csv) , parent_hash of the block is taken and performed the same operation. so that its some aligned miner gets all these txns and validate **faily** making no chance of **exploitation**
+  - The earlier rule (last hex digit of the sender's public key) only spread owners evenly when `CHILDREN` divides 16, could not tell an output's lane before it was spent, and needed a special case for multisig. Hashing the whole locking script fixes all three.
+  - **Wallets with many keys** keep all their coins in one lane by only using addresses whose locking scripts map to their lane (about `CHILDREN` key generations per address). Wallets in this prototype hold a single key, so all their coins, including change, already share one lane.
 
 - **Coinbase**:
 
@@ -594,6 +587,7 @@ pub struct PQP {
     - `GETDATA`, `INVMESSAGE` → Request and announce block or transaction data.
     - `TRANSACTION`, `GET_TRANSACTION_POOL` → Transaction relay and synchronization.
     - `GET_PQP`, `PQP_RESPONSE` → Synchronization of Parent Queue Protocol (PQP) state.
+    - `TREE_STATUS`, `GET_TREE`, `TREE` → Fork choice: tree summaries, request for a peer's tree, and the tree itself.
 
 - **Synchronization & Behavior**
 
@@ -605,6 +599,14 @@ pub struct PQP {
     - **Transaction Pool** → For pending transactions.
     - **PQP Data** → For alignment continuity and block ordering.
   - Automatically re-attempts connection to dropped peers after short timeouts.
+
+- **Fork Choice (longest tree)**
+
+  - Nodes accept blocks in arrival order, so two nodes can briefly hold different trees (for example, when two miners of one lane fill the same slot).
+  - Rule: the tree with **more blocks** wins; between trees with the same number of blocks, the one with the **smaller digest** wins (`TreeChain::tree_digest`: SHA-256 over the block hashes in slot order), so every node picks the same tree.
+  - Every 5 s each node sends `TREE_STATUS` (block count and digest) to its peers. If a peer reports a better tree for 8 s, the node sends `GET_TREE` and receives `TREE`.
+  - `TreeChain::rebuild_from_blocks` replays the received blocks from genesis in slot order through full validation. Only if that succeeds is the tree adopted: tree, PQP and UTXO set are swapped, transactions of dropped blocks return to the mempool, the miner pauses for 3 s, and missing blocks are fetched.
+  - A block joins the tree only if the PQP accepted its entry, and a block that fails validation leaves the PQP unchanged, so a node's tree and PQP always match a replay of its blocks in slot order.
 
 - **Bitcoin-Like Similarities**
 

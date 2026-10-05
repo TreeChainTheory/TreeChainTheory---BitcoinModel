@@ -851,6 +851,53 @@ impl TreeChain {
         bits
     }
 
+    /// SHA-256 over the hashes of all real blocks in slot order. Two nodes have the same digest
+    /// exactly when they hold the same tree; the fork choice uses it to break ties.
+    pub fn tree_digest(&self) -> String {
+        let mut hasher = Sha256::new();
+        for block in self.blocks.values().filter(|b| !b.position.is_empty()) {
+            hasher.update(block.hash.as_bytes());
+        }
+        hex::encode(hasher.finalize())
+    }
+
+    /// Longest-tree rule: a tree with more blocks wins; between trees with the same number of
+    /// blocks, the one with the smaller digest wins, so every node picks the same tree.
+    pub fn is_better_tree(count: u64, digest: &str, than_count: u64, than_digest: &str) -> bool {
+        count > than_count || (count == than_count && digest < than_digest)
+    }
+
+    /// Rebuild a tree from scratch from a peer's blocks, applying every rule in slot order as if
+    /// the blocks arrived one by one. Returns the new tree, PQP and UTXO set, or why it failed.
+    pub fn rebuild_from_blocks(blocks: &[Block]) -> Result<(TreeChain, PQP, UtxoSet), String> {
+        let mut tree = TreeChain::new();
+        let mut pqp = PQP::new();
+        let mut utxo_set = UtxoSet::new();
+        let mut txn_pool = TransactionPool::new();
+        let mut in_slot_order: Vec<&Block> = blocks
+            .iter()
+            .filter(|b| !b.position.is_empty() && b.pqp_entry.queue_index != 0)
+            .collect();
+        in_slot_order.sort_by_key(|b| b.pqp_entry.queue_index);
+        for block in in_slot_order {
+            let entry = TreeChain::parent_queue_entry_from_block(block);
+            pqp.add_entry_to_pqp_while_downloading(entry.clone(), &tree);
+            if !pqp.pool.iter().any(|e| e.block_hash == entry.block_hash) {
+                return Err(format!(
+                    "block {} at slot {} does not fit the parent queue",
+                    block.hash, block.pqp_entry.queue_index
+                ));
+            }
+            if !tree.verify_and_add_block_to_tree(block, &mut utxo_set, &mut txn_pool) {
+                return Err(format!(
+                    "block {} at slot {} is invalid",
+                    block.hash, block.pqp_entry.queue_index
+                ));
+            }
+        }
+        Ok((tree, pqp, utxo_set))
+    }
+
     pub fn get_latest_bits(&self) -> String {
         self.blocks
             .iter()
@@ -2005,10 +2052,16 @@ impl TreeChain {
 
         // Validate non-coinbase transactions
         for tx in &block.tx[1..] {
-            if !txn_pool.tx_suitable_for_align(tx, block.align, &block.parent_hash) {
+            if !txn_pool.tx_suitable_for_align(tx, block.align, utxo_set) {
+                println!(
+                    "❌ Transaction {} does not belong to lane {} of block {}",
+                    tx.txid, block.align, block.hash
+                );
                 return false;
             }
-            if let Err(e) = txn_pool.validate_transaction(tx, 0.0, utxo_set, &self) {
+            // timelocks and coinbase maturity are judged at this block's own slot
+            let height = block.pqp_entry.queue_index as u64;
+            if let Err(e) = txn_pool.validate_transaction_at(tx, 0.0, utxo_set, &self, height) {
                 println!(
                     "❌ Transaction validation failed in block {}: {}",
                     block.hash, e
@@ -2150,6 +2203,19 @@ impl TreeChain {
                 prev_pqp_commitment: prev_pqp,
                 signature,
             };
+            // Leave out transactions that spend a coinbase output not yet mature at this slot,
+            // and any that depend on them; they stay in the mempool for a later block.
+            let mut held_back: std::collections::HashSet<String> = std::collections::HashSet::new();
+            tx.retain(|t| {
+                let keep = !t.vin.iter().any(|i| held_back.contains(&i.txid))
+                    && !TransactionPool::spends_immature_coinbase(t, utxo_set, queue_index as u64);
+                if !keep {
+                    println!("  Held back txid={}: coinbase input not mature at slot {}", t.txid, queue_index);
+                    held_back.insert(t.txid.clone());
+                }
+                keep
+            });
+
             let count = self.get_count_upto_uncle(parent_hash.clone()) as u32;
             println!("count in pbt {}", count);
             let upcount = count + align as u32;

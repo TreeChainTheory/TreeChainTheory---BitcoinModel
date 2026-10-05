@@ -1,0 +1,71 @@
+{"t_s": 0.01, "node": 5, "status": 400, "success": false, "txid": null, "error": "Insufficient funds: need 94257555, available 0"}
+{"t_s": 0.01, "node": 1, "status": 400, "success": false, "txid": null, "error": "Insufficient funds: need 52083131, available 0"}
+{"t_s": 0.01, "node": 4, "status": 400, "success": false, "txid": null, "error": "Insufficient funds: need 74308721, available 0"}
+{"t_s": 0.01, "node": 2, "status": 400, "success": false, "txid": null, "error": "Insufficient funds: need 13088784, available 0"}
+{"t_s": 0.01, "node": 3, "status": 400, "success": false, "txid": null, "error": "Insufficient funds: need 98659966, available 0"}
+{"t_s": 0.01, "node": 6, "status": 400, "success": false, "txid": null, "error": "Insufficient funds: need 42092789, available 0"}
+{"t_s": 4.01, "node": 3, "status": 400, "success": false, "txid": null, "error": "Failed to add to mempool: Coinbase UTXO not mature (requires 10 confirmations)"}
+{"t_s": 4.02, "node": 2, "status": 400, "success": false, "txid": null, "error": "Failed to add to mempool: Coinbase UTXO not mature (requires 10 confirmations)"}
+{"t_s": 4.02, "node": 1, "status": 200, "success": true, "txid": "df2f1b902863c31473e3d5aad673daca6c56fc117d623d1074d82d5e43b1058a", "error": null}
+{"t_s": 4.02, "node": 4, "status": 400, "success": false, "txid": null, "error": "Failed to add to mempool: Coinbase UTXO not mature (requires 10 confirmations)"}
+{"t_s": 4.02, "node": 6, "status": 400, "success": false, "txid": null, "error": "Failed to add to mempool: Coinbase UTXO not mature (requires 10 confirmations)"}
+{"t_s": 4.02, "node": 5, "status": 200, "success": true, "txid": "115ddad83c9717384dae3c3a257c862ef3afacc8973f6daadfa1d711896c765f", "error": null}
+{"t_s": 8.03, "node": 1, "status": 200, "success": true, "txid": "d6e479c229294e948867d2b08b0f3ff3c480c1e34f8a711b3a2bad92ad98a45c", "error": null}
+{"t_s": 8.03, "node": 4, "status": 200, "success": true, "txid": "ec5aa3b33ce9d69d3bcb39be9e70bfc9a46ffe70a321bbdeb69e27bb738d72da", "error": null}
+{"t_s": 8.03, "node": 6, "status": 200, "success": true, "txid": "69c9e43262c28d202ec20b17606ca72f2db75a3f2286641d36f69294eb832f6e", "error": null}
+{"t_s": 8.03, "node": 3, "status": 200, "success": true, "txid": "a5e816450dab8ec3109ea57e7dd16336b1452c3f95f5f755e015501033560e7e", "error": null}
+{"t_s": 8.04, "node": 2, "status": 200, "success": true, "txid": "40781093b6024cb765fa7d6219f743a1d9a8c9a968c6240bcb93c33acf57cc7d", "error": null}
+{"t_s": 8.04, "node": 5, "status": 200, "success": true, "txid": "d2a1e46c8edd1f3de47e84b821eaf110e3946b00f054a90462cde60256bbbb7d", "error": null}
+{"t_s": 12.05, "node": 4, "status": 200, "success": true, "txid": "3e0010bb358e0af2e288794c222265b7f275f8bea599ff7950b539accd9acae3", "error": null}
+{"t_s": 12.05, "node": 1, "status": 200, "success": true, "txid": "7484034fa595ebbd51ff4210a23e06f705613d86c429a5a63cc7626e8dad2164", "error": null}
+{"t_s": 16.07, "node": 5, "status": 200, "success": true, "txid": "70d4adfe0cc264c8577d8c1565884b30f64ad460687dc3013ba2b68646a106e8", "error": null}
+{"t_s": 16.07, "node": 3, "status": 200, "success": true, "txid": "4b31e60699c2b5de09632d057722b7d2508354d9a7fc676d5d8276f6bd341b23", "error": null}
+{"t_s": 16.07, "node": 2, "status": 200, "success": true, "txid": "74916bed87bd734cb1939def25fdf9cbc936a5ba38e0ee960cb99b35c9a659f5", "error": null}
+{"t_s": 16.07, "node": 6, "status": 200, "success": true, "txid": "aff13a3faafeba34b3a2ba0fd76f1711398c54103b5c6ad2c0dfc218bcbe875f", "error": null}
+{"t_s": 20.08, "node": 4, "status": 200, "success": true, "txid": "1616e9cb1bbf8116994a7fb369246707f3158da0fe47284ce2c5e5e61499aa09", "error": null}
+{"t_s": 20.09, "node": 1, "status": 200, "success": true, "txid": "5ac806726af751ff7b1137388854d19cf7886a0fe762ca44b7fb0479af3c81e4", "error": null}
+{"t_s": 24.1, "node": 2, "status": 200, "success": true, "txid": "5bc9495c1338d2c357cd88dbe12a650deb8fa2227b8bae9791d7921b4eb7b114", "error": null}
+{"t_s": 24.1, "node": 5, "status": 200, "success": true, "txid": "77e7509f2f4871540dafdaaa82b58a09883a7fcf38a49c65a3002a00309999a5", "error": null}
+{"t_s": 24.1, "node": 1, "status": 200, "success": true, "txid": "28faca446ce270fd5b1f45cbf2879535acb919613143bca39923d0d75aa178f3", "error": null}
+{"t_s": 24.1, "node": 4, "status": 200, "success": true, "txid": "bc2066b29bd87e3d4de3cedc2e0dac01083744d9ff31991be2d4eaecc79c958e", "error": null}
+{"t_s": 24.11, "node": 3, "status": 200, "success": true, "txid": "4f8f2b22158aa46eb5ccc42fc8cb51ab98244f9b1f89e77289311e59b006f613", "error": null}
+{"t_s": 24.11, "node": 6, "status": 200, "success": true, "txid": "76f6a4dd531fcd20655aed879fc7a0ca9ba5dd76cc286a363772f0fd36006e91", "error": null}
+{"t_s": 28.12, "node": 2, "status": 200, "success": true, "txid": "11e306c829ff935d109afa93506572ca7afff8fc9b44f604f8cc4485f0608ab9", "error": null}
+{"t_s": 28.12, "node": 5, "status": 200, "success": true, "txid": "14e2ed81c35453964b73e14cba57211597ba5fc580d5501c6de39bd3b616c467", "error": null}
+{"t_s": 32.13, "node": 2, "status": 200, "success": true, "txid": "741afe3ef0e95e921e8001732fc79671b4e695526b32fffffb9671add0f73e0a", "error": null}
+{"t_s": 32.14, "node": 1, "status": 200, "success": true, "txid": "19ddfda1c678a5a291f24222132d7587b75fe2e6a524511d5264404927e70419", "error": null}
+{"t_s": 32.14, "node": 3, "status": 200, "success": true, "txid": "46201f22bf3c131c1465821f54d9c99ea71c91fe4d11884ff5ea11abf57ff6d9", "error": null}
+{"t_s": 32.14, "node": 5, "status": 200, "success": true, "txid": "bcf251a1bed8e949b08d1903a5c9b672947f7d60d4a29179b7066ed28ed0c847", "error": null}
+{"t_s": 32.14, "node": 4, "status": 200, "success": true, "txid": "8c6fd8c83821f7d039676ea4959da3bd436b95b5ac9c8cbd1401af574f65b8df", "error": null}
+{"t_s": 48.19, "node": 4, "status": 200, "success": true, "txid": "bd9341e947607e44bbb2a8710a30563e4033d781aeb1ce9246c5d459d026e315", "error": null}
+{"t_s": 48.2, "node": 1, "status": 200, "success": true, "txid": "d8a19a354660db1d87b9952863d6c3aa7d03409c10abef8d32f63125d953ad64", "error": null}
+{"t_s": 56.22, "node": 3, "status": 200, "success": true, "txid": "e474ec1fa650c8ff38685453203482d49a9dd21883f582d045a15bb7f6020fae", "error": null}
+{"t_s": 64.26, "node": 4, "status": 200, "success": true, "txid": "1be8e37d5714f418a35a8670a195f43bab37fa6e22a8e0bfd9dbd5016c82255b", "error": null}
+{"t_s": 64.27, "node": 1, "status": 200, "success": true, "txid": "1f70bd9310726baf5846779d84ffc4591a89e164589cfee1abcf44d24ec5b284", "error": null}
+{"t_s": 72.28, "node": 3, "status": 200, "success": true, "txid": "e45196fb13c3b5deb4ea5f7420d08c796226b098365303560a770114a74d026c", "error": null}
+{"t_s": 76.3, "node": 1, "status": 200, "success": true, "txid": "18342c913586e2af2e73f4226ce143a071daf9fee94d983c5782ffd71bcb07a3", "error": null}
+{"t_s": 76.3, "node": 4, "status": 200, "success": true, "txid": "31b404e984a4334eb624b8b2e37f5b87ae17b02668b27c921ef73dcf4179d851", "error": null}
+{"t_s": 80.31, "node": 4, "status": 200, "success": true, "txid": "95dea02940e378cdc70030a66d653ad604110a5c628d45ea09785f7c73e9ac7b", "error": null}
+{"t_s": 80.32, "node": 1, "status": 200, "success": true, "txid": "619564532161ea7d3e5bccb76bb4ec8080b50fffaa408d91aed462c8e39f0232", "error": null}
+{"t_s": 84.33, "node": 3, "status": 200, "success": true, "txid": "cad25b27fb3e7aad4a1b34734a5c74e1a3760aa29eb690868090f94b60acdaf1", "error": null}
+{"t_s": 96.37, "node": 6, "status": 200, "success": true, "txid": "112e56c96b854184e3aa805e583a34229dca28aac8b9cff6ce74d71d23729e6b", "error": null}
+{"t_s": 100.38, "node": 5, "status": 200, "success": true, "txid": "74dfc83d31679449d05bb21675d6ea8bfe3b3d2872122da94605a406c4b214bb", "error": null}
+{"t_s": 100.38, "node": 2, "status": 200, "success": true, "txid": "917165bbce7703914560eff9979870123c8b8aad952228efae24bcef184048b3", "error": null}
+{"t_s": 104.39, "node": 6, "status": 200, "success": true, "txid": "745642d432bd820d31b55a8694d41d65acaeb7477a420b0123893539dfd8535c", "error": null}
+{"t_s": 108.4, "node": 3, "status": 200, "success": true, "txid": "4a8f9cd1e8025d4a3b10328911632a435dab46db44151aea00144be14fb98fa9", "error": null}
+{"t_s": 112.42, "node": 2, "status": 200, "success": true, "txid": "3201ee422de2d8f2031cb550d4ab2a5634c62a58f679f619880c9207d5381a4f", "error": null}
+{"t_s": 112.42, "node": 5, "status": 200, "success": true, "txid": "b148b401454b4508f19fc474074a9c35fa78b9e7350b32ad465c057dcbc67b43", "error": null}
+{"t_s": 116.43, "node": 6, "status": 200, "success": true, "txid": "8fb54b751f385d1256932b40ab1f2dbba851fa761eeaeb40a72de40ce8ba8f39", "error": null}
+{"t_s": 116.43, "node": 3, "status": 200, "success": true, "txid": "e6958001a1fc32133fce6789a6029cb89ae3dec4f2d946015b84936df53768f1", "error": null}
+{"t_s": 128.5, "node": 2, "status": 200, "success": true, "txid": "26840f0dc31e9c2e5315e53942458969701c672d026abc056b3a5f5a228ce524", "error": null}
+{"t_s": 128.5, "node": 5, "status": 200, "success": true, "txid": "fcfae12cd813f6f67b196d5e5bb50ba816f0abf7bfb511be810f665b2a61d460", "error": null}
+{"t_s": 136.52, "node": 5, "status": 200, "success": true, "txid": "10359ce1eeb247d4ad2f2524d08aabf31b4f19dc8a7157ec3e1ac241c4f1d722", "error": null}
+{"t_s": 140.54, "node": 2, "status": 200, "success": true, "txid": "ec755d9849c4764c4bd0807544245b83f4e47fb08584b152b93d3e97c7804c3d", "error": null}
+{"t_s": 144.55, "node": 6, "status": 200, "success": true, "txid": "adce1f0531de2bcedc22235ae25943bd72257b25eff8c838bb0390d1d8d2c4ee", "error": null}
+{"t_s": 148.57, "node": 3, "status": 200, "success": true, "txid": "f09abbbc9da505c4c000d3d00aa88ac92e2e5ee906a497ac9dde8c933928012d", "error": null}
+{"t_s": 152.59, "node": 2, "status": 200, "success": true, "txid": "f0d14f6164c74c1747a6b1f8a33629951de9c68a303def618fcbf32672805706", "error": null}
+{"t_s": 152.59, "node": 5, "status": 200, "success": true, "txid": "edb6cc1d162088278dfc24ded2057fabbdf4a764cd9a051abf23622502a36b65", "error": null}
+{"t_s": 156.6, "node": 3, "status": 200, "success": true, "txid": "0c48733762d5d71f76370c9e61c656005ebdf2c911de36e7ead6109376483c80", "error": null}
+{"t_s": 156.6, "node": 6, "status": 200, "success": true, "txid": "81d4fb54dbb573cbed6771bbca762a398b04dafd682ba5dcbb28b950e90f8014", "error": null}
+{"t_s": 164.62, "node": 2, "status": 200, "success": true, "txid": "8bfc36353cb8801dde545aaebdd6fdb4876e3dc0d9cd68df1f33156d890e8845", "error": null}
+{"t_s": 164.62, "node": 5, "status": 200, "success": true, "txid": "bc90a598491d6529eee65040434b7fe8756d8b98de871608ae63139432bde642", "error": null}

@@ -651,3 +651,44 @@ fn bits_for_upcount_is_fixed_per_period_and_ignores_later_blocks() {
     assert_eq!(tree.bits_for_upcount(period + 1), p1);
     assert_ne!(tree.bits_for_upcount(2 * period), p1);
 }
+
+#[test]
+fn longest_tree_rule_prefers_more_blocks_then_the_smaller_digest() {
+    assert!(TreeChain::is_better_tree(10, "ff", 9, "00")); // more blocks wins
+    assert!(!TreeChain::is_better_tree(9, "00", 10, "ff"));
+    assert!(TreeChain::is_better_tree(10, "0a", 10, "0b")); // tie: smaller digest wins
+    assert!(!TreeChain::is_better_tree(10, "0b", 10, "0a"));
+    assert!(!TreeChain::is_better_tree(10, "0a", 10, "0a")); // the same tree is never better
+}
+
+#[test]
+fn rebuilding_from_genesis_alone_gives_the_genesis_tree() {
+    let (tree, pqp, _utxo) = TreeChain::rebuild_from_blocks(&[Block::genesis()]).unwrap();
+    assert_eq!(tree.count, 1);
+    assert_eq!(tree.tree_digest(), TreeChain::new().tree_digest());
+    assert_eq!(pqp.pool.len(), 1);
+}
+
+/// Offline `/verify_tree`: rebuild a node's state from its saved `/get_blocks` and `/get_pqp`
+/// dumps and run the same check. Run with
+/// `BLOCKS_DUMP=<blocks json> PQP_DUMP=<pqp json> cargo test verify_saved_tree -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn verify_saved_tree() {
+    let read = |var: &str| -> serde_json::Value {
+        let path = std::env::var(var).unwrap_or_else(|_| panic!("set {}", var));
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    };
+    let mut blocks: Vec<Block> = serde_json::from_value(read("BLOCKS_DUMP")["blocks"].clone()).unwrap();
+    blocks.retain(|b| b.pqp_entry.queue_index != 0);
+    blocks.sort_by_key(|b| b.pqp_entry.queue_index);
+    let mut tree = TreeChain::new();
+    for block in blocks {
+        tree.add_block(block); // placeholders fill the empty slots, as on the node
+    }
+    let mut pqp = PQP::new();
+    pqp.pool = serde_json::from_value(read("PQP_DUMP")["blocks"].clone()).unwrap();
+    let valid = tree.is_valid_tree(&pqp);
+    println!("VERIFY_TREE: {}", if valid { "Tree is valid" } else { "Tree is invalid" });
+    assert!(valid);
+}

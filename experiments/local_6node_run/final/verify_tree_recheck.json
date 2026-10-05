@@ -1,0 +1,13 @@
+{
+  "what": "Offline re-run of /verify_tree (TreeChain::is_valid_tree) on each node's saved final blocks and PQP, with the fixed check: coinbase maturity and timelocks are judged at the slot of the block that contains the transaction, not at the highest slot already in the tree.",
+  "how": "BLOCKS_DUMP=final/blocks_nodeN.json PQP_DUMP=final/pqp_nodeN.json cargo test verify_saved_tree -- --ignored (src/treechain/treechain_test.rs), with MINING_RATE/EXPECTED_TIME set to the run's values (config_used.json)",
+  "date": "2026-10-05 08:04 IST",
+  "nodes": {
+    "1": "Tree is valid",
+    "2": "Tree is valid",
+    "3": "Tree is valid",
+    "4": "Tree is valid",
+    "5": "Tree is valid",
+    "6": "Tree is valid"
+  }
+}

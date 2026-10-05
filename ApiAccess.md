@@ -257,7 +257,7 @@ cargo run --bin ports_server
 
 - **`/wallet`**
 
-  - **Description:** Returns detailed wallet information including balance, UTXOs, and metadata.
+  - **Description:** Returns detailed wallet information including balance, UTXOs, and metadata. `lane` is the lane of every output locked to this wallet's address: `(first 64 bits of SHA-256(P2PKH locking script) % CHILDREN) + 1`.
   - **Response Example:**
     <details>
        <summary>Click to View Response</summary>
@@ -293,6 +293,7 @@ cargo run --bin ports_server
         "balance_satoshis": {
           "total": 33397321681
         },
+        "lane": 3,
         "public_key": "03d696b22e5cb8109c7762fab20ef8dc3841cdddacd842616884d0b19b343a0ade",
         "public_key_hash": "a9243aefc7c9b30e3b75303aae1195bc5b791ef1"
       },

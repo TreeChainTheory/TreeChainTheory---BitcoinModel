@@ -9,5 +9,6 @@
     4.0
   ],
   "HALVING_INTERVAL": 1000,
-  "note": "Test values set in src/config.rs for this run (repository defaults: MINING_RATE = 100000 ms, EXPECTED_TIME = 10000000 ms). Build: debug, with the lock-ordering fixes and the deterministic difficulty rule (TreeChain::bits_for_upcount)."
+  "note": "Test timing values set in src/config.rs for this run (repository defaults: MINING_RATE = 100000 ms, EXPECTED_TIME = 10000000 ms), restored afterwards. Build: debug, current prototype (lock ordering, deterministic difficulty, routing by the hash of the locking script, longest-tree fork choice). The end-of-run /verify_tree call returned 'Tree is invalid' because that check judged coinbase maturity against the highest slot already in the tree; after the fix (2026-10-05) the check passes on every node's saved state, see final/verify_tree_recheck.json.",
+  "routing": "script_hash"
 }

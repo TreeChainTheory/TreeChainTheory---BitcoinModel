@@ -93,6 +93,11 @@ async fn start_mining(
             }
 
             *abort_mining.lock().unwrap() = false;
+            // right after a switch to a better tree, wait until the node has caught up
+            if p2p_server.mining_on_hold() {
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                continue;
+            }
             let parent_pos: String;
             let calc;
             {
@@ -224,6 +229,7 @@ async fn start_mining(
                         let mut txn_pool = txn_pool.lock().await;
 
                         let pqp_entry = TreeChain::parent_queue_entry_from_block(&mined_block);
+                        let pool_before = pqp_guard.pool.clone();
                         pqp_guard.add_entry_to_pqp(pqp_entry.clone(), &tree);
 
                         let exist: bool = pqp_guard
@@ -262,7 +268,8 @@ async fn start_mining(
                                     "Failed to add block {} (duplicate or invalid)",
                                     mined_block.hash
                                 );
-                                pqp_guard.remove_pqp_entry(pqp_entry);
+                                // undo the entry and any parent it retired
+                                pqp_guard.pool = pool_before;
                             }
                         } else {
                             drop(pqp_guard);
@@ -789,6 +796,8 @@ async fn wallet_details(
             "address": address,
             "public_key": pubkey,
             "public_key_hash": pubkey_hash,
+            // lane of every output locked to this wallet's address (routing rule)
+            "lane": TransactionPool::lane_of_script(&Transaction::create_p2pkh_script(pubkey_hash)),
             "balance_satoshis": {
                 "total": total_balance,
 

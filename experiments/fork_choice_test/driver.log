@@ -1,0 +1,31 @@
+[07:59:40] ports server up on :8080
+[07:59:44] all 6 node HTTP servers up
+[07:59:47] connected peers before mining: {1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 5}
+[07:59:47] sender lanes (hash of the locking script): node1->lane2, node2->lane3, node3->lane1, node4->lane2, node5->lane3, node6->lane1
+[07:59:47] start_mining node 1: {'message': 'Mining started', 'status': 'success'}
+[07:59:47] start_mining node 2: {'message': 'Mining started', 'status': 'success'}
+[07:59:47] start_mining node 3: {'message': 'Mining started', 'status': 'success'}
+[07:59:47] start_mining node 4: {'message': 'Mining started', 'status': 'success'}
+[07:59:47] start_mining node 5: {'message': 'Mining started', 'status': 'success'}
+[07:59:47] start_mining node 6: {'message': 'Mining started', 'status': 'success'}
+[07:59:47] t=   0.0s blocks per node=[1, 1, 1, 1, 1, 1] identical_views=True alive=6/6 http_errors=0 bits=1e1fffff
+[08:00:19] t=  32.1s blocks per node=[43, 43, 43, 43, 43, 35] identical_views=False alive=6/6 http_errors=0 bits=1e07ffff
+[08:00:47] t=  60.2s blocks per node=[49, 49, 49, 49, 49, 36] identical_views=False alive=6/6 http_errors=0 bits=1e07ffff
+[08:01:19] t=  92.3s blocks per node=[59, 59, 59, 59, 59, 37] identical_views=False alive=6/6 http_errors=0 bits=1e07ffff
+[08:01:47] t= 120.4s blocks per node=[65, 65, 65, 64, 65, 65] identical_views=False alive=6/6 http_errors=0 bits=1e0387af
+[08:02:19] t= 152.6s blocks per node=[71, 71, 71, 71, 71, 71] identical_views=True alive=6/6 http_errors=0 bits=1e0387af
+[08:02:47] mining window over: 61/71 transaction submissions accepted into mempools
+[08:02:47] stop_mining node 1: {'message': 'Mining stopped', 'status': 'success'}
+[08:02:47] stop_mining node 2: {'message': 'Mining stopped', 'status': 'success'}
+[08:02:47] stop_mining node 3: {'message': 'Mining stopped', 'status': 'success'}
+[08:02:47] stop_mining node 4: {'message': 'Mining stopped', 'status': 'success'}
+[08:02:47] stop_mining node 5: {'message': 'Mining stopped', 'status': 'success'}
+[08:02:47] stop_mining node 6: {'message': 'Mining stopped', 'status': 'success'}
+[08:03:17] t= 210.7s blocks per node=[77, 77, 77, 77, 77, 77] identical_views=True alive=6/6 http_errors=0 bits=1e0387af
+[08:03:17] final state dumped for node 1
+[08:03:17] final state dumped for node 2
+[08:03:17] final state dumped for node 3
+[08:03:17] final state dumped for node 4
+[08:03:17] final state dumped for node 5
+[08:03:17] final state dumped for node 6
+[08:03:19] all node processes stopped

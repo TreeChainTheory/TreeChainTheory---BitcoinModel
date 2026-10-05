@@ -22,11 +22,19 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
+use std::time::Instant;
 use tokio::time::{Duration, timeout};
 
 const DAY_SECS: u64 = 24 * 60 * 60;
 const DAY_MS: u64 = DAY_SECS * 1_000;
 const MESSAGE_TYPE_CONNECTION_INFO: &str = "CONNECTION_INFO";
+// Longest-tree rule: nodes announce the size and digest of their trees, and a node that keeps
+// seeing a better tree fetches it, replays it through all validation rules, and switches to it.
+const MESSAGE_TYPE_TREE_STATUS: &str = "TREE_STATUS";
+const MESSAGE_TYPE_GET_TREE: &str = "GET_TREE";
+const MESSAGE_TYPE_TREE: &str = "TREE";
+const TREE_STATUS_INTERVAL_SECS: u64 = 5; // how often a node announces its tree
+const TREE_SWITCH_GRACE_SECS: u64 = 8; // how long a better tree must persist before switching
 const MESSAGE_TYPE_GETBLOCKS: &str = "GETBLOCKS";
 const MESSAGE_TYPE_INVMESSAGE: &str = "INVMESSAGE";
 const MESSAGE_TYPE_GETDATA: &str = "GETDATA";
@@ -54,6 +62,15 @@ pub struct SyncState {
     pub inv_was_full: bool,
 }
 
+/// Latest tree status a peer announced, with the connection it came on.
+#[derive(Clone)]
+struct PeerTreeStatus {
+    count: u64,
+    digest: String,
+    received_at: Instant,
+    writer: Arc<Mutex<OwnedWriteHalf>>,
+}
+
 pub struct P2PServer {
     pub treechain: Arc<Mutex<TreeChain>>,
     pub pqp: Arc<Mutex<PQP>>,
@@ -71,6 +88,15 @@ pub struct P2PServer {
     pub chain_length: Arc<SyncMutex<u64>>,
     pending_blocks: Arc<Mutex<HashMap<String, Block>>>, // New: Store blocks with missing parents
     recently_processed_blocks: Arc<Mutex<VecDeque<String>>>,
+    peer_tree_status: Arc<Mutex<HashMap<String, PeerTreeStatus>>>,
+    better_tree_since: Arc<Mutex<Option<Instant>>>,
+    tree_switch_in_progress: Arc<Mutex<bool>>,
+    started_at: Instant,
+    mining_hold_until: Arc<SyncMutex<Option<Instant>>>,
+    // Test hook (TEST_ISOLATE="start:duration", seconds after start): drop incoming blocks and tree
+    // messages in that window while still mining, as a node cut off from the network would. Used
+    // only to test that the longest-tree rule repairs a fork; unset in normal runs.
+    test_isolation: Option<(u64, u64)>,
 }
 
 impl P2PServer {
@@ -103,7 +129,206 @@ impl P2PServer {
             pending_blocks: Arc::new(Mutex::new(HashMap::new())),
             // NEW: Initialize recently processed blocks set
             recently_processed_blocks: Arc::new(Mutex::new(VecDeque::new())),
+            peer_tree_status: Arc::new(Mutex::new(HashMap::new())),
+            better_tree_since: Arc::new(Mutex::new(None)),
+            tree_switch_in_progress: Arc::new(Mutex::new(false)),
+            started_at: Instant::now(),
+            mining_hold_until: Arc::new(SyncMutex::new(None)),
+            test_isolation: std::env::var("TEST_ISOLATE").ok().and_then(|v| {
+                let mut parts = v.split(':').map(|x| x.trim().parse::<u64>());
+                match (parts.next(), parts.next()) {
+                    (Some(Ok(start)), Some(Ok(duration))) => Some((start, duration)),
+                    _ => None,
+                }
+            }),
         }
+    }
+
+    /// True for a short while after the node switched trees: the miner waits until the node has
+    /// caught up with the blocks mined during the switch, instead of competing with them.
+    pub fn mining_on_hold(&self) -> bool {
+        match *self.mining_hold_until.lock().unwrap() {
+            Some(until) => Instant::now() < until,
+            None => false,
+        }
+    }
+
+    fn isolated_now(&self) -> bool {
+        match self.test_isolation {
+            Some((start, duration)) => {
+                let t = self.started_at.elapsed().as_secs();
+                t >= start && t < start + duration
+            }
+            None => false,
+        }
+    }
+
+    async fn local_tree_status(&self) -> (u64, String) {
+        let tree = self.treechain.lock().await;
+        let status = (tree.count as u64, tree.tree_digest());
+        drop(tree);
+        status
+    }
+
+    async fn broadcast_tree_status(&self) {
+        let (count, digest) = self.local_tree_status().await;
+        let message = serde_json::json!({
+            "type": MESSAGE_TYPE_TREE_STATUS,
+            "own_addr": self.own_addr,
+            "count": count,
+            "digest": digest,
+        });
+        // copy the writers so the peer map is not held while sending
+        let writers: Vec<Arc<Mutex<OwnedWriteHalf>>> =
+            self.peer_writers.lock().await.values().cloned().collect();
+        for writer in writers {
+            Self::send_message(writer, &message, "TREE_STATUS").await;
+        }
+    }
+
+    /// Fork choice. If some peer has announced a better tree (more blocks, or as many blocks and a
+    /// smaller digest) continuously for TREE_SWITCH_GRACE_SECS, request that peer's whole tree.
+    /// The grace period lets blocks that are still in flight arrive the normal way.
+    async fn check_fork_choice(&self) {
+        if *self.tree_switch_in_progress.lock().await {
+            return;
+        }
+        let (local_count, local_digest) = self.local_tree_status().await;
+        let now = Instant::now();
+        let best = {
+            let statuses = self.peer_tree_status.lock().await;
+            statuses
+                .iter()
+                .filter(|(_, st)| {
+                    now.duration_since(st.received_at)
+                        < Duration::from_secs(3 * TREE_STATUS_INTERVAL_SECS)
+                })
+                .filter(|(_, st)| {
+                    TreeChain::is_better_tree(st.count, &st.digest, local_count, &local_digest)
+                })
+                .max_by(|a, b| {
+                    a.1.count
+                        .cmp(&b.1.count)
+                        .then_with(|| b.1.digest.cmp(&a.1.digest))
+                })
+                .map(|(addr, st)| (addr.clone(), st.clone()))
+        };
+        let mut since = self.better_tree_since.lock().await;
+        match best {
+            None => *since = None,
+            Some((addr, st)) => {
+                let started = *since.get_or_insert(now);
+                if now.duration_since(started) >= Duration::from_secs(TREE_SWITCH_GRACE_SECS) {
+                    *since = None;
+                    drop(since);
+                    println!(
+                        "🌳 Peer {} has a better tree ({} blocks, digest {}) than ours ({} blocks, digest {}); requesting it",
+                        addr, st.count, &st.digest[..12], local_count, &local_digest[..12]
+                    );
+                    let message = serde_json::json!({ "type": MESSAGE_TYPE_GET_TREE });
+                    Self::send_message(st.writer.clone(), &message, "GET_TREE").await;
+                }
+            }
+        }
+    }
+
+    /// Replay a peer's tree from genesis through all validation rules and, if it is valid and
+    /// still better than ours, switch to it: tree, PQP and UTXO set are replaced at once, our
+    /// transactions that the new tree does not contain go back to the mempool if still valid, and
+    /// the miner restarts on the new tree.
+    async fn switch_to_tree(self: Arc<Self>, blocks: Vec<Block>, from: Arc<Mutex<OwnedWriteHalf>>) {
+        {
+            let mut busy = self.tree_switch_in_progress.lock().await;
+            if *busy {
+                return;
+            }
+            *busy = true;
+        }
+        match TreeChain::rebuild_from_blocks(&blocks) {
+            Err(e) => println!("❌ Received tree rejected: {}", e),
+            Ok((new_tree, new_pqp, new_utxo)) => {
+                let new_count = new_tree.count as u64;
+                let new_digest = new_tree.tree_digest();
+                // lock order: tree -> pqp -> utxo_set -> txn_pool
+                let mut tree = self.treechain.lock().await;
+                let old_count = tree.count as u64;
+                let old_digest = tree.tree_digest();
+                if !TreeChain::is_better_tree(new_count, &new_digest, old_count, &old_digest) {
+                    println!(
+                        "Received tree ({} blocks) is not better than ours ({} blocks); keeping ours",
+                        new_count, old_count
+                    );
+                } else {
+                    let mut pqp = self.pqp.lock().await;
+                    let mut utxo_set = self.utxo_set.lock().await;
+                    let mut txn_pool = self.txn_pool.lock().await;
+                    let new_txids: HashSet<String> = new_tree
+                        .blocks
+                        .values()
+                        .flat_map(|b| b.tx.iter().map(|t| t.txid.clone()))
+                        .collect();
+                    let new_txids_blocks: HashSet<String> =
+                        new_tree.blocks.keys().cloned().collect();
+                    // transactions of our blocks that the new tree drops, then our mempool
+                    let mut readd: Vec<Transaction> = tree
+                        .blocks
+                        .values()
+                        .filter(|b| !b.position.is_empty())
+                        .flat_map(|b| b.tx.iter().skip(1).cloned())
+                        .filter(|t| !new_txids.contains(&t.txid))
+                        .collect();
+                    let mut pooled: Vec<_> = txn_pool.pool.values().collect();
+                    pooled.sort_by_key(|e| e.added_time);
+                    readd.extend(
+                        pooled
+                            .into_iter()
+                            .map(|e| e.tx.clone())
+                            .filter(|t| !new_txids.contains(&t.txid)),
+                    );
+                    *tree = new_tree;
+                    *pqp = new_pqp;
+                    *utxo_set = new_utxo;
+                    let mut new_pool = TransactionPool::new();
+                    let mut kept = 0;
+                    for tx in readd {
+                        if new_pool.add_transaction(tx, &utxo_set, &tree).is_ok() {
+                            kept += 1;
+                        }
+                    }
+                    *txn_pool = new_pool;
+                    {
+                        let mut chain_length = self.chain_length.lock().unwrap();
+                        *chain_length = tree.count as u64;
+                    }
+                    drop(txn_pool);
+                    drop(utxo_set);
+                    drop(pqp);
+                    drop(tree);
+                    *self.abort_mining.lock().unwrap() = true; // restart the miner on the new tree
+                    // keep queued blocks that the new tree does not contain yet: many are the
+                    // newest blocks of the branch we just joined, and the monitor retries them
+                    // every second, so we catch up without another full download
+                    self.pending_blocks
+                        .lock()
+                        .await
+                        .retain(|hash, _| !new_txids_blocks.contains(hash));
+                    *self.better_tree_since.lock().await = None;
+                    *self.mining_hold_until.lock().unwrap() =
+                        Some(Instant::now() + Duration::from_secs(3));
+                    // a download that was running for the old tree no longer applies
+                    *self.sync_state.lock().await = None;
+                    *self.ibd_or_online_state.lock().await = false;
+                    self.update_registry_chain_length().await;
+                    println!(
+                        "🔀 Switched to a better tree: {} blocks (ours had {}), {} transactions back in the mempool",
+                        new_count, old_count, kept
+                    );
+                    // fetch the blocks the peer mined while we were replaying its tree
+                    self.send_getblocks(from).await;
+                }
+            }
+        }
+        *self.tree_switch_in_progress.lock().await = false;
     }
 
     pub async fn get_chain_info(&self) -> (u64, Option<u64>) {
@@ -300,7 +525,13 @@ impl P2PServer {
     }
 
     async fn monitor_sync(self: Arc<Self>) {
+        let mut tick: u64 = 0;
         loop {
+            if tick % TREE_STATUS_INTERVAL_SECS == 0 {
+                self.broadcast_tree_status().await;
+            }
+            tick += 1;
+            self.check_fork_choice().await;
             if let Some((best_addr, best_len, _best_ts)) = self.get_current_best_peer().await {
                 let (local_len, _local_ts) = self.get_chain_info().await;
                 if best_len > local_len {
@@ -336,16 +567,53 @@ impl P2PServer {
                 taken
             };
             if !blocks.is_empty() {
+                // retry in slot order, the order in which the window admits blocks
+                let mut blocks = blocks;
+                blocks.sort_by_key(|b| b.pqp_entry.queue_index);
                 let mut requeue: Vec<Block> = Vec::new();
                 let mut treechain = self.treechain.lock().await;
                 let mut pqp = self.pqp.lock().await;
                 let mut utxo_set = self.utxo_set.lock().await;
                 let mut txn_pool = self.txn_pool.lock().await;
                 for block in blocks {
+                    // already in the tree, slot taken by another block, or parent already
+                    // retired: such a block can never be added, so stop retrying it
+                    let in_tree = treechain.get_block(&block.hash).is_some();
+                    let slot_taken = treechain
+                        .blocks
+                        .get_index(block.pqp_entry.queue_index as usize)
+                        .map(|(h, b)| !b.position.is_empty() && *h != block.hash)
+                        .unwrap_or(false);
+                    let parent_retired =
+                        match (treechain.get_block(&block.parent_hash), pqp.current_parent()) {
+                            (Some(parent), Some(current)) => {
+                                parent.pqp_entry.queue_index < current.queue_index
+                            }
+                            _ => false,
+                        };
+                    if in_tree || slot_taken || parent_retired {
+                        println!(
+                            "Dropping pending block {} (in tree: {}, slot taken: {}, parent retired: {})",
+                            block.hash, in_tree, slot_taken, parent_retired
+                        );
+                        continue;
+                    }
                     let pqp_entry = TreeChain::parent_queue_entry_from_block(&block);
+                    let pool_before = pqp.pool.clone();
                     pqp.add_entry_to_pqp(pqp_entry.clone(), &treechain);
-                    if treechain.verify_and_add_block_to_tree(&block, &mut utxo_set, &mut txn_pool)
-                    {
+                    // as on the other paths, a block joins the tree only if the parent queue took it
+                    let accepted = pqp.pool.iter().any(|e| e.block_hash == pqp_entry.block_hash);
+                    if !accepted {
+                        println!(
+                            "❌ Parent queue rejected pending block {}; re-queueing",
+                            block.hash
+                        );
+                        requeue.push(block);
+                    } else if treechain.verify_and_add_block_to_tree(
+                        &block,
+                        &mut utxo_set,
+                        &mut txn_pool,
+                    ) {
                         println!("✅ Added pending block {} from retry", block.hash);
                         {
                             let mut chain_length = self.chain_length.lock().unwrap();
@@ -362,6 +630,8 @@ impl P2PServer {
                         utxo_set = self.utxo_set.lock().await;
                         txn_pool = self.txn_pool.lock().await;
                     } else {
+                        // the block is invalid: undo whatever its entry did to the window
+                        pqp.pool = pool_before;
                         println!("❌ Failed to add pending block {}; re-queueing", block.hash);
                         requeue.push(block);
                     }
@@ -756,7 +1026,81 @@ impl P2PServer {
                             Ok(data) => {
                                 let msg_type =
                                     data.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                if self.isolated_now()
+                                    && matches!(
+                                        msg_type,
+                                        MESSAGE_TYPE_MINEDBLOCK
+                                            | MESSAGE_TYPE_BLOCK
+                                            | MESSAGE_TYPE_INVMESSAGE
+                                            | MESSAGE_TYPE_TREE_STATUS
+                                            | MESSAGE_TYPE_TREE
+                                    )
+                                {
+                                    println!("TEST_ISOLATE: dropping {} from {}", msg_type, peer_addr);
+                                    continue;
+                                }
                                 match msg_type {
+                                    MESSAGE_TYPE_TREE_STATUS => {
+                                        let count =
+                                            data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let digest = data
+                                            .get("digest")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        let addr = data
+                                            .get("own_addr")
+                                            .and_then(|v| v.as_str())
+                                            .map(String::from)
+                                            .unwrap_or_else(|| peer_addr.clone());
+                                        self.peer_tree_status.lock().await.insert(
+                                            addr,
+                                            PeerTreeStatus {
+                                                count,
+                                                digest,
+                                                received_at: Instant::now(),
+                                                writer: writer.clone(),
+                                            },
+                                        );
+                                    }
+                                    MESSAGE_TYPE_GET_TREE => {
+                                        // copy the blocks, then release the tree before sending
+                                        let blocks: Vec<Block> = {
+                                            let tree = self.treechain.lock().await;
+                                            tree.blocks
+                                                .values()
+                                                .filter(|b| !b.position.is_empty())
+                                                .cloned()
+                                                .collect()
+                                        };
+                                        println!(
+                                            "Sending our tree ({} blocks) to {}",
+                                            blocks.len(),
+                                            peer_addr
+                                        );
+                                        let message = serde_json::json!({
+                                            "type": MESSAGE_TYPE_TREE,
+                                            "blocks": blocks,
+                                        });
+                                        Self::send_message(writer.clone(), &message, "TREE").await;
+                                    }
+                                    MESSAGE_TYPE_TREE => {
+                                        let blocks: Vec<Block> = data
+                                            .get("blocks")
+                                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                                            .unwrap_or_default();
+                                        println!(
+                                            "Received a tree of {} blocks from {}",
+                                            blocks.len(),
+                                            peer_addr
+                                        );
+                                        // replaying takes a while: do it off this connection's loop
+                                        let server = self.clone();
+                                        let from = writer.clone();
+                                        tokio::spawn(async move {
+                                            server.switch_to_tree(blocks, from).await;
+                                        });
+                                    }
                                     MESSAGE_TYPE_CONNECTION_INFO => {
                                         let chain_length_remote = data
                                             .get("chain_length")
@@ -983,6 +1327,7 @@ impl P2PServer {
                                             let mut txn_pool = self.txn_pool.lock().await;
                                             let pqp_entry =
                                                 TreeChain::parent_queue_entry_from_block(&block);
+                                            let pool_before = pqp.pool.clone();
                                             pqp.add_entry_to_pqp_while_downloading(
                                                 pqp_entry.clone(),
                                                 &treechain,
@@ -1029,15 +1374,8 @@ impl P2PServer {
                                                         "❌ Failed to add block {} (duplicate or invalid)",
                                                         block.hash
                                                     );
-                                                    if !existing {
-                                                        if pqp.remove_pqp_entry(pqp_entry.clone()) {
-                                                            println!("✅ Removed the pqp entry");
-                                                        } else {
-                                                            println!(
-                                                                "❌ Failed to remove the pqp entry"
-                                                            );
-                                                        }
-                                                    }
+                                                    // undo the entry and any parent it retired
+                                                    pqp.pool = pool_before;
                                                     drop(treechain);
                                                     drop(pqp);
                                                     drop(utxo_set);
@@ -1053,19 +1391,28 @@ impl P2PServer {
                                         }
                                     }
                                     MESSAGE_TYPE_MINEDBLOCK => {
-                                        let sync_state = self.sync_state.lock().await;
-                                        if let Some(st) = &*sync_state {
-                                            if st.pending > 0 || !st.inventories.is_empty() {
+                                        let syncing = {
+                                            let sync_state = self.sync_state.lock().await;
+                                            matches!(&*sync_state, Some(st) if st.pending > 0 || !st.inventories.is_empty())
+                                        };
+                                        if syncing {
+                                            // keep it for after the download instead of dropping it:
+                                            // the monitor retries pending blocks every second
+                                            if let Some(block) = data
+                                                .get("block")
+                                                .and_then(|v| serde_json::from_value::<Block>(v.clone()).ok())
+                                            {
                                                 println!(
-                                                    "Ignoring MINED_BLOCK from {}: still in downloading phase (pending: {}, inventories: {})",
-                                                    peer_addr,
-                                                    st.pending,
-                                                    st.inventories.len()
+                                                    "Queuing MINED_BLOCK {} from {} while downloading",
+                                                    block.hash, peer_addr
                                                 );
-                                                continue;
+                                                self.pending_blocks
+                                                    .lock()
+                                                    .await
+                                                    .insert(block.hash.clone(), block);
                                             }
+                                            continue;
                                         }
-                                        drop(sync_state);
 
                                         let block_hash_opt = data
                                             .get("block")
@@ -1195,6 +1542,7 @@ impl P2PServer {
                                             let mut txn_pool = self.txn_pool.lock().await;
                                             let pqp_entry =
                                                 TreeChain::parent_queue_entry_from_block(&block);
+                                            let pool_before = pqp.pool.clone();
                                             pqp.add_entry_to_pqp(pqp_entry.clone(), &treechain);
                                             let pqp_len = pqp.pool.len();
                                             let exist = pqp
@@ -1286,13 +1634,8 @@ impl P2PServer {
                                                         "❌ Failed to add MINED_BLOCK {} (duplicate or invalid)",
                                                         block.hash
                                                     );
-                                                    if pqp.remove_pqp_entry(pqp_entry.clone()) {
-                                                        println!("✅ Removed the pqp entry");
-                                                    } else {
-                                                        println!(
-                                                            "❌ Failed to remove the pqp entry"
-                                                        );
-                                                    }
+                                                    // undo the entry and any parent it retired
+                                                    pqp.pool = pool_before;
                                                     drop(pqp);
                                                 }
                                             } else {
@@ -1347,37 +1690,25 @@ impl P2PServer {
                                                 {
                                                     if best_len > local_len {
                                                         println!(
-                                                            "MINED_BLOCK queue_index invalid and best peer {} has longer chain ({} vs {}); reinitializing sync",
+                                                            "MINED_BLOCK queue_index invalid and best peer {} has longer chain ({} vs {}); requesting its tree",
                                                             best_addr, best_len, local_len
                                                         );
-                                                        let mut tree = self.treechain.lock().await;
-                                                        let genesis = tree
-                                                            .blocks
-                                                            .get_index(0)
-                                                            .unwrap()
-                                                            .1
-                                                            .clone();
-                                                        let ghash = genesis.hash.clone();
-                                                        tree.blocks.clear();
-                                                        tree.children_map.clear();
-                                                        tree.blocks.insert(ghash.clone(), genesis);
-                                                        tree.children_map.insert(ghash, vec![]);
-                                                        drop(tree);
-                                                        let mut pqp = self.pqp.lock().await;
-                                                        *pqp = PQP::new();
-                                                        drop(pqp);
-                                                        {
-                                                            let mut chain_length =
-                                                                self.chain_length.lock().unwrap();
-                                                            *chain_length = 1;
-                                                            drop(chain_length);
+                                                        // switch through the validated path
+                                                        // (switch_to_tree), never by resetting
+                                                        // the tree in place
+                                                        let best_writer = self
+                                                            .peer_writers
+                                                            .lock()
+                                                            .await
+                                                            .get(&best_addr)
+                                                            .cloned();
+                                                        if let Some(w) = best_writer {
+                                                            let message = serde_json::json!({
+                                                                "type": MESSAGE_TYPE_GET_TREE
+                                                            });
+                                                            Self::send_message(w, &message, "GET_TREE")
+                                                                .await;
                                                         }
-                                                        let mut pending_blocks =
-                                                            self.pending_blocks.lock().await;
-                                                        pending_blocks.clear();
-                                                        drop(pending_blocks);
-                                                        self.update_registry_chain_length().await;
-                                                        self.send_getblocks(writer.clone()).await;
                                                     }
                                                 }
                                             }

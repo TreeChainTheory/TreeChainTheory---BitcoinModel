@@ -39,7 +39,14 @@ async fn main() {
         val
     }
 
-    let wallet = Arc::new(Mutex::new(Wallet::new()));
+    // Optional WALLET_LANE (1..=CHILDREN): pick a key whose address maps to that lane,
+    // as a lane-aware wallet would; otherwise the key is random.
+    let wallet = match env::var("WALLET_LANE").ok().and_then(|v| v.parse::<u8>().ok()) {
+        Some(lane) if lane >= 1 && lane <= CHILDREN => Wallet::new_in_lane(lane),
+        Some(lane) => panic!("Invalid WALLET_LANE value: {} (must be between 1 and {})", lane, CHILDREN),
+        None => Wallet::new(),
+    };
+    let wallet = Arc::new(Mutex::new(wallet));
 
     let http_port = env::var("HTTP_PORT").unwrap_or_else(|_| "3001".into());
     let p2p_port = env::var("P2P_PORT").unwrap_or_else(|_| "5001".into());

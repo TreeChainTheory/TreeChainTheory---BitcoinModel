@@ -2,6 +2,7 @@ use crate::chain_util::ChainUtil;
 use crate::config::SIGHASH_ALL;
 use crate::treechain::treechain::TreeChain;
 use crate::wallet::transaction::Transaction;
+use crate::wallet::transaction_pool::TransactionPool;
 use crate::wallet::utxo::Utxo;
 use crate::wallet::utxo::UtxoSet;
 use k256::EncodedPoint;
@@ -33,6 +34,19 @@ impl Wallet {
             public_key: public_key_hex,
             public_key_hash: public_key_hash,
             address: address,
+        }
+    }
+
+    /// A wallet whose address maps to `lane`: keys are generated until the P2PKH locking script
+    /// of the address falls into that lane (about CHILDREN tries on average). All outputs sent to
+    /// the wallet, including its change, then belong to one lane and can be spent together.
+    pub fn new_in_lane(lane: u8) -> Self {
+        loop {
+            let wallet = Self::new();
+            let script = Transaction::create_p2pkh_script(&wallet.public_key_hash);
+            if TransactionPool::lane_of_script(&script) == lane {
+                return wallet;
+            }
         }
     }
 

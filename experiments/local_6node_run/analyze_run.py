@@ -7,6 +7,7 @@ the given directory and prints a JSON summary used to write results.md.
 import bisect
 import collections
 import gzip
+import hashlib
 import json
 import os
 import re
@@ -22,8 +23,12 @@ def load(name):
         return json.load(fh)
 
 
-def lane_of_pubkey_hex(h):
+def lane_of_pubkey_hex(h):  # routing rule of the prototype before 2026-10-04
     return int(h[-1], 16) % N + 1
+
+
+def lane_of_script(script_hex):  # current rule
+    return int.from_bytes(hashlib.sha256(bytes.fromhex(script_hex)).digest()[:8], "big") % N + 1
 
 
 meta = load("meta.json")
@@ -77,6 +82,9 @@ for node in views:
     except Exception as err:
         verify[node] = {"error": repr(err)}
 out["checks"]["node_self_verification"] = verify
+# result of re-running the tree check offline on the saved state, if that was done
+if os.path.exists(os.path.join(D, "final", "verify_tree_recheck.json")):
+    out["checks"]["verify_tree_offline_recheck"] = load("final/verify_tree_recheck.json")["nodes"]
 
 # ---- sibling groups: filled vs empty slots ------------------------------------
 pqp = load(f"final/pqp_node{min(views)}.json")["blocks"]
@@ -247,12 +255,22 @@ for t in txlog:
 included = {}
 routing_ok = True
 per_lane_tx = collections.Counter()
+script_routing = cfg.get("routing") == "script_hash"
+# outputs of every transaction in the tree, to look up the locking script an input spends
+outputs = {(tx["txid"], i): o["script_pubkey"] for b in ref for tx in b["tx"] for i, o in enumerate(tx["vout"])}
+routing_checked = multi_input_txs = 0
 for b in real:
     for tx in b["tx"][1:]:
         included[tx["txid"]] = (b["timestamp"] - t0_ms) / 1000
         per_lane_tx[b["align"]] += 1
-        ss = tx["vin"][0]["script_sig"]
-        if lane_of_pubkey_hex(ss) != b["align"]:
+        if script_routing:
+            # current rule: lane = first 64 bits of SHA-256(locking script of the spent output) mod N, plus 1
+            lanes = {lane_of_script(outputs[(i["txid"], i["vout"])]) for i in tx["vin"]}
+            multi_input_txs += len(tx["vin"]) > 1
+            routing_checked += 1
+            if lanes != {b["align"]}:
+                routing_ok = False
+        elif lane_of_pubkey_hex(tx["vin"][0]["script_sig"]) != b["align"]:  # earlier rule
             routing_ok = False
 lat = [included[t["txid"]] - t["t_s"] for t in accepted if t["txid"] in included]
 mempool_left = {}
@@ -264,7 +282,10 @@ for node in views:
 out["transactions"] = {"submission_attempts": submitted, "accepted_into_mempool": len(accepted),
                        "rejections": dict(err_kinds), "confirmed_in_blocks": len(included),
                        "confirmed_per_lane": dict(sorted(per_lane_tx.items())),
+                       "routing_rule": "hash of the locking script" if script_routing else "last hex digit of the public key",
                        "every_tx_in_block_of_its_sender_lane": routing_ok,
+                       "routing_checked_transactions": routing_checked if script_routing else len(included),
+                       "multi_input_transactions": multi_input_txs,
                        "confirmation_latency_s": {"median": round(statistics.median(lat), 1) if lat else None,
                                                   "mean": round(statistics.mean(lat), 1) if lat else None,
                                                   "p90": round(sorted(lat)[int(0.9 * len(lat)) - 1], 1) if lat else None},

@@ -1,6 +1,8 @@
 {
-  "started_at": "2026-09-22 13:51:08 IST",
+  "started_at": "2026-10-04 23:57:33 IST",
   "mining_seconds": 1500,
+  "build": "debug",
+  "isolation_test": null,
   "nodes": [
     [
       1,
@@ -42,15 +44,26 @@
   "tx_interval_s": 4.0,
   "tx_fee_sat": 10000,
   "workload": "closed loop, at most one unconfirmed payment per wallet",
+  "wallet_lanes_requested": {
+    "1": 2,
+    "2": 3,
+    "3": 1,
+    "4": 2,
+    "5": 3,
+    "6": 1
+  },
   "code": {
-    "head": "71c3b18",
+    "head": "1b91540",
     "uncommitted_src_changes": [
-      "src/.DS_Store",
       "src/config.rs",
+      "src/main.rs",
       "src/miner/p2p_server.rs",
       "src/miner/routes.rs",
       "src/treechain/treechain.rs",
-      "src/treechain/treechain_test.rs"
+      "src/treechain/treechain_test.rs",
+      "src/wallet/transaction_pool.rs",
+      "src/wallet/transaction_pool_test.rs",
+      "src/wallet/wallet.rs"
     ]
   },
   "peers_before_mining": {
@@ -63,43 +76,44 @@
   },
   "wallets": {
     "1": {
-      "address": "18c14nRSbxo6gNRB6ctVWCJSgyXQb3icqF",
-      "public_key": "03820df785b8dc0d7f7ff87d03a2ce8fa18f8c7d140252d9a6aa2c4c5aa2118c3e",
+      "address": "1P8AzL5q7UqJuGPZx1kWaSWLULkfVkFw87",
+      "public_key": "03dbc759e8221d7ff552fec43580970a12a230566daf4e62c38a5012a3b38a70b9",
       "align": 1,
-      "tx_lane": 3
-    },
-    "2": {
-      "address": "121HiFXvLXc3dV6gMsJYb6Ro5uE9hfSGCS",
-      "public_key": "025de6868434756c717000000cc265c9468dd5779e50c538c67d764460a7187a13",
-      "align": 2,
-      "tx_lane": 1
-    },
-    "3": {
-      "address": "1D7uzgJenSLoV9Njr5iw8DwXn92ep9vwmG",
-      "public_key": "022b1d9789b062146f950017b892d0fcc68472ddc70f17324b20eeca093f76cf3d",
-      "align": 3,
       "tx_lane": 2
     },
-    "4": {
-      "address": "1E39ZbUmVcuc3WgpAZpVLKqDiGd6fmheJc",
-      "public_key": "0210f25e9ce1d860889e6471da11a72ef5b7b732e8fdafa98844212be10f960a96",
-      "align": 1,
+    "2": {
+      "address": "1JYgMvbomP9BYi7fy4Z8PNnKNDtFvf1EkD",
+      "public_key": "038cce7b94f06f82ed89454452005bc54fbcface287411f22fc133efacfc15d15f",
+      "align": 2,
+      "tx_lane": 3
+    },
+    "3": {
+      "address": "14Zs9HDubj7yrXDGhJpC7KqXcfcEr4cGya",
+      "public_key": "0323364451136bf038e376bc7b6a3863fb3d2a0860e6b290baa871c54819970c87",
+      "align": 3,
       "tx_lane": 1
     },
+    "4": {
+      "address": "1LvMkookTyFMnjbFzLNuULTSDKSDSQZnmP",
+      "public_key": "0241e1f72bacc5bd08e1d79795ce7c91a0b5ff748ceb4927c8c1ac9dd3598f76de",
+      "align": 1,
+      "tx_lane": 2
+    },
     "5": {
-      "address": "1GW5pmnRRWVcvJ2wyc1xU57HnukFD7X1zh",
-      "public_key": "038d6bf5dde6041500dac04ccbf2aebf1187a76676a5394ee915655d6c78763692",
+      "address": "1QEDoBMT8QJV4qq9stfHh7mSYVhpmhSkEx",
+      "public_key": "022edaa72e101ab876c5df25df898f989f1701607be682b338cf139f0d1ff201e5",
       "align": 2,
       "tx_lane": 3
     },
     "6": {
-      "address": "17PwgvHPK43681QHtQdDjCNb4VnG1hZHYd",
-      "public_key": "0269c5e07308570f69ed1816975a1a102a07badd81263022c22d4a31c8b9a57798",
+      "address": "1J1fCX3P3ijjupmFX1iZ62NLCEy4AdfoxY",
+      "public_key": "031ecea46d87c4c0a28bcafaa326c7e60adb5d17b03c79b44ccae2219f604ba54e",
       "align": 3,
-      "tx_lane": 3
+      "tx_lane": 1
     }
   },
-  "mining_started_epoch_ms": 1790065275977,
-  "mining_stopped_epoch_ms": 1790066796199,
-  "finished_at": "2026-09-22 14:16:48 IST"
+  "routing_rule": "hash of the locking script",
+  "mining_started_epoch_ms": 1791138460202,
+  "mining_stopped_epoch_ms": 1791139991784,
+  "finished_at": "2026-10-05 00:23:20 IST"
 }

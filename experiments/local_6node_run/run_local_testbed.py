@@ -34,6 +34,9 @@ NODES = [
     (5, 2, 3005, 5005),
     (6, 3, 3006, 5006),
 ]
+# lane-aware wallets: each node's wallet uses an address in this lane (two wallets per lane, and
+# never the node's own mining lane, so every payment is mined by other nodes); None = random key
+WALLET_LANES = {1: 2, 2: 3, 3: 1, 4: 2, 5: 3, 6: 1}
 TX_INTERVAL = 4.0          # seconds between transaction rounds
 SNAPSHOT_INTERVAL = 30.0   # seconds between state snapshots
 TX_FEE = 10_000            # satoshis (well above the 3 sat/vB floor)
@@ -84,7 +87,8 @@ def wait_for_tcp(port, timeout=60):
 
 
 def start_processes():
-    bin_dir = os.path.join(REPO, "target", "debug")
+    # TESTBED_BUILD=release runs the optimized build (much faster hashing); default: debug
+    bin_dir = os.path.join(REPO, "target", os.environ.get("TESTBED_BUILD", "debug"))
     ports_log = open(os.path.join(OUT, "logs", "ports_server.log"), "w")
     procs.append(subprocess.Popen([os.path.join(bin_dir, "ports_server")], cwd=REPO,
                                   stdout=ports_log, stderr=subprocess.STDOUT))
@@ -93,6 +97,13 @@ def start_processes():
     log("ports server up on :8080")
     for node_id, align, http_port, p2p_port in NODES:
         env = dict(os.environ, ALIGN=str(align), HTTP_PORT=str(http_port), P2P_PORT=str(p2p_port))
+        if WALLET_LANES and WALLET_LANES.get(node_id):
+            env["WALLET_LANE"] = str(WALLET_LANES[node_id])
+        # fork test only: TESTBED_ISOLATE="node:start:duration" cuts that node off from incoming
+        # blocks for `duration` seconds, starting `start` seconds after it starts
+        iso = os.environ.get("TESTBED_ISOLATE", "")
+        if iso and iso.split(":")[0] == str(node_id):
+            env["TEST_ISOLATE"] = ":".join(iso.split(":")[1:])
         node_log = open(os.path.join(OUT, "logs", f"node{node_id}.log"), "w")
         procs.append(subprocess.Popen([os.path.join(bin_dir, "TreeChainTheorey")], cwd=REPO,
                                       env=env, stdout=node_log, stderr=subprocess.STDOUT))
@@ -170,8 +181,11 @@ def dump_final():
 
 def main():
     meta = {"started_at": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "mining_seconds": MINING_SECONDS,
+            "build": os.environ.get("TESTBED_BUILD", "debug"),
+            "isolation_test": os.environ.get("TESTBED_ISOLATE") or None,
             "nodes": NODES, "tx_interval_s": TX_INTERVAL, "tx_fee_sat": TX_FEE,
-            "workload": "closed loop, at most one unconfirmed payment per wallet"}
+            "workload": "closed loop, at most one unconfirmed payment per wallet",
+            "wallet_lanes_requested": WALLET_LANES}
     git = lambda *args: subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True).stdout.strip()
     meta["code"] = {"head": git("rev-parse", "--short", "HEAD"),
                     "uncommitted_src_changes": git("diff", "--name-only", "HEAD", "--", "src").split()}
@@ -187,10 +201,15 @@ def main():
     for node_id, align, http_port, _ in NODES:
         info = http_get(http_port, "/wallet")["wallet"]
         pubkey = info["public_key"]
+        # nodes that report their lane use the locking-script rule; older builds routed by the
+        # last hex digit of the public key
+        lane = info.get("lane") or int(pubkey[-1], 16) % 3 + 1
         wallets[node_id] = {"address": info["address"], "public_key": pubkey, "align": align,
-                            "tx_lane": int(pubkey[-1], 16) % 3 + 1}
+                            "tx_lane": lane}
     meta["wallets"] = wallets
-    log("sender lanes (last hex digit of pubkey % 3 + 1): "
+    meta["routing_rule"] = ("hash of the locking script" if "lane" in info
+                            else "last hex digit of the public key")
+    log(f"sender lanes ({meta['routing_rule']}): "
         + ", ".join(f"node{n}->lane{w['tx_lane']}" for n, w in wallets.items()))
 
     for node_id, _, http_port, _ in NODES:
@@ -240,7 +259,7 @@ def main():
             log(f"stop_mining node {node_id}: {http_get(http_port, '/stop_mining')}")
         except Exception as err:
             log(f"stop_mining node {node_id} failed: {err!r}")
-    time.sleep(20)  # let in-flight blocks propagate and pending blocks retry
+    time.sleep(30)  # let in-flight blocks propagate and the fork choice settle (status every 5 s, 8 s grace)
     snapshot(t0, tl_fh)
     meta["mining_stopped_epoch_ms"] = int(time.time() * 1000)
     dump_final()

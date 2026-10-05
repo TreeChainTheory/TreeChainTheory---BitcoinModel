@@ -59,8 +59,8 @@ This introduces **parallelism**, **fairness**, and **decentralization** into the
   → hashed into `pqp_commitment` for verifiable linkage.  
 - **🧾 Miner Verification:**  
   `signature` (ECDSA) validates the miner’s authority; all fields are hex-encoded for transparency.  
-- **📜 Transaction Balancing:**  
-  Miner selects txns where `(last_digit % CHILDREN) + 1 == align` to ensure even load.  
+- **📜 Transaction Routing:**  
+  Every output belongs to lane `(first 64 bits of SHA-256(locking script) % CHILDREN) + 1`. A transaction may only spend outputs of one lane, and only miners with that `align` can include it, so conflicting spends always meet in one lane. Hashing the script spreads owners evenly for any `CHILDREN` (see `experiments/bitcoin_lane_analysis/`).  
 - The **PoW model** does not guarantee exactly `CHILDREN` blocks per parent as we are following the **Parent-Child Completion Constraint** — but future **PoS/PoH** models will.
 
    > **CHILDREN** — a configurable constant defined in `src/config.rs`.  
@@ -102,7 +102,7 @@ This introduces **parallelism**, **fairness**, and **decentralization** into the
   - `SIGHASH_ALL`  
   - `ECDSA` signing (`k256`)
 - **Coinbase Maturity:**  
-  Spendable after 10 confirmations
+  Spendable in a block whose slot is at least 10 above the slot of the coinbase's block
 
 ---
 
@@ -113,7 +113,9 @@ This introduces **parallelism**, **fairness**, and **decentralization** into the
   - `MINED_BLOCK`  
   - `INV_MESSAGE`  
   - `TRANSACTION`  
+  - `TREE_STATUS`, `GET_TREE`, `TREE` (fork choice)  
 - **Synchronization:** IBD (`getblocks` / inventories)  
+- **Fork choice:** longest tree. More blocks wins; with equal counts, the smaller tree digest (SHA-256 over the block hashes in slot order) wins. Every 5 s each node sends its block count and digest (`TREE_STATUS`); a better tree reported for 8 s is fetched (`GET_TREE` / `TREE`), replayed from genesis through full validation, and adopted if valid. Transactions of dropped blocks return to the mempool.  
 - **Topology:**  
   - `parent_hash` + `children_map` define tree topology  
   - Depth tracked as hierarchical “positions” (e.g., `0.1.2`)

@@ -74,13 +74,13 @@ export default function Home() {
 </ul>
 
         <p className="text-white/90 mb-4">
-          For transaction assignment: Miners select txns where the last digit of the txn's vin[0].script_sig satisfies ((last_digit % CHILDREN as u32) + 1) == align as u32, ensuring balanced distribution across branches.
+          For transaction assignment: every output belongs to the lane ((first 64 bits of SHA-256(its locking script)) % CHILDREN) + 1. A transaction may only spend outputs of one lane, and only miners with that align can include it.
         </p>
         <p className='text-white mb-4'>
-         if the txn is multisig , by theorey parent_hash is taken to check the last digit condition (this(parent_hash) can be changed to some value that remains contant for a while and get a chance for some aligned miners to mine these txns)
+          The locking script says who may spend an output, so all coins sent to one address (single key, multisig or timelock script) land in the same lane, and every node knows an output's lane as soon as the output is created.
         </p>
         <p className="text-white mb-4">
-          In our model multisig txns can spend only one utxo at a time , so we choose vin's txid instead of parent_hash
+          A wallet keeps all its coins in one lane by using addresses whose locking scripts map to its lane (on average CHILDREN tries per new key). Wallets in this prototype hold a single key, so all their coins, including change, share one lane.
         </p>
         <p className="text-white/90 mb-4">
           Rollback (for malicious blocks): Prune affected subtrees by removing from the back and re-adding valid parents to the front—<em>TreeChainTheorey - Bitcoin Model does not implement this; reserved for later variants.</em>

@@ -1,0 +1,119 @@
+{
+  "started_at": "2026-10-05 07:59:40 IST",
+  "mining_seconds": 180,
+  "build": "release",
+  "isolation_test": "6:25:60",
+  "nodes": [
+    [
+      1,
+      1,
+      3001,
+      5001
+    ],
+    [
+      2,
+      2,
+      3002,
+      5002
+    ],
+    [
+      3,
+      3,
+      3003,
+      5003
+    ],
+    [
+      4,
+      1,
+      3004,
+      5004
+    ],
+    [
+      5,
+      2,
+      3005,
+      5005
+    ],
+    [
+      6,
+      3,
+      3006,
+      5006
+    ]
+  ],
+  "tx_interval_s": 4.0,
+  "tx_fee_sat": 10000,
+  "workload": "closed loop, at most one unconfirmed payment per wallet",
+  "wallet_lanes_requested": {
+    "1": 2,
+    "2": 3,
+    "3": 1,
+    "4": 2,
+    "5": 3,
+    "6": 1
+  },
+  "code": {
+    "head": "1b91540",
+    "uncommitted_src_changes": [
+      "src/config.rs",
+      "src/main.rs",
+      "src/miner/p2p_server.rs",
+      "src/miner/routes.rs",
+      "src/treechain/treechain.rs",
+      "src/treechain/treechain_test.rs",
+      "src/wallet/transaction_pool.rs",
+      "src/wallet/transaction_pool_test.rs",
+      "src/wallet/wallet.rs"
+    ]
+  },
+  "peers_before_mining": {
+    "1": 5,
+    "2": 5,
+    "3": 5,
+    "4": 5,
+    "5": 5,
+    "6": 5
+  },
+  "wallets": {
+    "1": {
+      "address": "1CJ75t3RGbZyZCUJbea9q7YFUDRMRJW7Rm",
+      "public_key": "0233558333c55159bad3fc86bd0acef169121721eb98ae4edf7286cb287b595e95",
+      "align": 1,
+      "tx_lane": 2
+    },
+    "2": {
+      "address": "15dNh8iFN6Do7fDr8GNbQCf4a5d4gmdVec",
+      "public_key": "02a55601d1191608988b0764b9dd005f0a91f62a7c7b4340297386e2baec9c7279",
+      "align": 2,
+      "tx_lane": 3
+    },
+    "3": {
+      "address": "1Jftm8h52fSZv2eDFUTAt8qSfobyvEEJqC",
+      "public_key": "025fab79185757ea306c77ec5f7800002239d2822b73786b46730ad9c518f099ad",
+      "align": 3,
+      "tx_lane": 1
+    },
+    "4": {
+      "address": "15Zrme2HX1XrkyPV5SQu5LpP68FfGHH7Mu",
+      "public_key": "03dc62ac5f44b0f12e67787b5e062f742cf6a36c3b068bebcc67dff86192d06eaa",
+      "align": 1,
+      "tx_lane": 2
+    },
+    "5": {
+      "address": "1LiYpZthaLKBwA4V5HNPAqVQ9uHG76ZFVj",
+      "public_key": "02f17fd578d2de99409e517691d5cc3acd6ba62feb89fac317466e4aa5682c4a95",
+      "align": 2,
+      "tx_lane": 3
+    },
+    "6": {
+      "address": "17XfMy1rhHd89DfnZPuMhMk8TM8mxSXms5",
+      "public_key": "02f0493ac1d357432594421ccb7946b0cf6f2f98ae121f2e5ca855e0848c786aa0",
+      "align": 3,
+      "tx_lane": 1
+    }
+  },
+  "routing_rule": "hash of the locking script",
+  "mining_started_epoch_ms": 1791167387075,
+  "mining_stopped_epoch_ms": 1791167597769,
+  "finished_at": "2026-10-05 08:03:17 IST"
+}
